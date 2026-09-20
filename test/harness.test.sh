@@ -35,8 +35,8 @@ harness install >/dev/null
 harness status >/dev/null
 check "status passes after install" 0 $?
 
-check "command is linked" "$ROOT/bin/harness" "$(readlink "$TMP/bin/harness")"
-CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" "$TMP/bin/harness" status >/dev/null 2>&1
+check "command is linked" "$ROOT/bin/harness" "$(readlink "$TMP/bin/codingenv")"
+CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" "$TMP/bin/codingenv" status >/dev/null 2>&1
 check "linked command finds the repo" 0 $?
 check "skills are symlinked" "$ROOT/skills/dispatch" "$(readlink "$FAKE/skills/dispatch")"
 check "other skills are untouched" yes "$([ -d "$FAKE/skills/mine" ] && echo yes)"
@@ -60,7 +60,7 @@ harness install >/dev/null
 check "install repairs it" 0 "$(grep -c 'edited by hand' "$FAKE/CLAUDE.md")"
 
 harness uninstall >/dev/null
-check "uninstall removes the command link" no "$([ -e "$TMP/bin/harness" ] && echo yes || echo no)"
+check "uninstall removes the command link" no "$([ -e "$TMP/bin/codingenv" ] && echo yes || echo no)"
 check "uninstall removes skill links" no "$([ -e "$FAKE/skills/dispatch" ] && echo yes || echo no)"
 check "uninstall removes hook links" no "$([ -e "$FAKE/hooks/harness-session-start.sh" ] && echo yes || echo no)"
 check "uninstall keeps existing hooks" existing "$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$FAKE/settings.json")"
@@ -78,11 +78,11 @@ check "install works on an empty directory" 0 $?
 
 # An unrelated file already named harness must not be overwritten.
 FAKE="$TMP/blocked"
-rm -f "$TMP/bin/harness"
-echo mine >"$TMP/bin/harness"
+rm -f "$TMP/bin/codingenv"
+echo mine >"$TMP/bin/codingenv"
 harness install >/dev/null 2>&1
 check "install refuses to clobber a regular file" 1 $?
-check "the regular file is untouched" mine "$(cat "$TMP/bin/harness")"
+check "the regular file is untouched" mine "$(cat "$TMP/bin/codingenv")"
 check "nothing else was installed" no "$([ -e "$FAKE/skills" ] && echo yes || echo no)"
 
 harness bogus >/dev/null 2>&1

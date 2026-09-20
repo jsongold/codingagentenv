@@ -12,10 +12,10 @@ bin/harness status      # 展開漏れ・drift の検出（読み取りのみ。
 bin/harness uninstall   # install が入れたものだけを取り除く
 ```
 
-初回だけ `bin/harness install` と打つ。以降は install が `~/.local/bin/harness` へ symlink を張るので、どこからでも `harness install|status|uninstall` で呼べる。`~/.local/bin` が PATH に無ければ install が警告する。同名の通常ファイルがあれば上書きせず失敗する。
+初回だけ `bin/harness install` と打つ。以降は install が `~/.local/bin/codingenv` へ symlink を張るので、どこからでも `codingenv install|status|uninstall` で呼べる。`~/.local/bin` が PATH に無ければ install が警告する。同名の通常ファイルがあれば上書きせず失敗する。
 
 install が行うこと：
-- `bin/harness` を `~/.local/bin/harness`（`BIN_DIR` で変更可）へ symlink する
+- `bin/harness` を `~/.local/bin/codingenv`（`BIN_DIR` で変更可）へ symlink する
 - `skills/*` と `hooks/harness-*.sh` を `~/.claude/skills/`、`~/.claude/hooks/` へ symlink する
 - `~/.claude/settings.json` に `env.CLAUDE_CODE_ENABLE_TODO_TOOLS=1` と hook 2つ（ADR-0004）を追記する
   - SessionStart：PROGRESS.md と ADR 一覧を文脈に入れる。PROGRESS.md が無い project では何もしない

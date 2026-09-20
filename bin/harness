@@ -4,14 +4,14 @@
 #
 #   bin/harness install     symlink skills and hooks, register hooks and env,
 #                           sync the harness section of ~/.claude/CLAUDE.md,
-#                           link this command into ~/.local/bin as `harness`
+#                           link this command into ~/.local/bin as `codingenv`
 #   bin/harness uninstall   remove everything install added
 #   bin/harness status      report drift; exit 1 if anything is missing
 #
 # CLAUDE_DIR and BIN_DIR override the target directories (used by the tests).
 set -eu
 
-# Resolve symlinks so the script finds the repo when run as `harness` via PATH.
+# Resolve symlinks so the script finds the repo when run as `codingenv` via PATH.
 SELF=$0
 while [ -L "$SELF" ]; do
   dir=$(cd "$(dirname "$SELF")" && pwd)
@@ -21,6 +21,7 @@ done
 ROOT=$(cd "$(dirname "$SELF")/.." && pwd)
 CLAUDE_DIR=${CLAUDE_DIR:-$HOME/.claude}
 BIN_DIR=${BIN_DIR:-$HOME/.local/bin}
+CMD=codingenv # name of the command install links into BIN_DIR
 SETTINGS="$CLAUDE_DIR/settings.json"
 MEMORY="$CLAUDE_DIR/CLAUDE.md"
 SECTION="$ROOT/global/CLAUDE.harness.md"
@@ -60,13 +61,13 @@ strip_section() {
 install() {
   command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
   # Refuse to overwrite an unrelated file that already owns the command name.
-  if [ -e "$BIN_DIR/harness" ] && [ ! -L "$BIN_DIR/harness" ]; then
-    echo "$BIN_DIR/harness exists and is not a symlink; move it away first" >&2
+  if [ -e "$BIN_DIR/$CMD" ] && [ ! -L "$BIN_DIR/$CMD" ]; then
+    echo "$BIN_DIR/$CMD exists and is not a symlink; move it away first" >&2
     exit 1
   fi
   mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/hooks" "$BIN_DIR"
 
-  ln -sfn "$ROOT/bin/harness" "$BIN_DIR/harness"
+  ln -sfn "$ROOT/bin/harness" "$BIN_DIR/$CMD"
   for name in $SKILLS; do
     ln -sfn "$ROOT/skills/$name" "$CLAUDE_DIR/skills/$name"
   done
@@ -91,12 +92,12 @@ install() {
   { strip_section; echo "$BEGIN"; cat "$SECTION"; echo "$END"; } >"$MEMORY.tmp"
   mv "$MEMORY.tmp" "$MEMORY"
 
-  echo "installed into $CLAUDE_DIR and linked $BIN_DIR/harness. Restart Claude Code to pick up the hooks."
+  echo "installed into $CLAUDE_DIR and linked $BIN_DIR/$CMD. Restart Claude Code to pick up the hooks."
   case ":$PATH:" in *":$BIN_DIR:"*) ;; *) echo "note: $BIN_DIR is not on PATH" >&2 ;; esac
 }
 
 uninstall() {
-  [ "$(readlink "$BIN_DIR/harness" 2>/dev/null)" = "$ROOT/bin/harness" ] && rm "$BIN_DIR/harness"
+  [ "$(readlink "$BIN_DIR/$CMD" 2>/dev/null)" = "$ROOT/bin/harness" ] && rm "$BIN_DIR/$CMD"
   for name in $SKILLS; do
     [ "$(readlink "$CLAUDE_DIR/skills/$name" 2>/dev/null)" = "$ROOT/skills/$name" ] && rm "$CLAUDE_DIR/skills/$name"
   done
@@ -132,7 +133,7 @@ status() {
   }
   same() { [ "$1" = "$2" ] && echo yes || echo no; }
 
-  report "command harness" "$(same "$(readlink "$BIN_DIR/harness" 2>/dev/null)" "$ROOT/bin/harness")"
+  report "command $CMD" "$(same "$(readlink "$BIN_DIR/$CMD" 2>/dev/null)" "$ROOT/bin/harness")"
   for name in $SKILLS; do
     report "skill $name" "$(same "$(readlink "$CLAUDE_DIR/skills/$name" 2>/dev/null)" "$ROOT/skills/$name")"
   done
