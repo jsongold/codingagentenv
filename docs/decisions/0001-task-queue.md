@@ -1,7 +1,7 @@
 # ADR-0001: TaskQueue は JSONL + node 製 CLI (`bin/tq`)
 
 - 日付：2026-09-20
-- 状態：採用
+- 状態：置き換え（→ ADR-0002）。「TaskQueue」は Claude Code 内蔵の Task list のことで、自作は誤解だった。`bin/tq` は削除済み
 
 ## 文脈
 全タスクを TaskQueue 経由で Subagent に実行させる。Subagent は並列に動くため、claim の二重取りと書き込み競合を防ぐ必要がある。ハーネスは最小限・依存ゼロに保ちたい。macOS には `flock` が無い。

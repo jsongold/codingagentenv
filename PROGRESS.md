@@ -2,28 +2,29 @@
 
 <!-- /clear の前に handoff スキルで更新する。30行以内。古い内容は消して上書き。 -->
 
-- 最終更新：2026-09-20
+- 最終更新：2026-09-20 11:00
 
 ## 目的（なぜやるか）
-全タスクを TaskQueue 経由で Subagent に実行させる、依存ゼロの最小ハーネスを作る。
+全タスクを Claude Code 内蔵の Task list 経由で Subagent に実行させるハーネスを強化する。
 
 ## 完了条件（Done when）
-- [x] `node --test test/tq.test.js` が通る（9/9）
-- [ ] 未定：ハーネス全体の完了条件をユーザーと合意する
+- [x] Task tools が有効で、Task list が `~/.claude/tasks/codingagentenv/` に保存される
+- [ ] 新セッションで `/pickup` → `/dispatch` が3タスクを Subagent で完遂し、/clear 後も Task list が残る（Task #2）。以降の条件は未定
 
 ## 決定事項（理由つき）
-- キューは JSONL + `bin/tq`、排他は mkdir、書き込みは tmp+rename — 依存ゼロで並列安全（docs/decisions/0001-task-queue.md）
+- task queue = 内蔵 Task list。main が dispatcher — background Subagent は Task tools を持たないため（ADR-0002）
+- skill は project 側 `.claude/skills/` に置く — Context Kit のファイル構成が前提のため（ユーザー決定）
+- 復帰 skill の名前は `/pickup` — built-in `/resume` と衝突するため
 
 ## 却下した案（再提案しないこと）
-- TASKS.md チェックボックス / ディレクトリ状態機械 / SQLite / tasks.jsonl の git 管理 — 理由は ADR-0001
+- `bin/tq` などキューの自作 / agent teams / Subagent に Task 更新させる — 理由は ADR-0002
 
 ## 現在の状態
-- 済：`bin/tq`、テスト、ADR-0001、CLAUDE.md のコマンド・規約欄
-- 途中：なし
-- 未着手：CLAUDE.md 業務コンテキスト欄、docs/context/*.md、Subagent から tq を呼ぶ運用手順、remote / PR
+- 済：`bin/tq` 削除、ADR-0002、settings.json、skill 3本（dispatch / handoff / pickup）、CLAUDE.md・README 更新
+- 未着手：Task #2（dispatch の実地検証）、CLAUDE.md 業務コンテキスト欄、docs/context/*.md、remote / PR
 
 ## 次の一手（最初にやること）
-1. 完了条件と業務コンテキストをユーザーに確認して CLAUDE.md を埋める
+1. 新セッションで `/pickup`、続けて `/dispatch` で Task #2 を実行する
 
 ## 注意・未解決の質問
-- README が案内する `.claude/skills/{handoff,resume}` が存在しない。feat/task-queue は未マージ、remote 未設定
+- `/clear` 後に Task list が残るかは docs に記載なし。Task #2 で確認する

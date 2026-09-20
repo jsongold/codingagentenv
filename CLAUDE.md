@@ -13,24 +13,24 @@
 - 詳細 → docs/context/business.md（業務フロー）、docs/context/glossary.md（用語）
 
 ## 作業の始め方（/clear後も必ず）
-1. PROGRESS.md を読む（進行中タスクの状態）
+`/pickup` が以下を実行する。
+1. PROGRESS.md を読む（進行中タスクの状態）。`TaskList` で残タスクを確認する
 2. 関係する docs/decisions/ を確認する（却下済みの案を再提案しない）
 3. 着手前に「目的・完了条件・次の一手」を3行で復唱し、ずれがあれば質問する
 
 ## コマンド
-- テスト：`node --test test/tq.test.js`（`node --test test/` は Node v26 で失敗する。ファイルを指定すること）
-- lint / 型チェック：なし（未導入）
-- キュー操作：`bin/tq <enqueue|claim|done|fail|requeue|show|list>`
-  - `bin/tq enqueue <title> [--agent <type>] [--body <text>]`
-  - `bin/tq claim [--id <id>]`（キューが空なら exit 2）
-  - `bin/tq done|fail|requeue <id> [--note <text>]`
-  - `bin/tq list [--state queued|running|done|failed]`
+- テスト / lint / 起動：なし（このリポジトリはハーネス。実行コードを持たない）
+- `/dispatch <やりたいこと>`：Task list に分解して Subagent に実行させる
+- `/handoff`：/clear 前に PROGRESS.md を書き出してコミット
+- `/pickup`：/clear 後に文脈を復元して復唱（built-in の `/resume` とは別物）
+- タスク一覧：`Ctrl+T`。実体は `~/.claude/tasks/codingagentenv/`
 
 ## 規約・注意点（デフォルトと違うものだけ）
-- 全タスクは TaskQueue（`bin/tq`）経由で Subagent に実行させる（ADR-0001）
-- `bin/tq` は node 標準ライブラリのみ。依存を追加しない
-- `queue/tasks.jsonl` は実行時状態。git 管理しない・手で編集しない
-- `lock timeout` が出たら、tq プロセスが動いていないことを確認してから `queue/tasks.jsonl.lock` を削除する
+- 全タスクは Claude Code 内蔵の Task list（`TaskCreate` 系）経由で Subagent に実行させる（ADR-0002）。main セッションは dispatcher で、自分では実装しない
+- 「task queue」= 内蔵 Task list。キューを自作しない（ADR-0001 はその誤解で置き換え済み）
+- Task tools が見えないときは `.claude/settings.json` の `env` を確認する。代替手段を作らない
+- Subagent の報告は main が完了条件のコマンドで検証してから completed にする。1タスク = 1コミット
+- `~/.claude/tasks/` 配下を手で編集しない
 
 ## コンテキスト圧縮時の指示
 - 圧縮（compact）時は、変更したファイル一覧、テストコマンド、PROGRESS.md の「決定事項」を必ず残すこと。
