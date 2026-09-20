@@ -6,6 +6,8 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TMP=$(mktemp -d)
 trap 'rm -r "$TMP"' EXIT
 FAILED=0
+mkdir -p "$TMP/bin"
+PATH="$TMP/bin:$PATH" # install warns when BIN_DIR is not on PATH
 
 check() { # name, expected, actual
   if [ "$2" = "$3" ]; then
@@ -16,7 +18,7 @@ check() { # name, expected, actual
   fi
 }
 
-harness() { CLAUDE_DIR="$FAKE" bash "$ROOT/bin/harness" "$@"; }
+harness() { CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" bash "$ROOT/bin/harness" "$@"; }
 
 # A machine that already has its own settings, hooks and CLAUDE.md, including a
 # harness section written by hand before markers existed.
@@ -33,6 +35,9 @@ harness install >/dev/null
 harness status >/dev/null
 check "status passes after install" 0 $?
 
+check "command is linked" "$ROOT/bin/harness" "$(readlink "$TMP/bin/harness")"
+CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" "$TMP/bin/harness" status >/dev/null 2>&1
+check "linked command finds the repo" 0 $?
 check "skills are symlinked" "$ROOT/skills/dispatch" "$(readlink "$FAKE/skills/dispatch")"
 check "other skills are untouched" yes "$([ -d "$FAKE/skills/mine" ] && echo yes)"
 check "hook scripts are symlinked" "$ROOT/hooks/harness-task-completed.sh" "$(readlink "$FAKE/hooks/harness-task-completed.sh")"
@@ -55,6 +60,7 @@ harness install >/dev/null
 check "install repairs it" 0 "$(grep -c 'edited by hand' "$FAKE/CLAUDE.md")"
 
 harness uninstall >/dev/null
+check "uninstall removes the command link" no "$([ -e "$TMP/bin/harness" ] && echo yes || echo no)"
 check "uninstall removes skill links" no "$([ -e "$FAKE/skills/dispatch" ] && echo yes || echo no)"
 check "uninstall removes hook links" no "$([ -e "$FAKE/hooks/harness-session-start.sh" ] && echo yes || echo no)"
 check "uninstall keeps existing hooks" existing "$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$FAKE/settings.json")"
@@ -69,6 +75,15 @@ FAKE="$TMP/fresh"
 harness install >/dev/null
 harness status >/dev/null
 check "install works on an empty directory" 0 $?
+
+# An unrelated file already named harness must not be overwritten.
+FAKE="$TMP/blocked"
+rm -f "$TMP/bin/harness"
+echo mine >"$TMP/bin/harness"
+harness install >/dev/null 2>&1
+check "install refuses to clobber a regular file" 1 $?
+check "the regular file is untouched" mine "$(cat "$TMP/bin/harness")"
+check "nothing else was installed" no "$([ -e "$FAKE/skills" ] && echo yes || echo no)"
 
 harness bogus >/dev/null 2>&1
 check "unknown subcommand fails" 1 $?

@@ -13,6 +13,7 @@ Claude が `~/.claude/settings.json` を書き換えようとすると、auto mo
 - global への展開は `bin/harness install` の1コマンドで、ユーザーが実行する。`uninstall` と `status`（drift 検出、読み取りのみ）も持つ。
 - 正本はすべて repo に置く：`skills/`、`hooks/`、`global/CLAUDE.harness.md`（`~/.claude/CLAUDE.md` のハーネス節）。
 - install は冪等。symlink、`settings.json` への追記（既存の hook・env・他のキーは変更しない）、CLAUDE.md のマーカー区間の置き換えを行い、毎回バックアップを取る。マーカー導入前に手で書いた節も置き換える。
+- `bin/harness` 自身も install が `~/.local/bin/harness` へ symlink し、どこからでも呼べるようにする（2026-09-20 追記、ユーザー依頼）。同名の通常ファイルは上書きせず失敗する。`~/.claude/` の外なので本 ADR の編集禁止の対象ではない
 - テストは `bash test/harness.test.sh`。`CLAUDE_DIR` で一時ディレクトリに向けて実行し、実際の `~/.claude/` には触らない。
 
 ## 検討して却下した案
