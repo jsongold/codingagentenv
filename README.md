@@ -12,6 +12,12 @@
    ```
 2. `~/.claude/settings.json` の `env` に `"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"` を追加する。
 3. `~/.claude/CLAUDE.md` に「ハーネス（全プロジェクト共通）」セクションを追加する。内容は ADR-0003 の「決定」、または既存マシンの `~/.claude/CLAUDE.md` から写す。
+4. hook を登録する（ADR-0004）。`jq` が必要。冪等で、`~/.claude/settings.json` のバックアップを取り、既存 hook は変更しない。
+   ```sh
+   bash hooks/install.sh
+   ```
+   - SessionStart：PROGRESS.md と ADR 一覧を文脈に入れる。PROGRESS.md が無い project では何もしない。
+   - TaskCompleted：description に `VERIFIED: <コマンド> -> <結果>` の行が無い task の completed を拒否する。`CLAUDE_CODE_TASK_LIST_ID` がある project だけ。
 
 注意：この repo を移動・削除すると symlink が切れ、全 project で skill が使えなくなる。`skills/` 配下の編集は全 project に即座に効く。
 
@@ -34,6 +40,10 @@
 | skills/dispatch/SKILL.md | Task list に分解して Subagent に実行させる手順 | `/dispatch` で呼ぶ | 固定 |
 | skills/handoff/SKILL.md | /clear前にPROGRESS.mdを書き出す手順 | `/handoff` で呼ぶ | 固定 |
 | skills/pickup/SKILL.md | /clear後に読み直して理解を復唱する手順 | `/pickup` で呼ぶ | 固定 |
+| hooks/harness-session-start.sh | PROGRESS.md を文脈に入れる | SessionStart hook | 固定 |
+| hooks/harness-task-completed.sh | 未検証の completed を拒否する | TaskCompleted hook | 固定 |
+| hooks/install.sh | hook を global に登録する | 手で1回実行 | 固定 |
+| test/hooks.test.sh | hook と install のテスト | `bash test/hooks.test.sh` | 固定 |
 
 `/resume` は Claude Code の built-in コマンド（セッション履歴の再開）なので、スキル名には使わない。
 

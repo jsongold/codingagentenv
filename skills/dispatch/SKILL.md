@@ -23,7 +23,8 @@ main セッションは dispatcher。自分では実装しない。理由：back
    - 同じファイルを触るタスクは並列にしない。独立したタスクだけ1メッセージで同時起動する。
    - 機械的な転記・整形は haiku、判断が要るものは既定モデル。
 4. Subagent の報告を鵜呑みにしない。完了条件のコマンドを main で実行して確認する。
-   - 通った：コミット → `TaskUpdate` で completed。
+   - 通った：コミット → `TaskUpdate` で description の末尾に `VERIFIED: <実行したコマンド> -> <結果>` を1行追記 → 別の `TaskUpdate` で completed。
+     コマンドで確認できないタスクは `VERIFIED: manual -> <何をどう確認したか>`。この行が無いと TaskCompleted hook が completed を拒否する（ADR-0004）。
    - 通らない：同じ Subagent に差し戻すか、原因をタスクの説明に追記して pending に戻す。Task list に failed 状態は無いので、失敗理由は説明欄に残す。
 5. pending が無くなるまで 3〜4 を繰り返す。区切りで `/handoff`。
 
