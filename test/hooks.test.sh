@@ -65,4 +65,77 @@ ERR=$(printf '{"task_subject":"Add foo"}' | CLAUDE_CODE_TASK_LIST_ID=test bash "
 check "feedback names the task" 1 "$(printf '%s' "$ERR" | grep -c 'Add foo')"
 check "feedback explains the format" 1 "$(printf '%s' "$ERR" | grep -c '^形式: VERIFIED:')"
 
+# --- TaskCompleted: token usage logging ---
+# Fixture transcript matching the real shape confirmed in
+# docs/context/token-saving-spec.md #4: JSONL lines with
+# .message.model / .message.usage, mixed with unrelated line types.
+# The "claude-opus-5" lines model the real-world shape found in a real
+# transcript: one assistant turn split across several content-block
+# lines that all share .message.id and repeat/refine the same usage
+# figures (streaming intermediate values, then a final one) — these
+# must fold to a single record keyed by id, keeping the LAST line's
+# usage, not the sum of all three. The sonnet/fable lines have no
+# .message.id at all (older/plain shape) and must each still count
+# as their own record.
+mkdir -p "$TMP/proj/.claude" "$TMP/proj/tr/main/subagents"
+cat >"$TMP/proj/tr/main.jsonl" <<'JSONL'
+{"type":"assistant","message":{"model":"claude-sonnet-5","usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":5,"cache_creation_input_tokens":0}}}
+{"type":"assistant","message":{"model":"claude-sonnet-5","usage":{"input_tokens":50,"output_tokens":10,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+{"type":"assistant","message":{"model":"claude-fable-5-1","usage":{"input_tokens":30,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":2}}}
+{"type":"assistant","message":{"id":"msg-opus-1","model":"claude-opus-5","usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+{"type":"assistant","message":{"id":"msg-opus-1","model":"claude-opus-5","usage":{"input_tokens":40,"output_tokens":9,"cache_read_input_tokens":1,"cache_creation_input_tokens":0}}}
+{"type":"assistant","message":{"id":"msg-opus-1","model":"claude-opus-5","usage":{"input_tokens":60,"output_tokens":12,"cache_read_input_tokens":3,"cache_creation_input_tokens":1}}}
+{"type":"user","message":{"role":"user"}}
+JSONL
+cat >"$TMP/proj/tr/main/subagents/agent-1.jsonl" <<'JSONL'
+{"type":"assistant","message":{"model":"claude-haiku-4","usage":{"input_tokens":8,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+JSONL
+
+tc_log() { # cwd, transcript_path, description
+  jq -nc --arg cwd "$1" --arg tp "$2" --arg desc "$3" \
+    '{cwd:$cwd, transcript_path:$tp, session_id:"s1", task_id:"tk1", task_subject:"Add foo", task_description:$desc}' \
+    | CLAUDE_CODE_TASK_LIST_ID=test bash "$TC" >/dev/null 2>&1
+  echo $?
+}
+LOGFILE="$TMP/proj/.claude/token-usage.jsonl"
+
+# (a) opt-in file present + a real transcript with a main and a subagents
+# bucket: one line is appended with the expected per-model sums.
+: >"$LOGFILE"
+check "logging: allowed completion exits 0" 0 "$(tc_log "$TMP/proj" "$TMP/proj/tr/main.jsonl" 'ok
+VERIFIED: manual -> checked')"
+check "logging: one line appended" 1 "$(wc -l <"$LOGFILE" | tr -d ' ')"
+LINE=$(cat "$LOGFILE")
+check "logging: main sonnet input sum (no message.id, each line counts)" 150 "$(printf '%s' "$LINE" | jq '.main["claude-sonnet-5"].input')"
+check "logging: main sonnet message count (no message.id)" 2 "$(printf '%s' "$LINE" | jq '.main["claude-sonnet-5"].messages')"
+check "logging: main fable message count (single no-id line)" 1 "$(printf '%s' "$LINE" | jq '.main["claude-fable-5-1"].messages')"
+check "logging: main fable cache_creation" 2 "$(printf '%s' "$LINE" | jq '.main["claude-fable-5-1"].cache_creation')"
+check "logging: main opus dedup by message.id keeps last line's input" 60 "$(printf '%s' "$LINE" | jq '.main["claude-opus-5"].input')"
+check "logging: main opus dedup by message.id keeps last line's cache_read" 3 "$(printf '%s' "$LINE" | jq '.main["claude-opus-5"].cache_read')"
+check "logging: main opus dedup by message.id, not summed across lines" 1 "$(printf '%s' "$LINE" | jq '.main["claude-opus-5"].messages')"
+check "logging: subagents haiku output" 1 "$(printf '%s' "$LINE" | jq '.subagents["claude-haiku-4"].output')"
+check "logging: task_id recorded" '"tk1"' "$(printf '%s' "$LINE" | jq '.task_id')"
+
+# (b) no opt-in file in the project: nothing is created.
+mkdir -p "$TMP/proj_noopt/.claude"
+check "logging: no opt-in file stays silent" 0 "$(tc_log "$TMP/proj_noopt" "$TMP/proj/tr/main.jsonl" 'ok
+VERIFIED: manual -> checked')"
+NOOPT_FILE="$TMP/proj_noopt/.claude/token-usage.jsonl"
+if [ -f "$NOOPT_FILE" ]; then NOOPT_EXISTS=true; else NOOPT_EXISTS=false; fi
+check "logging: no opt-in file, no file created" "false" "$NOOPT_EXISTS"
+
+# (c) transcript_path points at a file that doesn't exist. Design choice
+# (see ADR-0006): still append a line, with empty {} aggregates, rather
+# than silently dropping the completion event. Exit code is unaffected.
+: >"$LOGFILE"
+check "logging: missing transcript still exits 0" 0 "$(tc_log "$TMP/proj" "$TMP/proj/tr/does-not-exist.jsonl" 'ok
+VERIFIED: manual -> checked')"
+check "logging: missing transcript logs empty main" '{}' "$(jq -c '.main' <"$LOGFILE" 2>/dev/null)"
+check "logging: missing transcript logs empty subagents" '{}' "$(jq -c '.subagents' <"$LOGFILE" 2>/dev/null)"
+
+# (d) rejected path (no VERIFIED line): exit code unchanged, no log line.
+: >"$LOGFILE"
+check "logging: rejected completion still exits 2" 2 "$(tc_log "$TMP/proj" "$TMP/proj/tr/main.jsonl" 'ok without verification')"
+check "logging: rejected completion, no line appended" 0 "$(wc -l <"$LOGFILE" | tr -d ' ')"
+
 exit $FAILED
