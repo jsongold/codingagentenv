@@ -3,13 +3,13 @@
 <!-- 目安：全体で150行以内。コードから推測できないことだけ書く。 -->
 
 ## 業務コンテキスト（毎回必要な要点だけ）
-- 目的：<このプロダクトが解決する業務課題を1行で>
-- 利用者：<誰が・どんな場面で使うか>
-- 成功の定義：<何ができれば価値があるか>
+- 目的：/clear 後も文脈を失わず、複数ステップの作業を内蔵 Task list 経由で Subagent に実行させるハーネスの正本を管理し、全 project に効かせる（ADR-0002, 0003）
+- 利用者：repo の持ち主本人。自分の全 project で Claude Code を使う場面（ADR-0003。他人との共有は再検討条件）
+- 成功の定義：どの project でも `/pickup` → `/dispatch` が global skill で完遂し、/clear 後も Task list と文脈が残り、未検証の completed が hook で拒否される（PROGRESS.md 完了条件）
 - 絶対に守る業務ルール：
-  - <例：金額は税込・円単位で切り捨て>
-  - <例：顧客データを外部APIに送らない>
-- 今の優先順位：<例：正確性 > 速度 > 見た目>
+  - `~/.claude/` 配下を直接編集しない。repo の正本を直し、展開はユーザーが `bin/harness install` で行う（ADR-0005）
+  - キューや代替のタスク管理を自作しない。main が dispatcher で、completed は main が検証し `VERIFIED:` 行を追記してから（ADR-0002, 0004）
+- 今の優先順位：未定（ユーザー確認待ち）
 - 詳細 → docs/context/business.md（業務フロー）、docs/context/glossary.md（用語）
 
 ## 作業の始め方（/clear後も必ず）
