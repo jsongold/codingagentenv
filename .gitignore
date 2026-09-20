@@ -1,3 +1,7 @@
 .DS_Store
 # Global gitignore excludes CLAUDE.md; this repo ships it.
 !CLAUDE.md
+# Runtime queue state is per-machine; see docs/decisions/0001-task-queue.md
+queue/tasks.jsonl
+queue/*.lock
+queue/*.tmp
