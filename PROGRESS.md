@@ -11,9 +11,6 @@
 - [x] `node --test test/tq.test.js` が通る（9/9）
 - [ ] 未定：ハーネス全体の完了条件をユーザーと合意する
 
-## スコープ外（やらないこと）
-- 複数マシンでのキュー共有（ADR-0001 の再検討条件）
-
 ## 決定事項（理由つき）
 - キューは JSONL + `bin/tq`、排他は mkdir、書き込みは tmp+rename — 依存ゼロで並列安全（docs/decisions/0001-task-queue.md）
 
@@ -29,5 +26,4 @@
 1. 完了条件と業務コンテキストをユーザーに確認して CLAUDE.md を埋める
 
 ## 注意・未解決の質問
-- README が案内する `.claude/skills/handoff` `.claude/skills/resume` がリポジトリに存在しない
-- feat/task-queue は未マージ、remote 未設定
+- README が案内する `.claude/skills/{handoff,resume}` が存在しない。feat/task-queue は未マージ、remote 未設定
