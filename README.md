@@ -24,5 +24,11 @@
 
 別のプロジェクトにコピーしたら、`.claude/settings.json` の `CLAUDE_CODE_TASK_LIST_ID` をそのプロジェクト名に変えること。同じ ID だと Task list が混ざる。
 
+## トラブルシュート
+
+- Task tools (`TaskCreate` など) が見えない → `.claude/settings.json` の `env` に `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` があるか確認する。代替のキューを自作しない (ADR-0002)。
+- 別プロジェクトの Task list と混ざる → `CLAUDE_CODE_TASK_LIST_ID` をプロジェクトごとに変える。
+- `~/.claude/tasks/` 配下は手で編集しない。状態変更は `TaskUpdate` で行う。
+
 AGENTS.md を使う他のツール（Codex、Cursorなど）と併用する場合は、CLAUDE.md の内容を AGENTS.md に置き、
 Claude Code 側は AGENTS.md を読む設定・仕様に合わせてください（Claude Code は CLAUDE.md が無い場合に AGENTS.md を読む、と調査時点のドキュメントに記載）。
