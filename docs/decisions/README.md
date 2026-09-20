@@ -1,0 +1,10 @@
+# ADR 一覧
+
+| 番号 | タイトル | 状態 | 日付 |
+|---|---|---|---|
+| [0001](./0001-task-queue.md) | TaskQueue は JSONL + node 製 CLI (`bin/tq`) | 置き換え | 2026-09-20 |
+| [0002](./0002-builtin-task-list.md) | タスク管理は Claude Code 内蔵の Task list、main セッションが dispatcher | 採用 | 2026-09-20 |
+
+新しい ADR を追加するには、0000-template.md をコピーして次の番号のファイルを作り、上の表に1行追加する。
+
+状態が「置き換え」の ADR と「却下した案」は再提案しない。
