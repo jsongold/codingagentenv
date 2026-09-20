@@ -4,6 +4,7 @@
 |---|---|---|---|
 | [0001](./0001-task-queue.md) | TaskQueue は JSONL + node 製 CLI (`bin/tq`) | 置き換え | 2026-09-20 |
 | [0002](./0002-builtin-task-list.md) | タスク管理は Claude Code 内蔵の Task list、main セッションが dispatcher | 採用 | 2026-09-20 |
+| [0003](./0003-global-harness.md) | ハーネスは global に置き、各 project はデータだけを持つ | 採用 | 2026-09-20 |
 
 新しい ADR を追加するには、0000-template.md をコピーして次の番号のファイルを作り、上の表に1行追加する。
 

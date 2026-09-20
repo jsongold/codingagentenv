@@ -13,7 +13,7 @@
 - background Subagent（既定）は Task tools を持たない。持つのは agent teams の teammate だけ。
 
 ## 決定
-タスクは内蔵 Task list で管理する。main セッションが dispatcher になり、`TaskCreate` → Subagent 起動 → main が完了条件を検証 → `TaskUpdate` の順で回す。手順は `.claude/skills/dispatch`。設定は `.claude/settings.json` の `env`。`bin/tq`・テスト・`queue/` は削除した。
+タスクは内蔵 Task list で管理する。main セッションが dispatcher になり、`TaskCreate` → Subagent 起動 → main が完了条件を検証 → `TaskUpdate` の順で回す。手順は `skills/dispatch`。設定は `.claude/settings.json` の `env`。`bin/tq`・テスト・`queue/` は削除した。
 
 ## 検討して却下した案
 | 案 | 却下理由 |

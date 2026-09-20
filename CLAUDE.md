@@ -26,11 +26,9 @@
 - タスク一覧：`Ctrl+T`。実体は `~/.claude/tasks/codingagentenv/`
 
 ## 規約・注意点（デフォルトと違うものだけ）
-- 全タスクは Claude Code 内蔵の Task list（`TaskCreate` 系）経由で Subagent に実行させる（ADR-0002）。main セッションは dispatcher で、自分では実装しない
-- 「task queue」= 内蔵 Task list。キューを自作しない（ADR-0001 はその誤解で置き換え済み）
-- Task tools が見えないときは `.claude/settings.json` の `env` を確認する。代替手段を作らない
-- Subagent の報告は main が完了条件のコマンドで検証してから completed にする。1タスク = 1コミット
-- `~/.claude/tasks/` 配下を手で編集しない
+- dispatcher のルールは `~/.claude/CLAUDE.md`「ハーネス」にある（ADR-0003）。この repo の `skills/` は global skill の正本で、`skills/` 配下を編集すると全 project の挙動が即座に変わる
+- 「task queue」= 内蔵 Task list（ADR-0002）。キューを自作しない（ADR-0001 はその誤解で置き換え済み）
+- Task tools が見えないときは `~/.claude/settings.json` の `env` を確認する。代替手段を作らない
 
 ## コンテキスト圧縮時の指示
 - 圧縮（compact）時は、変更したファイル一覧、テストコマンド、PROGRESS.md の「決定事項」を必ず残すこと。
