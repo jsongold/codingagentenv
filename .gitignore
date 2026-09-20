@@ -1,0 +1,3 @@
+.DS_Store
+# Global gitignore excludes CLAUDE.md; this repo ships it.
+!CLAUDE.md
