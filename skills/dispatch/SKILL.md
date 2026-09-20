@@ -21,7 +21,11 @@ main セッションは dispatcher。自分では実装しない。理由：back
 3. 未ブロックの pending を選び、`TaskUpdate` で in progress にしてから Subagent を起動する。
    - Subagent は文脈ゼロで始まる。プロンプトに必ず入れる：目的、完了条件（実行できるコマンド）、触ってよいファイル、触ってはいけないもの、関係する ADR（あれば）、報告形式。
    - 同じファイルを触るタスクは並列にしない。独立したタスクだけ1メッセージで同時起動する。
-   - 機械的な転記・整形は haiku、判断が要るものは既定モデル。
+   - Agent 呼び出しごとに `model` を明示する（呼び出し時の指定が agent 定義や環境変数より優先される）。迷ったら1段上を選ぶ。
+     - `haiku`：転記・整形・機械的な置換。
+     - `sonnet`：調査、手順が明確な実装、テスト追加。
+     - 指定なし（既定モデル）：設計判断、デバッグ、ADR に触る変更。
+   - `CLAUDE_CODE_SUBAGENT_MODEL` で一律に下げない（判断タスクまで劣化する）。
 4. Subagent の報告を鵜呑みにしない。完了条件のコマンドを main で実行して確認する。
    - 通った：コミット → `TaskUpdate` で description の末尾に `VERIFIED: <実行したコマンド> -> <結果>` を1行追記 → 別の `TaskUpdate` で completed。
      コマンドで確認できないタスクは `VERIFIED: manual -> <何をどう確認したか>`。この行が無いと TaskCompleted hook が completed を拒否する（ADR-0004）。
