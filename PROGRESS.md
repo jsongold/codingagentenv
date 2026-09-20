@@ -8,7 +8,7 @@
 ## 完了条件（Done when）
 - [ ] 新セッションで `/pickup` → `/dispatch` が3タスクを Subagent で完遂し、/clear 後も Task list が残る
 - [ ] 別プロジェクト1つで `/pickup` → `/dispatch` が global skill で動く（TASK_LIST_ID が自動追加され、再起動後に Task list が共有される）
-- [ ] hook が実機で効く：新セッションで PROGRESS.md が文脈に入り、VERIFIED 行の無い completed が拒否される
+- [ ] hook が実機で効く：TaskCompleted の拒否は確認済み（ADR-0004）。残りは新セッションで PROGRESS.md が文脈に入ること
 
 ## 決定事項（理由つき）
 - task queue = 内蔵 Task list。main が dispatcher — background Subagent は Task tools を持たないため（ADR-0002）
@@ -29,4 +29,4 @@
 2. token 再計測（未実施。再起動と hook 展開が前提）：新セッションの初回コンテキストを token-baseline.md の方法で測り 約 47,000 と比較。`/context` で skill 一覧の減少を確認。`.claude/token-usage.jsonl` の行間差分で task 単位の消費を見る
 
 ## 注意・未解決の質問
-- Task list が消えた：Task #2（pending）を含め `~/.claude/tasks/codingagentenv/` が空（.highwatermark は 9）。原因不明で、永続性は未確認。description 追記と completed を同じ `TaskUpdate` にまとめられるかも未確認（ADR-0004）
+- Task list が消えた：Task #2（pending）を含め `~/.claude/tasks/codingagentenv/` が空（.highwatermark は 9）。原因不明で、永続性は未確認

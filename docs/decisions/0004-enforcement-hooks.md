@@ -28,4 +28,5 @@
 ## 影響
 - 良い影響：`/pickup` を忘れても文脈が入る。検証の記録が task に必ず残る
 - 受け入れたトレードオフ：VERIFIED 行は自己申告で、嘘は防げない。防げるのは「検証の工程を飛ばすこと」だけ。description の追記と completed を別の `TaskUpdate` に分ける手間が増える
-- 再検討する条件：同じ `TaskUpdate` で description と status を更新しても payload に反映されると確認できたら、2回に分ける指示を外す。自己申告で問題が起きたら、許可リスト方式でのコマンド実行を検討する
+- 実機確認（2026-09-20、install 後・再起動なしの同一セッション）：VERIFIED 行の無い completed は拒否され、stderr がモデルに返った。同じ `TaskUpdate` で description と status を同時に更新すると、payload は更新前の description のままで拒否される。2回に分ける指示は必須
+- 再検討する条件：Claude Code の更新で同時更新が payload に反映されるようになったら、2回に分ける指示を外す。自己申告で問題が起きたら、許可リスト方式でのコマンド実行を検討する
