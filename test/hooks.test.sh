@@ -65,17 +65,4 @@ ERR=$(printf '{"task_subject":"Add foo"}' | CLAUDE_CODE_TASK_LIST_ID=test bash "
 check "feedback names the task" 1 "$(printf '%s' "$ERR" | grep -c 'Add foo')"
 check "feedback explains the format" 1 "$(printf '%s' "$ERR" | grep -c '^形式: VERIFIED:')"
 
-# --- install.sh (against a throwaway CLAUDE_DIR) ---
-FAKE="$TMP/claude"
-mkdir -p "$FAKE"
-echo '{"model":"x","hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"existing"}]}]}}' >"$FAKE/settings.json"
-CLAUDE_DIR="$FAKE" bash "$ROOT/hooks/install.sh" >/dev/null
-CLAUDE_DIR="$FAKE" bash "$ROOT/hooks/install.sh" >/dev/null
-check "install keeps existing hooks" existing "$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$FAKE/settings.json")"
-check "install keeps unrelated keys" x "$(jq -r '.model' "$FAKE/settings.json")"
-check "install is idempotent for SessionStart" 2 "$(jq '.hooks.SessionStart | length' "$FAKE/settings.json")"
-check "install is idempotent for TaskCompleted" 1 "$(jq '.hooks.TaskCompleted | length' "$FAKE/settings.json")"
-check "install symlinks the scripts" "$ROOT/hooks/harness-task-completed.sh" "$(readlink "$FAKE/hooks/harness-task-completed.sh")"
-check "install writes a backup" 1 "$(ls "$FAKE" | grep -c 'pre-harness-hooks' | sed 's/^[2-9]$/1/')"
-
 exit $FAILED

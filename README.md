@@ -3,23 +3,25 @@
 /clear 後も文脈を失わず、作業を Task list 経由で Subagent に実行させるためのハーネス。
 ハーネス本体は global（`~/.claude/`）に置き、各 project はデータだけを持つ（ADR-0003）。テンプレートを各 repo にコピーする方式はやめた。
 
-## global に置くもの（新しいマシンでの install）
-1. skill を symlink する（正本はこの repo の `skills/`）。`<repo>` はこの repo の絶対パス。
-   ```sh
-   ln -s <repo>/skills/dispatch ~/.claude/skills/dispatch
-   ln -s <repo>/skills/handoff  ~/.claude/skills/handoff
-   ln -s <repo>/skills/pickup   ~/.claude/skills/pickup
-   ```
-2. `~/.claude/settings.json` の `env` に `"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"` を追加する。
-3. `~/.claude/CLAUDE.md` に「ハーネス（全プロジェクト共通）」セクションを追加する。内容は ADR-0003 の「決定」、または既存マシンの `~/.claude/CLAUDE.md` から写す。
-4. hook を登録する（ADR-0004）。`jq` が必要。冪等で、`~/.claude/settings.json` のバックアップを取り、既存 hook は変更しない。
-   ```sh
-   bash hooks/install.sh
-   ```
-   - SessionStart：PROGRESS.md と ADR 一覧を文脈に入れる。PROGRESS.md が無い project では何もしない。
-   - TaskCompleted：description に `VERIFIED: <コマンド> -> <結果>` の行が無い task の completed を拒否する。`CLAUDE_CODE_TASK_LIST_ID` がある project だけ。
+## global への展開（ADR-0005）
+編集は repo 内だけで行い、`~/.claude/` 配下は直接編集しない。展開はユーザーが次のコマンドで行う。`jq` が必要。
 
-注意：この repo を移動・削除すると symlink が切れ、全 project で skill が使えなくなる。`skills/` 配下の編集は全 project に即座に効く。
+```sh
+bin/harness install     # 展開。冪等。settings.json と CLAUDE.md のバックアップを取り、既存の設定は変更しない
+bin/harness status      # 展開漏れ・drift の検出（読み取りのみ。漏れがあれば exit 1）
+bin/harness uninstall   # install が入れたものだけを取り除く
+```
+
+install が行うこと：
+- `skills/*` と `hooks/harness-*.sh` を `~/.claude/skills/`、`~/.claude/hooks/` へ symlink する
+- `~/.claude/settings.json` に `env.CLAUDE_CODE_ENABLE_TODO_TOOLS=1` と hook 2つ（ADR-0004）を追記する
+  - SessionStart：PROGRESS.md と ADR 一覧を文脈に入れる。PROGRESS.md が無い project では何もしない
+  - TaskCompleted：description に `VERIFIED: <コマンド> -> <結果>` の行が無い task の completed を拒否する。`CLAUDE_CODE_TASK_LIST_ID` がある project だけ
+- `~/.claude/CLAUDE.md` のハーネス節を `global/CLAUDE.harness.md` の内容に置き換える（マーカー区間。他の節は変更しない）
+
+hook の登録と CLAUDE.md の節は、repo を直したあと install を再実行するまで反映されない。symlink の中身（skill と hook script）は即座に全 project に効く。install 後は Claude Code を再起動する。
+
+注意：この repo を移動・削除すると symlink が切れ、全 project で skill と hook が使えなくなる。
 
 ## 各 project が持つもの（すべて任意）
 - `PROGRESS.md`、`docs/decisions/`、`docs/context/`
@@ -42,8 +44,9 @@
 | skills/pickup/SKILL.md | /clear後に読み直して理解を復唱する手順 | `/pickup` で呼ぶ | 固定 |
 | hooks/harness-session-start.sh | PROGRESS.md を文脈に入れる | SessionStart hook | 固定 |
 | hooks/harness-task-completed.sh | 未検証の completed を拒否する | TaskCompleted hook | 固定 |
-| hooks/install.sh | hook を global に登録する | 手で1回実行 | 固定 |
-| test/hooks.test.sh | hook と install のテスト | `bash test/hooks.test.sh` | 固定 |
+| global/CLAUDE.harness.md | `~/.claude/CLAUDE.md` のハーネス節の正本 | `bin/harness install` で展開 | 随時 |
+| bin/harness | global への展開・drift 検出・取り外し | 手で実行 | 固定 |
+| test/hooks.test.sh, test/harness.test.sh | hook と `bin/harness` のテスト | `bash test/<name>` | 固定 |
 
 `/resume` は Claude Code の built-in コマンド（セッション履歴の再開）なので、スキル名には使わない。
 
