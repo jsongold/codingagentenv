@@ -7,15 +7,15 @@
 編集は repo 内だけで行い、`~/.claude/` 配下は直接編集しない。展開はユーザーが次のコマンドで行う。`jq` が必要。
 
 ```sh
-bin/harness install     # 展開。冪等。settings.json と CLAUDE.md のバックアップを取り、既存の設定は変更しない
-bin/harness status      # 展開漏れ・drift の検出（読み取りのみ。漏れがあれば exit 1）
-bin/harness uninstall   # install が入れたものだけを取り除く
+bin/codingenv install     # 展開。冪等。settings.json と CLAUDE.md のバックアップを取り、既存の設定は変更しない
+bin/codingenv status      # 展開漏れ・drift の検出（読み取りのみ。漏れがあれば exit 1）
+bin/codingenv uninstall   # install が入れたものだけを取り除く
 ```
 
-初回だけ `bin/harness install` と打つ。以降は install が `~/.local/bin/codingenv` へ symlink を張るので、どこからでも `codingenv install|status|uninstall` で呼べる。`~/.local/bin` が PATH に無ければ install が警告する。同名の通常ファイルがあれば上書きせず失敗する。
+初回だけ `bin/codingenv install` と打つ。以降は install が `~/.local/bin/codingenv` へ symlink を張るので、どこからでも `codingenv install|status|uninstall` で呼べる。`~/.local/bin` が PATH に無ければ install が警告する。同名の通常ファイルがあれば上書きせず失敗する。
 
 install が行うこと：
-- `bin/harness` を `~/.local/bin/codingenv`（`BIN_DIR` で変更可）へ symlink する
+- `bin/codingenv` を `~/.local/bin/codingenv`（`BIN_DIR` で変更可）へ symlink する
 - `skills/*` と `hooks/harness-*.sh` を `~/.claude/skills/`、`~/.claude/hooks/` へ symlink する
 - `~/.claude/settings.json` に `env.CLAUDE_CODE_ENABLE_TODO_TOOLS=1` と hook 2つ（ADR-0004）を追記する
   - SessionStart：PROGRESS.md と ADR 一覧を文脈に入れる。PROGRESS.md が無い project では何もしない
@@ -47,9 +47,9 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 | skills/pickup/SKILL.md | /clear後に読み直して理解を復唱する手順 | `/pickup` で呼ぶ | 固定 |
 | hooks/harness-session-start.sh | PROGRESS.md を文脈に入れる | SessionStart hook | 固定 |
 | hooks/harness-task-completed.sh | 未検証の completed を拒否する | TaskCompleted hook | 固定 |
-| global/CLAUDE.harness.md | `~/.claude/CLAUDE.md` のハーネス節の正本 | `bin/harness install` で展開 | 随時 |
-| bin/harness | global への展開・drift 検出・取り外し | 手で実行 | 固定 |
-| test/hooks.test.sh, test/harness.test.sh | hook と `bin/harness` のテスト | `bash test/<name>` | 固定 |
+| global/CLAUDE.harness.md | `~/.claude/CLAUDE.md` のハーネス節の正本 | `bin/codingenv install` で展開 | 随時 |
+| bin/codingenv | global への展開・drift 検出・取り外し | 手で実行 | 固定 |
+| test/hooks.test.sh, test/harness.test.sh | hook と `bin/codingenv` のテスト | `bash test/<name>` | 固定 |
 
 `/resume` は Claude Code の built-in コマンド（セッション履歴の再開）なので、スキル名には使わない。
 

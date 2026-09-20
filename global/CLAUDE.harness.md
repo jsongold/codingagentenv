@@ -6,4 +6,4 @@
 - completed にする前に、task の description に `VERIFIED: <実行したコマンド> -> <結果>` を別の `TaskUpdate` で追記する。無いと TaskCompleted hook が拒否する
 - `/clear` 前は `/handoff`、`/clear` 後・新セッションの最初は `/pickup`（built-in の `/resume` とは別物）
 - キューや代替のタスク管理を自作しない。`~/.claude/tasks/` 配下を手で編集しない
-- この節・skill・hook の正本は codingagentenv リポジトリ。`~/.claude/` 側を直接編集せず、リポジトリを直して `bin/harness install` で展開する
+- この節・skill・hook の正本は codingagentenv リポジトリ。`~/.claude/` 側を直接編集せず、リポジトリを直して `bin/codingenv install` で展開する

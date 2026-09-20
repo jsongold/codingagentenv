@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests for bin/harness against a throwaway CLAUDE_DIR. Run: bash test/harness.test.sh
+# Tests for bin/codingenv against a throwaway CLAUDE_DIR. Run: bash test/harness.test.sh
 set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -18,7 +18,7 @@ check() { # name, expected, actual
   fi
 }
 
-harness() { CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" bash "$ROOT/bin/harness" "$@"; }
+harness() { CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" bash "$ROOT/bin/codingenv" "$@"; }
 
 # A machine that already has its own settings, hooks and CLAUDE.md, including a
 # harness section written by hand before markers existed.
@@ -35,7 +35,7 @@ harness install >/dev/null
 harness status >/dev/null
 check "status passes after install" 0 $?
 
-check "command is linked" "$ROOT/bin/harness" "$(readlink "$TMP/bin/codingenv")"
+check "command is linked" "$ROOT/bin/codingenv" "$(readlink "$TMP/bin/codingenv")"
 CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" "$TMP/bin/codingenv" status >/dev/null 2>&1
 check "linked command finds the repo" 0 $?
 check "skills are symlinked" "$ROOT/skills/dispatch" "$(readlink "$FAKE/skills/dispatch")"
@@ -49,7 +49,7 @@ check "other env is kept" 1 "$(jq -r '.env.KEEP' "$FAKE/settings.json")"
 check "unrelated keys are kept" x "$(jq -r '.model' "$FAKE/settings.json")"
 check "hand-written section is replaced" 0 "$(grep -c 'stale line' "$FAKE/CLAUDE.md")"
 check "section appears once" 1 "$(grep -c '^## ハーネス' "$FAKE/CLAUDE.md")"
-check "section comes from the repo" 1 "$(grep -c 'bin/harness install' "$FAKE/CLAUDE.md")"
+check "section comes from the repo" 1 "$(grep -c 'bin/codingenv install' "$FAKE/CLAUDE.md")"
 check "other sections are kept" 2 "$(grep -c -e '^- a$' -e '^- b$' "$FAKE/CLAUDE.md")"
 check "backups are written" yes "$(ls "$FAKE" | grep -q 'settings.json.bak-.*-harness' && echo yes)"
 

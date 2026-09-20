@@ -12,16 +12,16 @@
 
 ## 決定事項（理由つき）
 - task queue = 内蔵 Task list。main が dispatcher — background Subagent は Task tools を持たないため（ADR-0002）
-- ハーネスは global、project はデータだけ（ADR-0003）。編集は repo 内だけ、global への展開はユーザーが `bin/harness install` で行う。正本は `skills/`・`hooks/`・`global/CLAUDE.harness.md`（ADR-0005、ユーザー決定）。dispatch 必須は複数ステップの実装・調査のみ
+- ハーネスは global、project はデータだけ（ADR-0003）。編集は repo 内だけ、global への展開はユーザーが `bin/codingenv install` で行う。正本は `skills/`・`hooks/`・`global/CLAUDE.harness.md`（ADR-0005、ユーザー決定）。dispatch 必須は複数ステップの実装・調査のみ
 - hook は SessionStart と TaskCompleted の2つ。検証は証跡行 `VERIFIED:` の有無で判定し、hook はコマンドを実行しない（ADR-0004）
 
 ## 却下した案（再提案しないこと）
 - キューの自作 / agent teams / Subagent に Task 更新させる（ADR-0002）。テンプレートのコピー / 常に dispatch / 明示時のみ dispatch（ADR-0003）。hook でのコマンド実行 / task JSON 読み / git clean 要求 / PreToolUse での実装阻止（ADR-0004）。Claude による `~/.claude/` の直接編集 / 手作業 install（ADR-0005）
 
 ## 現在の状態
-- 済：ADR-0001〜0005、skill 3本、hook 2本、`bin/harness`（install / uninstall / status）、テスト 20件 + 28件 pass
+- 済：ADR-0001〜0005、skill 3本、hook 2本、`bin/codingenv`（install / uninstall / status）、テスト 20件 + 28件 pass
 - 済（token 削減）：ADR-0006（TaskCompleted hook が `.claude/token-usage.jsonl` に usage を追記、opt-in）、project 設定で plugin 2 / skill 6 を非表示、dispatch に model 3段基準と報告15行制限、テスト 38件 pass。ベースラインは docs/context/token-baseline.md（初回コンテキスト 約 47,000、消費の大半は cache_read、Subagent 固定費 3〜6万）
-- 済：global 展開（`bin/harness status` 全9項目 ok、2026-09-20）
+- 済：global 展開（`bin/codingenv status` 全9項目 ok、2026-09-20）
 - 済：CLAUDE.md 業務コンテキスト欄（5d72bf3。優先順位だけ「未定（ユーザー確認待ち）」）
 - 未着手：別プロジェクトでの実地検証、docs/context/business.md（空テンプレートのまま）、remote / PR
 

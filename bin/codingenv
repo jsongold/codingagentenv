@@ -2,11 +2,11 @@
 # harness — deploys this repo's harness into ~/.claude. The repo is the only
 # source of truth; nothing under ~/.claude is edited by hand (ADR-0005).
 #
-#   bin/harness install     symlink skills and hooks, register hooks and env,
+#   bin/codingenv install     symlink skills and hooks, register hooks and env,
 #                           sync the harness section of ~/.claude/CLAUDE.md,
 #                           link this command into ~/.local/bin as `codingenv`
-#   bin/harness uninstall   remove everything install added
-#   bin/harness status      report drift; exit 1 if anything is missing
+#   bin/codingenv uninstall   remove everything install added
+#   bin/codingenv status      report drift; exit 1 if anything is missing
 #
 # CLAUDE_DIR and BIN_DIR override the target directories (used by the tests).
 set -eu
@@ -25,6 +25,7 @@ CMD=codingenv # name of the command install links into BIN_DIR
 SETTINGS="$CLAUDE_DIR/settings.json"
 MEMORY="$CLAUDE_DIR/CLAUDE.md"
 SECTION="$ROOT/global/CLAUDE.harness.md"
+# The marker text is matched against the deployed ~/.claude/CLAUDE.md; do not rename it.
 BEGIN='<!-- harness:begin (managed by codingagentenv bin/harness; do not edit) -->'
 END='<!-- harness:end -->'
 HEADING='## ハーネス（全プロジェクト共通）'
@@ -67,7 +68,7 @@ install() {
   fi
   mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/hooks" "$BIN_DIR"
 
-  ln -sfn "$ROOT/bin/harness" "$BIN_DIR/$CMD"
+  ln -sfn "$ROOT/bin/codingenv" "$BIN_DIR/$CMD"
   for name in $SKILLS; do
     ln -sfn "$ROOT/skills/$name" "$CLAUDE_DIR/skills/$name"
   done
@@ -97,7 +98,7 @@ install() {
 }
 
 uninstall() {
-  [ "$(readlink "$BIN_DIR/$CMD" 2>/dev/null)" = "$ROOT/bin/harness" ] && rm "$BIN_DIR/$CMD"
+  [ "$(readlink "$BIN_DIR/$CMD" 2>/dev/null)" = "$ROOT/bin/codingenv" ] && rm "$BIN_DIR/$CMD"
   for name in $SKILLS; do
     [ "$(readlink "$CLAUDE_DIR/skills/$name" 2>/dev/null)" = "$ROOT/skills/$name" ] && rm "$CLAUDE_DIR/skills/$name"
   done
@@ -133,7 +134,7 @@ status() {
   }
   same() { [ "$1" = "$2" ] && echo yes || echo no; }
 
-  report "command $CMD" "$(same "$(readlink "$BIN_DIR/$CMD" 2>/dev/null)" "$ROOT/bin/harness")"
+  report "command $CMD" "$(same "$(readlink "$BIN_DIR/$CMD" 2>/dev/null)" "$ROOT/bin/codingenv")"
   for name in $SKILLS; do
     report "skill $name" "$(same "$(readlink "$CLAUDE_DIR/skills/$name" 2>/dev/null)" "$ROOT/skills/$name")"
   done
@@ -154,5 +155,5 @@ status() {
 
 case "${1:-}" in
   install | uninstall | status) "$1" ;;
-  *) echo "usage: bin/harness <install|uninstall|status>" >&2; exit 1 ;;
+  *) echo "usage: bin/codingenv <install|uninstall|status>" >&2; exit 1 ;;
 esac

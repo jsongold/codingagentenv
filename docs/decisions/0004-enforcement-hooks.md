@@ -14,7 +14,7 @@
 ## 決定
 - `hooks/harness-session-start.sh`：startup / clear / compact のとき、project の PROGRESS.md と ADR 一覧を文脈に入れ、`/pickup` の手順を促す。PROGRESS.md が無い、または未記入テンプレートの project では何も出さない。
 - `hooks/harness-task-completed.sh`：description に `VERIFIED: <コマンド> -> <結果>`（または `検証:`）の行が無い task の completed を exit 2 で拒否する。`CLAUDE_CODE_TASK_LIST_ID` が設定された project だけで強制する（ADR-0003 でハーネス採用の目印）。
-- 正本はこの repo の `hooks/`。global への登録は `bin/harness install`（ADR-0005。当初の `hooks/install.sh` は統合して削除）。テストは `bash test/hooks.test.sh`。
+- 正本はこの repo の `hooks/`。global への登録は `bin/codingenv install`（ADR-0005。当初の `hooks/install.sh` は統合して削除）。テストは `bash test/hooks.test.sh`。
 
 ## 検討して却下した案
 | 案 | 却下理由 |
