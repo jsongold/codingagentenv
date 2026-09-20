@@ -1,4 +1,4 @@
-# <プロジェクト名>
+# codingagentenv
 
 <!-- 目安：全体で150行以内。コードから推測できないことだけ書く。 -->
 
@@ -18,13 +18,19 @@
 3. 着手前に「目的・完了条件・次の一手」を3行で復唱し、ずれがあれば質問する
 
 ## コマンド
-- テスト：<command>
-- lint / 型チェック：<command>
-- 起動：<command>
+- テスト：`node --test test/tq.test.js`（`node --test test/` は Node v26 で失敗する。ファイルを指定すること）
+- lint / 型チェック：なし（未導入）
+- キュー操作：`bin/tq <enqueue|claim|done|fail|requeue|show|list>`
+  - `bin/tq enqueue <title> [--agent <type>] [--body <text>]`
+  - `bin/tq claim [--id <id>]`（キューが空なら exit 2）
+  - `bin/tq done|fail|requeue <id> [--note <text>]`
+  - `bin/tq list [--state queued|running|done|failed]`
 
 ## 規約・注意点（デフォルトと違うものだけ）
-- <例：DBマイグレーションは手で書かない>
-- <例：src/legacy/ は触らない>
+- 全タスクは TaskQueue（`bin/tq`）経由で Subagent に実行させる（ADR-0001）
+- `bin/tq` は node 標準ライブラリのみ。依存を追加しない
+- `queue/tasks.jsonl` は実行時状態。git 管理しない・手で編集しない
+- `lock timeout` が出たら、tq プロセスが動いていないことを確認してから `queue/tasks.jsonl.lock` を削除する
 
 ## コンテキスト圧縮時の指示
 - 圧縮（compact）時は、変更したファイル一覧、テストコマンド、PROGRESS.md の「決定事項」を必ず残すこと。
