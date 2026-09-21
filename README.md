@@ -18,7 +18,7 @@ install が行うこと：
 - `bin/codingenv` を `~/.local/bin/codingenv`（`BIN_DIR` で変更可）へ symlink する
 - `skills/*` と `hooks/harness-*.sh` を `~/.claude/skills/`、`~/.claude/hooks/` へ symlink する
 - `~/.claude/settings.json` に `env.CLAUDE_CODE_ENABLE_TODO_TOOLS=1` と hook 2つ（ADR-0004）を追記する
-  - SessionStart：PROGRESS.md と ADR 一覧を文脈に入れる。PROGRESS.md が無い project では何もしない
+  - SessionStart：handoff が1件ならその全文、複数なら一覧を ADR 一覧とともに文脈に入れる。handoff が無ければ旧 PROGRESS.md を後方互換で読む。handoff も PROGRESS.md も無い project では何もしない
   - TaskCompleted：description に `VERIFIED: <コマンド> -> <結果>` の行が無い task の completed を拒否する。`CLAUDE_CODE_TASK_LIST_ID` がある project だけ
 - `~/.claude/CLAUDE.md` のハーネス節を `global/CLAUDE.harness.md` の内容に置き換える（マーカー区間。他の節は変更しない）
 
@@ -27,7 +27,7 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 注意：この repo を移動・削除すると symlink が切れ、全 project で skill と hook が使えなくなる。
 
 ## 各 project が持つもの（すべて任意）
-- `PROGRESS.md`、`docs/decisions/`、`docs/context/`
+- `.claude/handoff/<name>.md`、`docs/decisions/`、`docs/context/`。旧 `PROGRESS.md` は後方互換で読む
 - `.claude/settings.json` の `CLAUDE_CODE_TASK_LIST_ID`（無ければ `/pickup` が project ディレクトリ名で追加する）
 
 これらが無い状態でも skill は動く。
@@ -40,12 +40,12 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 | docs/context/business.md | 業務フロー・ルール・AIが誤解しやすい点 | 必要な時（CLAUDE.mdから案内） | 四半期〜月 |
 | docs/context/glossary.md | 業務用語とコード上の名前の対応 | 必要な時 | 随時 |
 | docs/decisions/0000-template.md | ADR（設計判断と却下した案） | 必要な時 | 決定ごと |
-| PROGRESS.md | 進行中タスクの引き継ぎ | pickupスキル | セッションごと |
+| .claude/handoff/<name>.md | 進行中タスクの引き継ぎ（1セッション1ファイル） | pickupスキルと SessionStart hook | セッションごと |
 | .claude/settings.json | Task list の共有 ID のみ | 起動時に自動 | 固定 |
 | skills/dispatch/SKILL.md | Task list に分解して Subagent に実行させる手順 | `/dispatch` で呼ぶ | 固定 |
-| skills/handoff/SKILL.md | /clear前にPROGRESS.mdを書き出す手順 | `/handoff` で呼ぶ | 固定 |
+| skills/handoff/SKILL.md | /clear前に自分の handoff を書き出す手順 | `/handoff` で呼ぶ | 固定 |
 | skills/pickup/SKILL.md | /clear後に読み直して理解を復唱する手順 | `/pickup` で呼ぶ | 固定 |
-| hooks/harness-session-start.sh | PROGRESS.md を文脈に入れる | SessionStart hook | 固定 |
+| hooks/harness-session-start.sh | handoff（複数なら一覧）を文脈に入れる | SessionStart hook | 固定 |
 | hooks/harness-task-completed.sh | 未検証の completed を拒否する | TaskCompleted hook | 固定 |
 | global/CLAUDE.harness.md | `~/.claude/CLAUDE.md` のハーネス節の正本 | `bin/codingenv install` で展開 | 随時 |
 | bin/codingenv | global への展開・drift 検出・取り外し | 手で実行 | 固定 |
