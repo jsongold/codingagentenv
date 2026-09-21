@@ -8,6 +8,7 @@
 | [0004](./0004-enforcement-hooks.md) | 文脈の復元と検証済み完了を hook で強制する | 採用 | 2026-09-20 |
 | [0005](./0005-repo-only-deploy-command.md) | 編集は repo 内だけ。global への展開は `bin/codingenv` に集約する | 採用 | 2026-09-20 |
 | [0006](./0006-token-usage-log.md) | task 完了時にトークン消費を hook で集計・記録する | 採用 | 2026-09-20 |
+| [0007](./0007-multi-session-handoff.md) | /handoff の保存先を `.claude/handoff/<name>.md`（1セッション1ファイル）にする | 採用 | 2026-09-21 |
 
 新しい ADR を追加するには、0000-template.md をコピーして次の番号のファイルを作り、上の表に1行追加する。
 
