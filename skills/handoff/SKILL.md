@@ -11,7 +11,7 @@ disable-model-invocation: true
 1. `TaskList` と `git status` / `git log --oneline -10` で現状を確認する。
 2. 保存先 `.claude/handoff/<name>.md` を決める。ディレクトリが無ければ作る。
    - 名前あり：そのまま使う。
-   - 名前なし：既存の handoff が1件ならそれを更新する。0件なら `default`。複数なら一覧（`ls -t .claude/handoff`）を見せてユーザーに聞く。勝手に選ばない。
+   - 名前なし：この会話で `/pickup <name>` か `/handoff <name>` を実行済み、または SessionStart hook が注入した handoff の続きの作業をしていたなら、その名前を再利用する。そうでなければ、セッションの目的から kebab-case で2〜4語の名前を作る。既存の handoff と衝突したら `-2`、`-3` と付ける。他の handoff は上書きしない。決めた名前を1行で伝える。
    - 旧 `PROGRESS.md` が project ルートにあり `.claude/handoff/` が無い場合：先に `git mv PROGRESS.md .claude/handoff/default.md`（未追跡なら `mv`）して、以降 `default` として扱う。移行したことをユーザーに伝える。
 3. 保存先を上書きする。30行以内。古い内容は消す。無ければ次の見出しで新規作成する。冒頭の見出し行は `# handoff: <name>`。
    最終更新 / 目的 / 完了条件 / 決定事項（理由つき） / 却下した案 / 現在の状態 / 次の一手 / 注意・未解決の質問
