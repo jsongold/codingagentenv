@@ -1,0 +1,159 @@
+#!/bin/bash
+# harness — deploys this repo's harness into ~/.claude. The repo is the only
+# source of truth; nothing under ~/.claude is edited by hand (ADR-0005).
+#
+#   bin/codingenv install     symlink skills and hooks, register hooks and env,
+#                           sync the harness section of ~/.claude/CLAUDE.md,
+#                           link this command into ~/.local/bin as `codingenv`
+#   bin/codingenv uninstall   remove everything install added
+#   bin/codingenv status      report drift; exit 1 if anything is missing
+#
+# CLAUDE_DIR and BIN_DIR override the target directories (used by the tests).
+set -eu
+
+# Resolve symlinks so the script finds the repo when run as `codingenv` via PATH.
+SELF=$0
+while [ -L "$SELF" ]; do
+  dir=$(cd "$(dirname "$SELF")" && pwd)
+  SELF=$(readlink "$SELF")
+  case $SELF in /*) ;; *) SELF=$dir/$SELF ;; esac
+done
+ROOT=$(cd "$(dirname "$SELF")/.." && pwd)
+CLAUDE_DIR=${CLAUDE_DIR:-$HOME/.claude}
+BIN_DIR=${BIN_DIR:-$HOME/.local/bin}
+CMD=codingenv # name of the command install links into BIN_DIR
+SETTINGS="$CLAUDE_DIR/settings.json"
+MEMORY="$CLAUDE_DIR/CLAUDE.md"
+SECTION="$ROOT/global/CLAUDE.harness.md"
+# The marker text is matched against the deployed ~/.claude/CLAUDE.md; do not rename it.
+BEGIN='<!-- harness:begin (managed by codingagentenv bin/harness; do not edit) -->'
+END='<!-- harness:end -->'
+HEADING='## ハーネス（全プロジェクト共通）'
+ENV_KEY=CLAUDE_CODE_ENABLE_TODO_TOOLS
+
+SKILLS=$(cd "$ROOT/skills" && ls -d */ | tr -d /)
+HOOKS='SessionStart:harness-session-start.sh TaskCompleted:harness-task-completed.sh'
+
+hook_command() { printf 'bash "$HOME/.claude/hooks/%s"' "$1"; }
+
+backup() {
+  [ -f "$1" ] && cp "$1" "$1.bak-$(date +%Y%m%d-%H%M%S)-harness"
+  return 0
+}
+
+update_settings() { # jq filter, then jq args
+  jq "$@" "$SETTINGS" >"$SETTINGS.tmp"
+  mv "$SETTINGS.tmp" "$SETTINGS"
+}
+
+# Prints CLAUDE.md without the harness section: the marked block, or a section
+# added by hand before markers existed (heading up to the next "## ").
+strip_section() {
+  awk -v begin="$BEGIN" -v end="$END" -v heading="$HEADING" '
+    $0 == begin { skip = "marked"; next }
+    skip == "marked" { if ($0 == end) skip = ""; next }
+    $0 == heading { skip = "legacy"; next }
+    skip == "legacy" && /^## / { skip = "" }
+    skip == "legacy" { next }
+    { print }
+  ' "$MEMORY"
+}
+
+install() {
+  command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
+  # Refuse to overwrite an unrelated file that already owns the command name.
+  if [ -e "$BIN_DIR/$CMD" ] && [ ! -L "$BIN_DIR/$CMD" ]; then
+    echo "$BIN_DIR/$CMD exists and is not a symlink; move it away first" >&2
+    exit 1
+  fi
+  mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/hooks" "$BIN_DIR"
+
+  ln -sfn "$ROOT/bin/codingenv" "$BIN_DIR/$CMD"
+  for name in $SKILLS; do
+    ln -sfn "$ROOT/skills/$name" "$CLAUDE_DIR/skills/$name"
+  done
+  for entry in $HOOKS; do
+    ln -sfn "$ROOT/hooks/${entry#*:}" "$CLAUDE_DIR/hooks/${entry#*:}"
+  done
+
+  [ -f "$SETTINGS" ] || echo '{}' >"$SETTINGS"
+  backup "$SETTINGS"
+  update_settings --arg key "$ENV_KEY" '.env[$key] = "1"'
+  for entry in $HOOKS; do
+    # Append a group unless one already runs the same script.
+    update_settings --arg event "${entry%%:*}" --arg command "$(hook_command "${entry#*:}")" '
+      .hooks[$event] //= []
+      | if any(.hooks[$event][]?.hooks[]?; .command == $command) then .
+        else .hooks[$event] += [{hooks: [{type: "command", command: $command, timeout: 10}]}]
+        end'
+  done
+
+  [ -f "$MEMORY" ] || : >"$MEMORY"
+  backup "$MEMORY"
+  { strip_section; echo "$BEGIN"; cat "$SECTION"; echo "$END"; } >"$MEMORY.tmp"
+  mv "$MEMORY.tmp" "$MEMORY"
+
+  echo "installed into $CLAUDE_DIR and linked $BIN_DIR/$CMD. Restart Claude Code to pick up the hooks."
+  case ":$PATH:" in *":$BIN_DIR:"*) ;; *) echo "note: $BIN_DIR is not on PATH" >&2 ;; esac
+}
+
+uninstall() {
+  [ "$(readlink "$BIN_DIR/$CMD" 2>/dev/null)" = "$ROOT/bin/codingenv" ] && rm "$BIN_DIR/$CMD"
+  for name in $SKILLS; do
+    [ "$(readlink "$CLAUDE_DIR/skills/$name" 2>/dev/null)" = "$ROOT/skills/$name" ] && rm "$CLAUDE_DIR/skills/$name"
+  done
+  for entry in $HOOKS; do
+    [ "$(readlink "$CLAUDE_DIR/hooks/${entry#*:}" 2>/dev/null)" = "$ROOT/hooks/${entry#*:}" ] && rm "$CLAUDE_DIR/hooks/${entry#*:}"
+  done
+
+  if [ -f "$SETTINGS" ]; then
+    backup "$SETTINGS"
+    update_settings --arg key "$ENV_KEY" 'del(.env[$key])'
+    for entry in $HOOKS; do
+      update_settings --arg event "${entry%%:*}" --arg command "$(hook_command "${entry#*:}")" '
+        if .hooks[$event] then
+          .hooks[$event] |= map(select(any(.hooks[]?; .command == $command) | not))
+          | if .hooks[$event] == [] then del(.hooks[$event]) else . end
+        else . end'
+    done
+  fi
+
+  if [ -f "$MEMORY" ]; then
+    backup "$MEMORY"
+    strip_section >"$MEMORY.tmp"
+    mv "$MEMORY.tmp" "$MEMORY"
+  fi
+
+  echo "uninstalled from $CLAUDE_DIR"
+}
+
+status() {
+  local drift=0
+  report() { # label, ok?
+    if [ "$2" = yes ]; then echo "ok      $1"; else echo "MISSING $1"; drift=1; fi
+  }
+  same() { [ "$1" = "$2" ] && echo yes || echo no; }
+
+  report "command $CMD" "$(same "$(readlink "$BIN_DIR/$CMD" 2>/dev/null)" "$ROOT/bin/codingenv")"
+  for name in $SKILLS; do
+    report "skill $name" "$(same "$(readlink "$CLAUDE_DIR/skills/$name" 2>/dev/null)" "$ROOT/skills/$name")"
+  done
+  for entry in $HOOKS; do
+    local script=${entry#*:} event=${entry%%:*}
+    report "hook script $script" "$(same "$(readlink "$CLAUDE_DIR/hooks/$script" 2>/dev/null)" "$ROOT/hooks/$script")"
+    report "hook registered $event" "$(jq -r --arg event "$event" --arg command "$(hook_command "$script")" \
+      'if any(.hooks[$event][]?.hooks[]?; .command == $command) then "yes" else "no" end' "$SETTINGS" 2>/dev/null || echo no)"
+  done
+  report "env $ENV_KEY" "$(same "$(jq -r --arg key "$ENV_KEY" '.env[$key] // ""' "$SETTINGS" 2>/dev/null)" 1)"
+
+  local current=""
+  [ -f "$MEMORY" ] && current=$(awk -v begin="$BEGIN" -v end="$END" '$0 == end { f = 0 } f { print } $0 == begin { f = 1 }' "$MEMORY")
+  report "CLAUDE.md harness section up to date" "$(same "$current" "$(cat "$SECTION")")"
+
+  return $drift
+}
+
+case "${1:-}" in
+  install | uninstall | status) "$1" ;;
+  *) echo "usage: bin/codingenv <install|uninstall|status>" >&2; exit 1 ;;
+esac
