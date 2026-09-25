@@ -16,3 +16,4 @@
   - 複数 PR に分かれる作業は、着手前に ChangeGraph（PR 単位のノード: 触るファイル・依存先）を作る。同じファイルを触るノードは並列にしない
 - PR 本文には、開発者がローカルで検証できるコピペ実行可能なコマンドを必ず書く（レビュー用 worktree の作成と移動から検証・片付けまで。例: `git fetch origin pull/<N>/head` → `git worktree add --detach ../<repo>-pr-<N> FETCH_HEAD` → `cd` → 依存インストール → lint/型/テスト → 必要なら手動確認手順 → `git worktree remove`。`gh pr checkout` は今のチェックアウトを切り替えるので使わない）。コードブロックにまとめ、プレースホルダを残さない
 - PR 本文には、その PR で「〜ができること」を箇条書きのチェックリスト（`- [ ] 〜ができる`）で書く。レビュアーが動作確認でチェックを付けられる粒度にする
+- PR のブランチに main を取り込むときは rebase ではなく merge（`git merge origin/main`）。履歴を書き換えないので force push が不要になる。force push はしない
