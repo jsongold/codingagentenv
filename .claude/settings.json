@@ -1,0 +1,17 @@
+{
+  "env": {
+    "CLAUDE_CODE_TASK_LIST_ID": "codingagentenv"
+  },
+  "enabledPlugins": {
+    "slack@claude-plugins-official": false,
+    "frontend-design@claude-plugins-official": false
+  },
+  "skillOverrides": {
+    "account_payroll_reconcile": "user-invocable-only",
+    "idea": "user-invocable-only",
+    "invoice": "user-invocable-only",
+    "pitch": "user-invocable-only",
+    "timesheet": "user-invocable-only",
+    "zip": "user-invocable-only"
+  }
+}

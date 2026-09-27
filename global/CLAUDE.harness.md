@@ -1,0 +1,23 @@
+## ハーネス（全プロジェクト共通）
+
+- 複数ステップの実装・調査は `/dispatch` を通す。main は Task list に分解して Subagent に実行させ、自分では実装しない
+- 1ファイルの小さな修正と質問への回答は main が直接やる
+- Subagent の報告は main が完了条件のコマンドで検証してから completed にする。1タスク = 1コミット
+- completed にする前に、task の description に `VERIFIED: <実行したコマンド> -> <結果>` を別の `TaskUpdate` で追記する。無いと TaskCompleted hook が拒否する
+- `/clear` 前は `/handoff`、`/clear` 後・新セッションの最初は `/pickup`（built-in の `/resume` とは別物）
+- キューや代替のタスク管理を自作しない。`~/.claude/tasks/` 配下を手で編集しない
+- この節・skill・hook の正本は codingagentenv リポジトリ。`~/.claude/` 側を直接編集せず、リポジトリを直して `bin/codingenv install` で展開する
+- 出力・インターフェースを推測で断言しない。実行結果 / 型定義 / API仕様など実物で確認する
+- テストは小さい単位で都度実行する。最後にまとめてテストしない
+- 並列開発（worktree 5〜10 本）が前提。コンフリクトを起こさない分割を厳守する
+  - 1 PR = 1 つの変更。差分は目安 400 行以内（テスト・lock ファイル除く）。超えそうなら PR を分ける
+  - ファイルは 1 ファイル 1 責務で細かく分ける。既存の大きいファイルに書き足すより、新しいファイルを足す
+  - 複数 PR が触る共有ファイル（登録一覧・index・ルート一覧・設定）は衝突の元。ディレクトリ走査などの自動登録にするか、その追記だけを先に 1 PR で入れる
+  - 複数 PR に分かれる作業は、着手前に ChangeGraph（PR 単位のノード: 触るファイル・依存先）を作る。同じファイルを触るノードは並列にしない
+- PR 本文には、開発者がローカルで検証できるコピペ実行可能なコマンドを必ず書く（レビュー用 worktree の作成と移動から検証・片付けまで。例: `git fetch origin pull/<N>/head` → `git worktree add --detach ../<repo>-pr-<N> FETCH_HEAD` → `cd` → 依存インストール → lint/型/テスト → 必要なら手動確認手順 → `git worktree remove`。`gh pr checkout` は今のチェックアウトを切り替えるので使わない）。コードブロックにまとめ、プレースホルダを残さない
+- PR 本文には、その PR で「〜ができること」を箇条書きのチェックリスト（`- [ ] 〜ができる`）で書く。レビュアーが動作確認でチェックを付けられる粒度にする
+- PR のブランチに main を取り込むときは rebase ではなく merge（`git merge origin/main`）。履歴を書き換えないので force push が不要になる。force push はしない
+- main セッションはオーケストレーター専任。実装・gate・merge・CI 待ち・レビュー・調査はすべて Subagent に出し、報告は 10 行以内にさせる
+- Subagent は 1 回のツール呼び出しを約 4 分以内に収める（600 秒進捗なしで watchdog に殺される）。長い pytest・CI 待ち・レビューは `run_in_background` で走らせてポーリングする
+- gate は `agent-gate <worktree> [steps-file]` 経由で走らせる（マシン全体で同時 2 本まで）。テスト DB は per-run コンテナを作らず、共有 Postgres（`testdb up` / `testdb url <worktree>` で worktree ごとに 1 DB）を使う
+- merge には Codex レビューが必須。GitHub の Codex bot が quota 切れなら `codex-localreview <pr> <worktree>`（復帰待ちは `codex-probe <queue-file>` をバックグラウンドで）。Claude のレビューは事前チェック扱いで、merge 条件にはならない

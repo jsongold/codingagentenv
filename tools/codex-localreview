@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# codex-localreview <pr> <worktree> — run `codex exec review` locally on the PR's
+# checked-out worktree and post the result as a PR comment. Use when the GitHub
+# Codex bot is out of quota. Refuses if the worktree HEAD is not the PR head.
+# Output: $CODEX_REVIEW_DIR/lrev-<pr>.md (default ${XDG_STATE_HOME:-~/.local/state}/codex-review).
+# Env: CODEX_REVIEW_MODEL (gpt-6-sol), CODEX_REVIEW_EFFORT (high), CODEX_REVIEW_BASE (origin/main).
+set -uo pipefail
+p=${1:?usage: codex-localreview <pr> <worktree>}
+w=${2:?usage: codex-localreview <pr> <worktree>}
+model=${CODEX_REVIEW_MODEL:-gpt-6-sol}
+effort=${CODEX_REVIEW_EFFORT:-high}
+base=${CODEX_REVIEW_BASE:-origin/main}
+out=${CODEX_REVIEW_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/codex-review}
+mkdir -p "$out"
+cd "$w" || exit 1
+git fetch -q origin || exit 1
+h=$(git rev-parse HEAD)
+[ "$h" = "$(gh pr view "$p" --json headRefOid -q .headRefOid)" ] || { echo "#$p worktree head != PR head"; exit 1; }
+md=$out/lrev-$p.md
+rm -f "$md"
+codex exec review --base "$base" -m "$model" -c "model_reasoning_effort=\"$effort\"" -o "$md" >"$out/lrev-$p.log" 2>&1
+[ -s "$md" ] || { echo "#$p FAILED: $(tail -2 "$out/lrev-$p.log")"; exit 1; }
+{
+  echo "**Codex local review ($model, $effort) on ${h:0:7}** — the GitHub Codex bot is at its usage limit, so this was run locally with the Codex CLI (\`codex exec review --base $base\`)."
+  echo
+  cat "$md"
+} >"$out/lrev-$p.post.md"
+gh pr comment "$p" --body-file "$out/lrev-$p.post.md" >/dev/null && echo "#$p done P1=$(grep -cE '\[P1\]' "$md")"
