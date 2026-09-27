@@ -88,9 +88,10 @@ function codexBot(head: string): Result {
   return url ? { ok: true, where: url } : { ok: false, quota: false, reason: `no bot review on ${head.slice(0, 7)} yet` };
 }
 
-// codex-localreview exits 3 when codex reports its usage limit.
+// codex-localreview exits 3 when codex reports its usage limit, 4 (nothing posted) when the head moved.
 function codexLocal(): Result {
   const r = run("codex-localreview", [pr, wt]);
+  if (r.code === 4) fail(`stale: ${r.last}`);
   if (r.code === 0) return { ok: true, where: r.out.match(/https?:\/\/\S+/g)?.pop() ?? r.out };
   return { ok: false, quota: r.code === 3, reason: r.last };
 }
@@ -104,6 +105,8 @@ Do not modify anything.`;
 function claudeOpus(head: string): Result {
   const h = run("git", ["rev-parse", "HEAD"]);
   if (h.out !== head) return { ok: false, quota: false, reason: "worktree HEAD != PR head" };
+  const f = run("git", ["fetch", "-q", "origin", "main"]); // the prompt diffs against origin/main
+  if (f.code !== 0) return { ok: false, quota: false, reason: `git fetch origin main: ${f.last}` };
   const r = run("claude", [
     "-p", "--model", "opus", "--no-session-persistence", "--permission-mode", "dontAsk",
     "--allowedTools", "Read Grep Glob Bash(git diff *) Bash(git log *) Bash(git show *)",
@@ -129,7 +132,8 @@ const tried: string[] = [];
 
 for (const name of reviewers) {
   if (excludeImplementer && name === implementer) { console.error(`ai-review: skip ${name}: implementer`); continue; }
-  if (exhausted.has(name)) { console.error(`ai-review: skip ${name}: quota exhausted (cad)`); continue; }
+  // Looking up an existing bot review costs no quota, so an exhausted codex-bot is still checked.
+  if (exhausted.has(name) && name !== "codex-bot") { console.error(`ai-review: skip ${name}: quota exhausted (cad)`); continue; }
   head ||= prHead();
   const r: Result =
     name === "codex-bot" ? codexBot(head)

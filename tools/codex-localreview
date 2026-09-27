@@ -3,7 +3,8 @@
 # checked-out worktree and post the result as a PR comment. Use when the GitHub
 # Codex bot is out of quota. Refuses if the worktree HEAD is not the PR head.
 # Output: $CODEX_REVIEW_DIR/lrev-<pr>.md (default ${XDG_STATE_HOME:-~/.local/state}/codex-review).
-# Prints "#<pr> done P1=<n> <comment URL>". Exits 3 when codex hits its usage limit.
+# Prints "#<pr> done P1=<n> <comment URL>". Exits 3 when codex hits its usage limit, 4 (without
+# posting) when the PR head moved during the review.
 # Env: CODEX_REVIEW_MODEL (gpt-6-sol), CODEX_REVIEW_EFFORT (high), CODEX_REVIEW_BASE (origin/main).
 set -uo pipefail
 p=${1:?usage: codex-localreview <pr> <worktree>}
@@ -31,4 +32,6 @@ fi
   echo
   cat "$md"
 } >"$out/lrev-$p.post.md"
+now=$(gh pr view "$p" --json headRefOid -q .headRefOid)
+[ "$now" = "$h" ] || { echo "#$p STALE: head moved ${h:0:7} -> ${now:0:7} during the review; not posted"; exit 4; }
 url=$(gh pr comment "$p" --body-file "$out/lrev-$p.post.md") && echo "#$p done P1=$(grep -cE '\[P1\]' "$md") $url"

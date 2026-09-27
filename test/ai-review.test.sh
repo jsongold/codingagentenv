@@ -12,7 +12,7 @@ check() { # name, expected, actual
 
 # A worktree whose HEAD is the "PR head" the fake gh reports.
 WT=$TMP/wt
-git init -q "$WT" && git -C "$WT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+git init -q -b main "$WT" && git -C "$WT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
 git -C "$WT" remote add origin "$WT"
 HEAD_SHA=$(git -C "$WT" rev-parse HEAD)
 export HEAD_FILE=$TMP/head # the PR head the fake gh reports; fakes write here to simulate a push
@@ -35,12 +35,13 @@ echo "codex-localreview $*" >>"$CALLS"
 case ${FAKE_LOCAL:-1} in
   0) echo "#$1 done P1=0 https://github.test/pr/1#local" ;;
   3) echo "#$1 QUOTA: out of credits"; exit 3 ;;
+  4) echo "#$1 STALE: head moved; not posted"; exit 4 ;;
   *) echo "#$1 FAILED: boom"; exit 1 ;;
 esac
 EOF
 cat >"$TMP/bin/claude" <<'EOF'
 #!/bin/bash
-echo "claude $* stdin=$(head -c 20)" >>"$CALLS"
+echo "claude $* stdin=$(head -c 20) base=$(git rev-parse -q --verify origin/main >/dev/null && echo fetched)" >>"$CALLS"
 [ -n "${FAKE_MOVE:-}" ] && echo moved >"$HEAD_FILE"
 [ "${FAKE_CLAUDE:-1}" = 0 ] && echo "No issues found." || { echo "claude broke" >&2; exit 1; }
 EOF
@@ -99,11 +100,15 @@ check "stale claude review is not posted" 0 "$(called 'gh pr comment')"
 check "stale is reported" 1 "$(grep -c 'stale: #1 head moved' "$TMP/err")"
 FAKE_MOVE=1 FAKE_LOCAL=0 review
 check "head moved during codex-local review: exit 1, not accepted" "1|" "$?|$(cat "$TMP/out")"
+FAKE_LOCAL=4 FAKE_CLAUDE=0 review
+check "codex-localreview stale (exit 4): exit 1, no fallback" "1|0" "$?|$(called claude)"
+check "codex-localreview stale is reported" 1 "$(grep -c '^ai-review: stale: #1 STALE' "$TMP/err")"
 
 FAKE_LOCAL=0 FAKE_CLAUDE=0 review --implementer codex-local
 check "implementer excluded -> claude-opus" "claude-opus reviewed #1: https://github.test/pr/1#comment" "$(cat "$TMP/out")"
 check "implementer not run" 0 "$(called codex-localreview)"
 check "claude review file written" 1 "$(grep -c 'No issues found' "$TMP/state/ai-review/claude-1.md")"
+check "claude fallback fetches origin/main first" 1 "$(grep -c "base=fetched" "$CALLS")"
 check "claude gets the prompt on stdin" 1 "$(grep -c "stdin=You are reviewing" "$CALLS")"
 
 FAKE_LOCAL=0 FAKE_CLAUDE=0 AI_REVIEW_IMPLEMENTER=codex-local review
@@ -111,8 +116,11 @@ check "AI_REVIEW_IMPLEMENTER also excludes" 0 "$(called codex-localreview)"
 
 echo '[{"reviewer":"codex-bot","state":"exhausted"}]' >"$TMP/quota.json"
 FAKE_REVIEWS=$(bot "$HEAD_SHA" COMMENTED) FAKE_LOCAL=0 review
-check "exhausted reviewer skipped" "codex-local reviewed #1: https://github.test/pr/1#local" "$(cat "$TMP/out")"
-check "exhausted reviewer not queried" 0 "$(called 'gh api')"
+check "exhausted codex-bot still counts an existing review" "codex-bot reviewed #1: https://github.test/pr/1#bot" "$(cat "$TMP/out")"
+echo '[{"reviewer":"codex-local","state":"exhausted"}]' >"$TMP/quota.json"
+FAKE_LOCAL=0 FAKE_CLAUDE=0 review
+check "exhausted reviewer skipped" "claude-opus reviewed #1: https://github.test/pr/1#comment" "$(cat "$TMP/out")"
+check "exhausted reviewer not run" 0 "$(called codex-localreview)"
 echo '[]' >"$TMP/quota.json"
 
 FAKE_LOCAL=3 FAKE_CLAUDE=0 review
@@ -136,6 +144,7 @@ check "missing worktree arg: exit 1" 1 $?
 # codex-localreview: exit 3 on codex's usage-limit error, exit 0 with the comment URL on success.
 cat >"$TMP/bin/codex" <<'EOF'
 #!/bin/bash
+[ -n "${FAKE_MOVE_ON_CODEX:-}" ] && echo moved >"$HEAD_FILE"
 [ -n "${FAKE_CODEX_OUT:-}" ] && { while [ "$1" != -o ]; do shift; done; echo "$FAKE_CODEX_OUT" >"$2"; exit 0; }
 echo "ERROR: Your workspace is out of credits. Ask your workspace owner to refill in order to continue."; exit 1
 EOF
@@ -143,6 +152,11 @@ chmod +x "$TMP/bin/codex"
 export CODEX_REVIEW_DIR="$TMP/lrev"
 bash "$ROOT/tools/codex-localreview" 1 "$WT" >"$TMP/out" 2>&1
 check "codex-localreview: usage limit exits 3" 3 $?
+: >"$CALLS"
+FAKE_CODEX_OUT="[P1] a bug" FAKE_MOVE_ON_CODEX=1 bash "$ROOT/tools/codex-localreview" 1 "$WT" >"$TMP/out" 2>&1
+check "codex-localreview: head moved exits 4" 4 $?
+check "codex-localreview: stale review not posted" 0 "$(called 'gh pr comment')"
+echo "$HEAD_SHA" >"$HEAD_FILE"
 FAKE_CODEX_OUT="[P1] a bug" bash "$ROOT/tools/codex-localreview" 1 "$WT" >"$TMP/out" 2>&1
 check "codex-localreview: success prints URL" "0 #1 done P1=1 https://github.test/pr/1#comment" "$? $(cat "$TMP/out")"
 
