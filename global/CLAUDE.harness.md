@@ -19,5 +19,5 @@
 - PR のブランチに main を取り込むときは rebase ではなく merge（`git merge origin/main`）。履歴を書き換えないので force push が不要になる。force push はしない
 - main セッションはオーケストレーター専任。実装・gate・merge・CI 待ち・レビュー・調査はすべて Subagent に出し、報告は 10 行以内にさせる
 - Subagent は 1 回のツール呼び出しを約 4 分以内に収める（600 秒進捗なしで watchdog に殺される）。長い pytest・CI 待ち・レビューは `run_in_background` で走らせてポーリングする
-- gate は `agent-gate <worktree> [steps-file]` 経由で走らせる（マシン全体で同時 2 本まで）。テスト DB は per-run コンテナを作らず、共有 Postgres（`testdb up` / `testdb url <worktree>` で worktree ごとに 1 DB）を使う
-- merge には Codex レビューが必須。GitHub の Codex bot が quota 切れなら `codex-localreview <pr> <worktree>`（復帰待ちは `codex-probe <queue-file>` をバックグラウンドで）。Claude のレビューは事前チェック扱いで、merge 条件にはならない
+- gate は `agent-gate <worktree> [steps-file]` 経由で走らせる。同時実行数はホストの空き容量（gate 1 本あたりのメモリ/CPU 予算）から決める。値はメタデータアプリ `cad` が渡すか、無ければローカルで算出し、env / `.agent/policy.json` で上書きできる。クラウドでは 1 sandbox = 1 run で、並列数 = worker 数。テスト DB は per-run コンテナを作らず、共有 Postgres（`testdb up` / `testdb url <worktree>` で worktree ごとに 1 DB）を使う
+- merge には「実装者とは別のレビュアーによる独立した AI レビュー」と CI green が必須。レビュアーは policy の優先順リストから選び、quota 切れなら自動で次にフォールバックする。現行の手段は GitHub の Codex bot と `codex-localreview <pr> <worktree>`（復帰待ちは `codex-probe <queue-file>` をバックグラウンドで）。実装者自身のレビューは事前チェック扱いで、merge 条件にはならない
