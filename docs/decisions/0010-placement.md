@@ -44,7 +44,7 @@ ADR-0008 / 0009 は「provider の固定一覧（`policy.providers.allowed`）�
     tie-break: (policy.agentPriority のサービス順, agent, computer)   # 既定 ["claude","codex","opencode"]、一覧に無いサービスは最後
     return first, reasons dropped per stage
   ```
-- **usage は `cad` の collector が集める**（owner 決定：メタデータを作って配るのは `cad` だけ）。topic `usage`、間隔 `CAD_USAGE_EVERY`（既定 60s）。当面は claude のみ（優先度 claude > codex > opencode）。`policy.agents` の `claude/*` ごとに `claude -p "/usage" --output-format stream-json --verbose` を並列に実行し（モデル呼び出しなし・約2秒。`claude/default` は `CLAUDE_CONFIG_DIR` なし、`claude/<id>` は `~/.aienv/.store/<id>`）、store の `.claude.json` の `.cachedUsageUtilization` だけを読む（他のキーはアカウント情報なので読まない・出さない）。失敗・キー無しの Agent は `error` 付きで残し、place はそれを `usage unknown` として扱う。resetsAt を過ぎた窓は 0% とみなす。SSE の変化判定から `fetchedAt` を除く。
+- **usage は `cad` の collector が集める**（owner 決定：メタデータを作って配るのは `cad` だけ）。topic `usage`、間隔 `CAD_USAGE_EVERY`（既定 60s）。対象は claude と codex（優先度 claude > codex > opencode。opencode は未対応で `usage unknown`）。`policy.agents` の `claude/*` ごとに `claude -p "/usage" --output-format stream-json --verbose` を並列に実行し（モデル呼び出しなし・約2秒。`claude/default` は `CLAUDE_CONFIG_DIR` なし、`claude/<id>` は `~/.aienv/.store/<id>`）、store の `.claude.json` の `.cachedUsageUtilization` だけを読む（他のキーはアカウント情報なので読まない・出さない）。失敗・キー無しの Agent は `error` 付きで残し、place はそれを `usage unknown` として扱う。resetsAt を過ぎた窓は 0% とみなす。SSE の変化判定から `fetchedAt` を除く。`codex/*` は Agent ごとに `codex app-server`（`CODEX_HOME=~/.aienv/.store/<id>`、`codex/default` は `CODEX_HOME` なし。`OPENAI_API_KEY`・`CODEX_ACCESS_TOKEN` は子に渡さない。bin は `CAD_CODEX_BIN` > `/opt/homebrew/bin/codex` > PATH）を起動し、stdio の JSON-RPC で `initialize` → `initialized` → `account/rateLimits/read` を送って `rateLimits.primary/secondary` だけを読む（モデル呼び出しなし・約0.5秒・timeout 20s）。窓は長さで振り分ける（300分 → fiveHour、10080分 → sevenDay、null やそれ以外の長さは無視＝その窓は 0%）。app-server が失敗したら `$CODEX_HOME/sessions/**/rollout-*.jsonl` の最新ファイルの最後の `token_count` の `rate_limits` を読み、`stale` を付ける（place は使わない）。両方失敗なら `error`。
 - **client は `cad get meta -ns <ns>`**（`cad get <topic> -ns <ns>`）。実行中の `cad` の `GET /v1/meta?ns=`（`/v1/<topic>?ns=`）を 2 秒 timeout で1回叩いて JSON を出すだけ。`-ns` が無ければ exit 2（通信しない）、daemon に届かなければ exit 1。サーバ側も `GET /v1/meta`・`/v1/<topic>` は `ns`（`^[a-z0-9-]+$`）必須で、無ければ 400（`/healthz`・`/v1/events` は対象外）。
 - **local-first を既定にする**。local の slots は `CAD_SLOTS=5`（policy `maxSlots` 5）の固定上限。稼働中の ws は数えない。メモリの取り合いは macOS に任せる。1 slot = 1 ws（Claude Code セッション1つとその Subagent）。
 - **同時実行**：2つの place が同時に来ると同じ空きを二重に数えうる。lease（関門）は実害が出るまで入れない。
@@ -71,7 +71,7 @@ aienv を別 repo のまま使うか、この repo に取り込むかは却下�
 ## 未決
 - aienv のコマンド名（`codingenv aienv` か `caenv` か）と、aienv をこの repo に取り込むか。
 - aienv の binding の外にある worktree（例 `../<repo>-pr-N`）が別アカウントを継承する問題：(a) 運用で避ける、(b) aienv が git worktree の親 repo を辿って binding を引く。
-- codex / opencode の usage collector（codex は app-server の `account/rateLimits/read` が候補）。それまで codex/opencode の Agent は `usage unknown`。usage の無い Agent は落とさず reason に `usage unknown` を残す。Computer の静的な属性（cost・coldStart・preemptible・caps・上限）は policy に書く。window の閾値は policy `placement.reservePct` / `placement.estPct`（仮値）。
+- opencode の usage collector。それまで opencode の Agent は `usage unknown`。usage の無い Agent は落とさず reason に `usage unknown` を残す。Computer の静的な属性（cost・coldStart・preemptible・caps・上限）は policy に書く。window の閾値は policy `placement.reservePct` / `placement.estPct`（仮値）。
 - lease（関門）を入れる基準。
 
 ## 再検討する条件

@@ -75,20 +75,27 @@ func usageStore(agent string) (dir, file string, err error) {
 
 // claudeBin: CAD_CLAUDE_BIN > ~/.local/bin/claude > PATH, skipping the aienv shim (~/.aienv/bin).
 func claudeBin() (string, error) {
-	if b := os.Getenv("CAD_CLAUDE_BIN"); b != "" {
+	home, _ := os.UserHomeDir()
+	return findBin("claude", "CAD_CLAUDE_BIN", filepath.Join(home, ".local", "bin", "claude"))
+}
+
+// findBin: $env > preferred > PATH, skipping the aienv shim dir (~/.aienv/bin), whose wrapper
+// would pick an account itself.
+func findBin(name, env, preferred string) (string, error) {
+	if b := os.Getenv(env); b != "" {
 		return b, nil
 	}
-	home, _ := os.UserHomeDir()
-	if p := filepath.Join(home, ".local", "bin", "claude"); isExecutable(p) {
-		return p, nil
+	if isExecutable(preferred) {
+		return preferred, nil
 	}
+	home, _ := os.UserHomeDir()
 	shim := filepath.Join(home, ".aienv", "bin")
 	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
-		if p := filepath.Join(d, "claude"); filepath.Clean(d) != shim && isExecutable(p) {
+		if p := filepath.Join(d, name); filepath.Clean(d) != shim && isExecutable(p) {
 			return p, nil
 		}
 	}
-	return "", errors.New("claude binary not found (set CAD_CLAUDE_BIN)")
+	return "", fmt.Errorf("%s binary not found (set %s)", name, env)
 }
 
 // runClaudeUsage runs `claude -p /usage`, which refreshes .cachedUsageUtilization in the store's
@@ -154,17 +161,23 @@ func readUsage(file string) (AgentUsage, error) {
 	}, nil
 }
 
-// collectUsage refreshes every claude/* agent concurrently, so the total is one command's time.
+// collectUsage refreshes every claude/* and codex/* agent concurrently, so the total is one
+// command's time. Other services are left out (place reports them as "usage unknown").
 func collectUsage(agents []string, every time.Duration) UsageMap {
 	out := UsageMap{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for _, a := range agents {
-		if !strings.HasPrefix(a, "claude/") {
+		f := usageFor
+		switch {
+		case strings.HasPrefix(a, "claude/"):
+		case strings.HasPrefix(a, "codex/"):
+			f = codexUsageFor
+		default:
 			continue
 		}
 		wg.Go(func() {
-			u := usageFor(a, every)
+			u := f(a, every)
 			mu.Lock()
 			out[a] = u
 			mu.Unlock()
