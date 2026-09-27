@@ -91,9 +91,9 @@ func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int)
 		over, free := false, time.Time{} // free: when it fits again = latest resetsAt of exceeded windows
 		for _, w := range []struct {
 			name string
-			w    UsageWindow
+			w    *UsageWindow
 		}{{"5h", u.FiveHour}, {"7d", u.SevenDay}} {
-			if w.w.UsedPct+est > limit {
+			if w.w != nil && w.w.UsedPct+est > limit { // nil: the account has no such window
 				drop("%s: %s window", a, w.name)
 				over = true
 				if w.w.ResetsAt.After(free) {

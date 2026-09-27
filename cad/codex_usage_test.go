@@ -56,11 +56,11 @@ func TestCodexRateLimits(t *testing.T) {
 		t.Errorf("handshake order: %v", got)
 	}
 	u := codexWindows(wins)
-	if u.SevenDay.UsedPct != 32 || u.SevenDay.ResetsAt.Unix() != 1791090986 || u.FiveHour != (UsageWindow{}) {
+	if u.SevenDay.UsedPct != 32 || u.SevenDay.ResetsAt.Unix() != 1791090986 || u.FiveHour != nil {
 		t.Errorf("windows: %+v", u)
 	}
-	if b, _ := json.Marshal(u); strings.Contains(string(b), "SECRET") {
-		t.Errorf("leaked: %s", b)
+	if b, _ := json.Marshal(u); strings.Contains(string(b), "SECRET") || !strings.Contains(string(b), `"fiveHour":null`) {
+		t.Errorf("leaked or 5h not null: %s", b)
 	}
 
 	var got2 []string
@@ -86,7 +86,7 @@ func TestCodexUsageFor(t *testing.T) {
 	codexRunner = func(_ context.Context, h string) ([]codexWin, error) {
 		switch h {
 		case filepath.Join(store, "ok"):
-			return []codexWin{{UsedPercent: 32, WindowDurationMins: 10080, ResetsAt: 1791090986}, {}}, nil
+			return []codexWin{{UsedPercent: 32, WindowDurationMins: 10080, ResetsAt: 1791090986}}, nil
 		default:
 			return nil, errors.New("codex app-server: exited before answering")
 		}
@@ -105,5 +105,32 @@ func TestCodexUsageFor(t *testing.T) {
 	}
 	if n := u["codex/none"]; !strings.Contains(n.Error, "exited") {
 		t.Errorf("none: %+v", n)
+	}
+}
+
+// TestCodexByLimitID: every snapshot of rateLimitsByLimitId is scanned (primary and secondary),
+// windows go by length, and the highest usedPercent wins per window.
+func TestCodexByLimitID(t *testing.T) {
+	win := func(res string) AgentUsage {
+		t.Helper()
+		wins, err := codexExchange(io.Discard, strings.NewReader(`{"id":1,"result":{}}`+"\n"+`{"id":2,"result":`+res+"}\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return codexWindows(wins)
+	}
+	team := `{"primary":{"usedPercent":1,"windowDurationMins":300,"resetsAt":100},"secondary":{"usedPercent":34,"windowDurationMins":10080,"resetsAt":200}}`
+	other := `{"primary":{"usedPercent":60,"windowDurationMins":10080,"resetsAt":300},"secondary":null}`
+	u := win(`{"rateLimits":` + team + `,"rateLimitsByLimitId":{"codex":` + team + `,"codex_other":` + other + `}}`)
+	if u.FiveHour == nil || u.FiveHour.UsedPct != 1 || u.SevenDay == nil || u.SevenDay.UsedPct != 60 || u.SevenDay.ResetsAt.Unix() != 300 {
+		t.Errorf("two limits: 5h %+v 7d %+v", u.FiveHour, u.SevenDay)
+	}
+	u = win(`{"rateLimits":` + team + `,"rateLimitsByLimitId":{"codex":` + team + `}}`) // team plan: 7d in secondary
+	if u.FiveHour == nil || u.FiveHour.UsedPct != 1 || u.SevenDay == nil || u.SevenDay.UsedPct != 34 {
+		t.Errorf("team: 5h %+v 7d %+v", u.FiveHour, u.SevenDay)
+	}
+	u = win(`{"rateLimits":` + other + `,"rateLimitsByLimitId":{}}`) // plus plan, empty map: falls back to rateLimits
+	if u.FiveHour != nil || u.SevenDay == nil || u.SevenDay.UsedPct != 60 {
+		t.Errorf("plus: 5h %+v 7d %+v", u.FiveHour, u.SevenDay)
 	}
 }

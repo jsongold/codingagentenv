@@ -9,7 +9,7 @@ import (
 
 func TestCLIGet(t *testing.T) {
 	h := newHub()
-	h.publish("usage", UsageMap{"claude/a": {FiveHour: UsageWindow{UsedPct: 7}}})
+	h.publish("usage", UsageMap{"claude/a": {FiveHour: &UsageWindow{UsedPct: 7}}})
 	srv := httptest.NewServer(newServer(h, "tok"))
 	defer srv.Close()
 	t.Setenv("CAD_ADDR", strings.TrimPrefix(srv.URL, "http://"))

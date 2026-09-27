@@ -144,35 +144,45 @@ func codexExchange(w io.Writer, r io.Reader) ([]codexWin, error) {
 	if err != nil {
 		return nil, err
 	}
+	type snap struct{ Primary, Secondary *codexWin }
 	var v struct {
-		RateLimits struct {
-			Primary, Secondary *codexWin
-		} `json:"rateLimits"`
+		RateLimits snap            `json:"rateLimits"`
+		ByLimitID  map[string]snap `json:"rateLimitsByLimitId"`
 	}
 	if err := json.Unmarshal(res, &v); err != nil {
 		return nil, errors.New("codex app-server: bad rateLimits")
 	}
-	return []codexWin{deref(v.RateLimits.Primary), deref(v.RateLimits.Secondary)}, nil
-}
-
-func deref(w *codexWin) codexWin {
-	if w == nil {
-		return codexWin{}
+	if len(v.ByLimitID) == 0 {
+		v.ByLimitID = map[string]snap{"": v.RateLimits}
 	}
-	return *w
+	var wins []codexWin
+	for _, s := range v.ByLimitID {
+		for _, w := range []*codexWin{s.Primary, s.Secondary} {
+			if w != nil {
+				wins = append(wins, *w)
+			}
+		}
+	}
+	return wins, nil
 }
 
-// codexWindows maps windows by length: 300 min -> FiveHour, 10080 min -> SevenDay. A null window
-// or any other length is ignored (that window stays 0%, e.g. plus accounts only have the weekly one).
+// codexWindows maps windows by length: 300 min -> FiveHour, 10080 min -> SevenDay; other lengths
+// are ignored and a window no limit reports stays nil (e.g. plus accounts have no 5h window).
+// Several limits with the same window length: the highest usedPercent wins (conservative).
 func codexWindows(wins []codexWin) AgentUsage {
 	var u AgentUsage
 	for _, w := range wins {
-		uw := UsageWindow{w.UsedPercent, time.Unix(w.ResetsAt, 0).UTC()}
+		var dst **UsageWindow
 		switch w.WindowDurationMins {
 		case 300:
-			u.FiveHour = uw
+			dst = &u.FiveHour
 		case 10080:
-			u.SevenDay = uw
+			dst = &u.SevenDay
+		default:
+			continue
+		}
+		if *dst == nil || w.UsedPercent > (*dst).UsedPct {
+			*dst = &UsageWindow{w.UsedPercent, time.Unix(w.ResetsAt, 0).UTC()}
 		}
 	}
 	return u
