@@ -21,6 +21,7 @@ func main() {
 	h := newHub()
 	h.collectAll()
 	go h.run(2 * time.Second)
+	go h.runQuotaResets(2 * time.Second)
 	log.Printf("cad: listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, newServer(h, token)))
 }
