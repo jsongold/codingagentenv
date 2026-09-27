@@ -28,15 +28,21 @@ type Policy struct {
 		Allowed []string `json:"allowed"`
 	} `json:"providers"`
 	// Placement (ADR-0010). providers.allowed above still drives worker polling.
-	Computers     map[string]Computer `json:"computers"`
-	Agents        []string            `json:"agents"`        // e.g. "claude/default", "claude/3f9a1c0e"
-	AgentPriority []string            `json:"agentPriority"` // service order for the agent tie-break, e.g. ["claude","codex"]
-	ClassAgents   map[string][]string `json:"classAgents"`   // class -> path.Match patterns over Agents
-	Placement     struct {
+	Computers map[string]Computer `json:"computers"` // records only; place reads just the names
+	Agents    []string            `json:"agents"`    // e.g. "claude/default", "claude/3f9a1c0e"
+	Rules     []Rule              `json:"rules"`     // ordered decision list; first match wins
+	Placement struct {
 		ReservePct float64            `json:"reservePct"` // usage headroom kept free per window
 		EstPct     map[string]float64 `json:"estPct"`     // class -> estimated usage % one task consumes
 	} `json:"placement"`
 	Source string `json:"source"` // file path, or "builtin"
+}
+
+// Rule: agents matching Agent (path.Match over Agents) run on Computer, for the listed classes (none = any).
+type Rule struct {
+	Agent    string   `json:"agent"`
+	Computer string   `json:"computer"`
+	Class    []string `json:"class,omitempty"`
 }
 
 // Computer holds a placement target's static attributes (pricing, caps, limits; 0 limit = none).
@@ -57,7 +63,6 @@ func defaultPolicy() Policy {
 	p.Review.Reviewers = []string{"codex-bot", "codex-local", "claude-opus"}
 	p.Review.ExcludeImplementer, p.Review.RequireCI = true, true
 	p.Providers.Allowed = []string{"gce-spot", "cloud-run-jobs", "e2b", "local"}
-	p.AgentPriority = []string{"claude", "codex", "opencode"}
 	return p
 }
 
