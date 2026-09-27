@@ -1,3 +1,3 @@
 module github.com/jsongold/codingagentenv/cad
 
-go 1.17
+go 1.27
