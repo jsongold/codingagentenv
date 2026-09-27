@@ -38,10 +38,12 @@ func TestCollectUsage(t *testing.T) {
 		return nil
 	}
 	defer func() { usageRunner = runClaudeUsage }()
+	codexRunner = func(context.Context, string) ([]codexWin, error) { return nil, errors.New("no codex") }
+	defer func() { codexRunner = runCodexUsage }()
 
 	u := collectUsage([]string{"claude/default", "claude/aa", "claude/bb", "claude/cc", "codex/x"}, time.Minute)
-	if len(u) != 4 {
-		t.Fatalf("want 4 claude agents, got %v", u)
+	if len(u) != 5 {
+		t.Fatalf("want 4 claude + 1 codex agents, got %v", u)
 	}
 	a := u["claude/aa"]
 	if a.Error != "" || a.Stale || a.FiveHour.UsedPct != 12.5 || a.SevenDay.UsedPct != 11 || a.FiveHour.ResetsAt.Hour() != 14 || a.FetchedAt.UnixMilli() != now {
