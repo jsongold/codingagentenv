@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "gate": { "memoryMB": 1500, "cpus": 1, "reserveMB": 2048, "maxSlots": null },
+  "review": { "reviewers": ["codex-bot", "codex-local", "claude-opus"], "excludeImplementer": true, "requireCI": true },
+  "providers": { "allowed": ["gce-spot", "cloud-run-jobs", "e2b", "local"] }
+}
