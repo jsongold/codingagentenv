@@ -2,5 +2,17 @@
   "version": 1,
   "gate": { "memoryMB": 1500, "cpus": 1, "reserveMB": 2048, "maxSlots": 5 },
   "review": { "reviewers": ["codex-bot", "codex-local", "claude-opus"], "excludeImplementer": true, "requireCI": true },
-  "providers": { "allowed": ["cloud-run-jobs", "local", "claude-cloud", "gce-spot", "e2b"] }
+  "providers": { "allowed": ["cloud-run-jobs", "local", "claude-cloud", "gce-spot", "e2b"] },
+  "computers": {
+    "local":          { "vcpuHourUSD": 0,      "gibHourUSD": 0,       "minBillSec": 0,  "preemptible": false, "coldStartSec": 0,  "caps": { "docker": true,  "db": true  }, "maxMemMB": 16384, "maxCpus": 8, "maxMin": 0 },
+    "cloud-run-jobs": { "vcpuHourUSD": 0.0648, "gibHourUSD": 0.0072,  "minBillSec": 60, "preemptible": false, "coldStartSec": 20, "caps": { "docker": false, "db": false }, "maxMemMB": 32768, "maxCpus": 8, "maxMin": 10080 },
+    "gce-spot":       { "vcpuHourUSD": 0.0258, "gibHourUSD": 0.00645, "minBillSec": 60, "preemptible": true,  "coldStartSec": 90, "caps": { "docker": true,  "db": true  }, "maxMemMB": 8192,  "maxCpus": 2, "maxMin": 0 },
+    "e2b":            { "vcpuHourUSD": 0.0504, "gibHourUSD": 0.0162,  "minBillSec": 1,  "preemptible": false, "coldStartSec": 1,  "caps": { "docker": false, "db": true  }, "maxMemMB": 8192,  "maxCpus": 8, "maxMin": 60 },
+    "claude-cloud":   { "vcpuHourUSD": 0,      "gibHourUSD": 0,       "minBillSec": 0,  "preemptible": false, "coldStartSec": 30, "caps": { "docker": true,  "db": true  }, "maxMemMB": 8192,  "maxCpus": 4, "maxMin": 0 }
+  },
+  "agents": ["claude/default"],
+  "classAgents": {
+    "light-edit": ["claude/*"], "gate-heavy": ["claude/*"], "needs-db": ["claude/*"],
+    "long-running": ["claude/*"], "urgent": ["claude/*"], "retry": ["claude/*"]
+  }
 }

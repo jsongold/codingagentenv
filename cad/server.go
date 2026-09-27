@@ -26,6 +26,8 @@ func newServer(h *hub, token string) http.Handler {
 			http.NotFound(w, r)
 		case strings.HasPrefix(p, "quota/") && r.Method == http.MethodPost:
 			h.postQuota(w, r, strings.TrimPrefix(p, "quota/"))
+		case p == "place" && r.Method == http.MethodPost:
+			h.postPlace(w, r)
 		case r.Method != http.MethodGet:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		case p == "events":
