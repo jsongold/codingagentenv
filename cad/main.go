@@ -2,6 +2,7 @@
 package main
 
 import (
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -10,6 +11,13 @@ import (
 )
 
 func main() {
+	if isCLI(os.Args[1:]) {
+		var stdin io.Reader
+		if st, err := os.Stdin.Stat(); err == nil && st.Mode()&os.ModeCharDevice == 0 {
+			stdin = os.Stdin // piped
+		}
+		os.Exit(runCLI(os.Args[1:], stdin, os.Stdout, os.Stderr))
+	}
 	addr := os.Getenv("CAD_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:7878"

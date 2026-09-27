@@ -92,6 +92,17 @@ task spec
        └─ 候補なし → exit 2（起動しない）
 ```
 
+配置の記録（policy / usage）は `cad` の CLI で編集する。ファイルは daemon と同じ（`CAD_POLICY` > `.agent/policy.json`、`CAD_USAGE` > `.agent/usage.json`）。書き込みは atomic で、稼働中の `cad` は mtime で再読込する（再起動不要）。
+
+```
+tools/cad show [agents|computers|classAgents|usage|policy]   # 引数なし = 全部
+tools/cad add agent claude/3f9a1c0e
+tools/cad add computer gce-spot --file gce.json [--replace]  # または stdin / -
+tools/cad add classagent needs-db 'claude/*'
+tools/cad set usage claude/3f9a1c0e --5h 40 --5h-reset 2026-09-27T15:00:00Z
+tools/cad rm agent|computer|classagent|usage <key> [pattern]
+```
+
 ## トラブルシュート
 
 - Task tools (`TaskCreate` など) が見えない → `~/.claude/settings.json` の `env` に `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` があるか確認する。代替のキューを自作しない (ADR-0002)。
