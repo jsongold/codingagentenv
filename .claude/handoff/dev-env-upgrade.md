@@ -1,26 +1,24 @@
 # handoff: dev-env-upgrade
-最終更新: 2026-09-27 16:30 JST
-目的: ローカル = Control Plane (Orchestrator)、クラウド = Execution Plane (Worker) に分けた並列開発環境を作る。元アイデアは owner が貼った「dev dispatch + Worker image + クラウド Worker」構想 (GitHub 上で実行する前提)。
-完了条件: Issue #10 の設計が ADR で確定 → c8 (dev-dispatch) で Cloud Run Jobs 1 台に 1 task を通し、PR が出て Orchestrator が検証できる。
-決定事項:
-- 動的な値は cad / 環境 / spec から決定的に取る (毎回 Prompt で取ると揺れて検証できない)。ルール文は方針のみ。
-- cad = repo 内の Go 製メタデータアプリ (単一バイナリで Worker に配れる、常駐メモリが小さい)。マシンに 1 つ、リクエストで ns を指定、レコード最小単位は サービス×アカウント (同一マシンで複数アカウント運用)、capacity はマシン共有 (ns ごとに立てると二重に数える)。ADR-0008。
-- 配置 = 分類 (Claude) + 割り当て (制約で絞る→規則で点数、決定的、ML なし)。小さく速く説明できるため。初期配置は予測せず、各 Subagent / Orch がこまめに cad を見る (消費量は事前に見積もれない)。
-- merge 前チェックはアプリ依存 (対象 repo の CI が正、spec の done は事前確認)。ハーネスはリソースの関門だけ持ち、cad が担う (未実装)。
-- キュー = GitHub Issue。task spec は JSON (Orch が生成する形式なので人の書きやすさ不要)。Worker の Agent は Claude Code のみ。最初の e2e は簡単な Cloud Run Jobs、project は一旦 suggestorder-dev。
-- ロジックを含むものは擬似コードを owner に見せて承認後に実装 (シェルのロジックが読めなくなったため)。
-却下した案: agent-gate (アプリ依存のチェックをハーネスが持つのは筋違い、自作ロックで P1 が止まらず) / cad を ns ごとに起動 (容量の二重計上) / OSS 採用 (4 要件を満たすものなし) / クラウドキュー自作 (GH Issue で足りる) / 機械学習の配置 (データ無し、規則で十分) / TS で cad (単一バイナリで配れない)。
+最終更新: 2026-09-27 19:40 JST
+目的: ローカル Mac = Orchestrator、Worker を local / クラウドに振り分ける開発環境。直近ゴールは「寝ている間も稼働させる」。
+完了条件: (1) cad place v0.0.1（決定木）が main、(2) Mac 睡眠時に GitHub Actions + opencode が `ai` ラベル Issue から PR を出し CI が通る夜を確認。
+決定事項（詳細 ADR-0010）:
+- 配置 = 分類問題。1段目 task→class は Orchestrator(LLM)、2段目 (class, metadata)→(agent, computer) は cad がコードで決定木評価。ルールは policy.rules のデータ（上から最初に合う）。strategy/cost 並べ替えは過剰で廃止。
+- 戦略: local で claude（窓に余裕の間）→ 尽きたら opencode（OpenCode Go、model 動的・直近 deepseek）→ 全滅 defer。codex はレビュー専用。
+- Mac 睡眠時: GitHub Actions のみ（Fable 推奨 A）。owner が就寝前に手で `ai` ラベル、`wip` をロック、concurrency 1、timeout 60。この repo だけで1週間試す。cloud cad / heartbeat / 自動ラベル / opencode usage collector は作らない。
+- usage は cad が定期収集: claude = `claude -p /usage` → <store>/.claude.json cachedUsageUtilization（無料）、codex = `codex app-server` account/rateLimits/read（無料、byLimitId 走査、欠損窓は null）。
+- agents: claude/a12e00a7, claude/b1c8ef41, codex/2e33b72a（plus、5h 窓なしが正しい）, opencode/996c87ae。claude/default（a12e00a7 と同一）・codex/default（~/.codex team、別アカウント）は除外。
+- slots は CAD_SLOTS=5 固定（1 slot = 1 ws）、メモリは macOS 任せ。aienv は repo 取り込み検討中（未決）。
+- 調査・情報収集は opencode（`opencode run`）に任せ、main が一次ソースで検証。並列起動は snapshot ロック競合で固まる→1本ずつ。
+却下: OSS 採用（ADR-0008）、配置専用 daemon、ML 配置、LLM に配置判断させる、稼働 ws のカウント、cloud cad（今は）、`/status` 画面スクレイプ。
 現在の状態:
-- merge 済: PR #2-#8, #11, #12 (#9 close)。open PR なし。担当 Task ID: なし (#30-#41 はすべて completed で Task list から消えている)。
-- Issue #10 (設計見直し、未着手): Agent/Computer 登録、cad の ns・サービス×アカウント、cad の関門 (枠の貸し出し)、devcontainer 実行環境、キュー = GH Issue (ADR-0002 更新)、spec に acceptance / permissions / constraints.no_prod_write、将来 Dashboard / 分析。
-- 設計メモ: .claude/design/placement-strategy.md (Fable)。ChangeGraph: .claude/changegraph/dev-env-upgrade.yaml (残り c8, c9)。
-- follow-up (P2): bootstrap の結果未書き込み / SIGTERM 未転送 / stderr 溜め込み (c8 で対応)、cad の worker poll が同期、codex-local の quota に resetAt 無し。
+- main = 260ef96（PR #13-#19 merge 済、v0.1.0 は owner 指示で Codex レビュー免除）。main checkout は docs/handoff branch。
+- 担当 Task: #52 in_progress（place v0.0.1、subagent が worktree ../codingagentenv-rules / branch feat/place-rules で実装中、PR は出すが merge しない＝owner レビュー待ち）。#44 pending（c8 着手時）。
 次の一手:
-1. Issue #10 を読み、ADR-0010 (Agent/Computer 登録、ns、サービス×アカウント、関門) の草案と擬似コードを書いて owner に見せる。ADR-0002 / 0008 / 0009 の更新点も列挙する。
-2. 承認後、ChangeGraph を作り直して dispatch。その後 c8 (dev-dispatch + Cloud Run Jobs provider) で 1 task を通す。
-注意・未解決の質問:
-- global の install が一時 worktree ../codingagentenv-pr-6 を指している。消すと全プロジェクトの hook / skill が壊れる。main 相当の checkout (今は branch feature/ok = 8522968) で `bin/codingenv install` をやり直してから worktree を片付ける (owner 未実施)。
-- 片付け待ちの worktree: ../codingagentenv-{c1,c2,c3,c4,c5,c6,c7,c10,c11,rm-gate,pr-6}。
-- GitHub の既定ブランチが feat/task-queue のまま (PR は必ず --base main)。main に変えるか未回答。gh pr edit は失敗するので本文は gh api -X PATCH -F body=@file。
-- merge は今の head に独立レビューがあることが条件 (古い head だと auto mode が拒否)。
-- 未コミットの他変更あり (.claude/token-usage.jsonl、node_modules/、package-lock.json、.claude/changegraph/、.claude/design/)。
+1. #52 の PR を確認: `gh pr list --head feat/place-rules`。`cd ../codingagentenv-rules/cad && go test -count=1 ./...`、owner に確認コマンドを渡し、承認後 merge。
+2. GHA workflow PR（Fable 案）: `.github/workflows/opencode.yml`（issues labeled `ai`、`wip` ロック、concurrency 1、timeout 60、anomalyco/opencode/github@latest、model opencode-go/deepseek-v4-pro、use_github_token: true + PAT）、Orchestrator 規則「ai/wip 付き Issue は拾わない」、ADR 追記。owner が secret `OPENCODE_API_KEY` と fine-grained PAT（contents/PR/issues write）を登録。
+注意・未解決:
+- 要確認: GITHUB_TOKEN で作った PR は CI を起動しない（Fable 指摘、docs 未確認）。OpenCode Go の CI 利用規約（未確認）、`/zen/go/v1/usage`（source のみ、docs 無し）。
+- 未決: aienv 取り込みとコマンド名（codingenv aienv / caenv）、worktree がバインド外で別アカウント継承する問題。
+- 片付け待ち worktree 多数（`git worktree list`）。GitHub 既定ブランチは feat/task-queue のまま（PR は必ず --base main、本文編集は gh api PATCH）。
+- 未コミットの他変更あり（token-usage.jsonl、node_modules、package-lock.json、.claude/changegraph、.claude/design、research_notes）。
