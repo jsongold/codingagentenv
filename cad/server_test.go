@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -178,5 +181,46 @@ func TestSnapshotRevOrder(t *testing.T) {
 		if s[i].Rev < s[i-1].Rev {
 			t.Fatalf("snapshot not rev-ordered: %v", s)
 		}
+	}
+}
+
+func TestApplyCgroup(t *testing.T) {
+	dir := t.TempDir()
+	w := func(name, s string) { os.WriteFile(filepath.Join(dir, name), []byte(s+"\n"), 0o644) }
+	if a, b, c := applyCgroup(dir, 16000, 8000, 8); a != 16000 || b != 8000 || c != 8 {
+		t.Fatalf("no files: %d %d %d", a, b, c)
+	}
+	w("memory.max", "max")
+	w("cpu.max", "max 100000")
+	if a, b, c := applyCgroup(dir, 16000, 8000, 8); a != 16000 || b != 8000 || c != 8 {
+		t.Fatalf("max: %d %d %d", a, b, c)
+	}
+	w("memory.max", strconv.Itoa(4096<<20))
+	w("memory.current", strconv.Itoa(1024<<20))
+	w("cpu.max", "150000 100000")
+	if a, b, c := applyCgroup(dir, 16000, 8000, 8); a != 4096 || b != 3072 || c != 2 {
+		t.Fatalf("limited: %d %d %d", a, b, c)
+	}
+	if _, b, _ := applyCgroup(dir, 16000, 2000, 8); b != 2000 {
+		t.Fatalf("free should be min with host: %d", b)
+	}
+}
+
+func TestFutureLastEventIDGetsSnapshot(t *testing.T) {
+	h := newHub()
+	_, first := h.subscribe(strconv.FormatUint(h.rev+1000, 10))
+	if len(first) != len(h.cur) {
+		t.Fatalf("want snapshot of %d topics, got %v", len(h.cur), first)
+	}
+	_, first = h.subscribe(strconv.FormatUint(h.rev-1, 10))
+	if len(first) != 1 || first[0].Rev != h.rev {
+		t.Fatalf("want replay of last event, got %v", first)
+	}
+}
+
+func TestNegativeCADSlots(t *testing.T) {
+	t.Setenv("CAD_SLOTS", "-1")
+	if n := slots(100000, 8, Gate{MemoryMB: 1500, CPUs: 1}); n != 0 {
+		t.Fatalf("slots=%d want 0", n)
 	}
 }

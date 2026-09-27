@@ -52,6 +52,7 @@ type hub struct {
 
 func newHub() *hub {
 	h := &hub{cur: map[string]Event{}, keys: map[string]string{}, subs: map[chan Event]struct{}{}, quotas: map[string]Quota{}}
+	h.rev = uint64(time.Now().UnixMilli()) // revs stay increasing across restarts, so stale Last-Event-IDs never collide
 	h.publish("workers", []struct{}{})
 	h.publish("quota", []Quota{})
 	return h

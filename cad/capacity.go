@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -35,8 +37,17 @@ func (c Capacity) changeKey() interface{} {
 
 // slots = max(0, min(floor((free-reserve)/mem), floor(cpus/gate.cpus), maxSlots)); CAD_SLOTS overrides.
 func slots(memFreeMB, cpus int, g Gate) int {
-	if n, err := strconv.Atoi(os.Getenv("CAD_SLOTS")); err == nil {
-		return n
+	if v := os.Getenv("CAD_SLOTS"); v != "" {
+		n, err := strconv.Atoi(v)
+		switch {
+		case err != nil:
+			log.Printf("cad: ignoring invalid CAD_SLOTS=%q", v)
+		case n < 0:
+			log.Printf("cad: negative CAD_SLOTS=%d clamped to 0", n)
+			return 0
+		default:
+			return n
+		}
 	}
 	if g.MemoryMB <= 0 || g.CPUs <= 0 {
 		return 0 // no usable policy
@@ -58,8 +69,10 @@ func collectCapacity() (interface{}, error) {
 	var total, free int
 	var load float64
 	var err error
+	cpus := runtime.NumCPU()
 	if runtime.GOOS == "linux" {
 		total, free, load, err = readLinux()
+		total, free, cpus = applyCgroup("/sys/fs/cgroup", total, free, cpus)
 	} else {
 		total, free, load, err = readDarwin()
 	}
@@ -68,7 +81,6 @@ func collectCapacity() (interface{}, error) {
 	}
 	p := currentPolicy()
 	host, _ := os.Hostname()
-	cpus := runtime.NumCPU()
 	return Capacity{host, time.Now().UTC(), total, free, cpus, load, slots(free, cpus, p.Gate)}, nil
 }
 
@@ -99,6 +111,36 @@ func readLinux() (int, int, float64, error) {
 	m := kv(mi) // values in kB
 	load, err := strconv.ParseFloat(strings.Fields(string(la))[0], 64)
 	return atoi(m["MemTotal"]) / 1024, atoi(m["MemAvailable"]) / 1024, load, err
+}
+
+// applyCgroup narrows host values to cgroup v2 limits under root (missing file or "max" = no limit).
+func applyCgroup(root string, total, free, cpus int) (int, int, int) {
+	read := func(name string) string {
+		b, _ := os.ReadFile(filepath.Join(root, name))
+		return strings.TrimSpace(string(b))
+	}
+	if lim, err := strconv.ParseInt(read("memory.max"), 10, 64); err == nil {
+		used, _ := strconv.ParseInt(read("memory.current"), 10, 64)
+		if mb := int(lim >> 20); mb < total {
+			total = mb
+		}
+		if mb := int((lim - used) >> 20); mb < free {
+			free = mb
+		}
+		if free < 0 {
+			free = 0
+		}
+	}
+	if f := strings.Fields(read("cpu.max")); len(f) == 2 { // "<quota|max> <period>"
+		q, e1 := strconv.ParseFloat(f[0], 64)
+		p, e2 := strconv.ParseFloat(f[1], 64)
+		if e1 == nil && e2 == nil && p > 0 {
+			if c := int(math.Ceil(q / p)); c < cpus {
+				cpus = c
+			}
+		}
+	}
+	return total, free, cpus
 }
 
 func readDarwin() (int, int, float64, error) {
