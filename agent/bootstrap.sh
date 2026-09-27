@@ -9,13 +9,16 @@
 # mechanism later.
 #
 # Env: REPO (owner/name; clone is skipped when unset), BRANCH (required if
-# REPO is set), BASE (default main), GH_TOKEN (optional clone auth, never
-# echoed), CAD_ADDR (default 127.0.0.1:7878, must be loopback), WORKDIR
+# REPO is set), BASE (default main), GH_TOKEN (optional clone auth, sent as a
+# non-persistent header — never written to .git/config, never echoed),
+# CLONE_URL (override the derived https://github.com/<REPO>.git, e.g. for a
+# local file:// repo in tests), CAD_ADDR (default 127.0.0.1:7878, must be
+# loopback), CAD_TOKEN (bearer token cad requires beyond /healthz), WORKDIR
 # (default /home/agent/workspace), RESULT_FILE (default /tmp/agent-result.json).
 set -euo pipefail
 
 CAD_ADDR=${CAD_ADDR:-127.0.0.1:7878}
-WORKDIR=${WORKDIR:-/home/agent/workspace}
+export WORKDIR=${WORKDIR:-/home/agent/workspace}
 BASE=${BASE:-main}
 
 case "$CAD_ADDR" in
@@ -25,19 +28,32 @@ esac
 
 if [ -n "${REPO:-}" ]; then
   : "${BRANCH:?bootstrap: BRANCH is required when REPO is set}"
+  url=${CLONE_URL:-https://github.com/${REPO}.git}
+  # Non-persistent auth: -c only affects this git invocation, so the token
+  # never lands in $WORKDIR/.git/config (unlike embedding it in the remote
+  # URL, which `git clone` saves verbatim as remote.origin.url).
+  auth=()
   if [ -n "${GH_TOKEN:-}" ]; then
-    url="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
-  else
-    url="https://github.com/${REPO}.git"
+    b64=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
+    auth+=(-c "http.extraheader=Authorization: Basic $b64")
   fi
-  # Mask the token in any error output git prints (e.g. a failed-clone URL).
-  if ! git clone --quiet "$url" "$WORKDIR" 2> >(sed "s/${GH_TOKEN:-x-no-token-set-x}/***/g" >&2); then
+  # A CLONE_URL override (used for local/file:// testing) commonly points at
+  # a bind-mounted path this container doesn't own; trust it explicitly
+  # rather than failing on git's dubious-ownership check. (safe.directory
+  # is read before command-line config is applied, so -c can't set it here;
+  # it must go through a config file.)
+  [ -n "${CLONE_URL:-}" ] && git config --global --add safe.directory '*'
+  # Mask the token in any error output git prints, as defense in depth.
+  if ! git "${auth[@]}" clone --quiet "$url" "$WORKDIR" 2> >(sed "s/${GH_TOKEN:-x-no-token-set-x}/***/g" >&2); then
     echo "bootstrap: git clone failed" >&2
     exit 1
   fi
   cd "$WORKDIR"
-  git fetch --quiet origin "$BASE"
-  if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
+  git "${auth[@]}" fetch --quiet origin "$BASE"
+  if git rev-parse --verify --quiet "$BRANCH" >/dev/null; then
+    # clone already checked this out locally (BRANCH is the remote's default branch).
+    git checkout --quiet "$BRANCH"
+  elif git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
     git checkout --quiet -b "$BRANCH" "origin/$BRANCH"
   else
     git checkout --quiet -b "$BRANCH" "origin/$BASE"
@@ -57,8 +73,11 @@ curl -fsS "http://${CAD_ADDR}/healthz" >/dev/null 2>&1 || {
   exit 1
 }
 
+cad_auth=()
+[ -n "${CAD_TOKEN:-}" ] && cad_auth=(-H "Authorization: Bearer $CAD_TOKEN")
+
 if [ "$#" -eq 0 ]; then
-  curl -fsS "http://${CAD_ADDR}/v1/capacity"
+  curl -fsS "${cad_auth[@]}" "http://${CAD_ADDR}/v1/capacity"
   echo
   exit 0
 fi
@@ -66,18 +85,18 @@ fi
 RESULT_FILE=${RESULT_FILE:-/tmp/agent-result.json}
 errfile=$(mktemp)
 set +e
-"$@" 2> >(tee "$errfile" >&2)
+"$@" 2>"$errfile"
 code=$?
 set -e
+cat "$errfile" >&2
 
-reason=$(tail -n1 "$errfile" 2>/dev/null)
+reason=$(tail -n1 "$errfile")
 rm -f "$errfile"
 [ -n "$reason" ] || reason="exit $code"
 result=ok
 [ "$code" -eq 0 ] || result=fail
-# Minimal JSON string escaping: backslash and double quote only.
-esc=$(printf '%s' "$reason" | sed 's/\\/\\\\/g; s/"/\\"/g')
-json=$(printf '{"exitCode":%d,"result":"%s","reason":"%s"}' "$code" "$result" "$esc")
+json=$(jq -nc --argjson exitCode "$code" --arg result "$result" --arg reason "$reason" \
+  '{exitCode:$exitCode, result:$result, reason:$reason}')
 printf '%s\n' "$json" >"$RESULT_FILE"
 printf '%s\n' "$json"
 exit "$code"

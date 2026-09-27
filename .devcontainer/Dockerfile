@@ -1,6 +1,8 @@
 # Worker image: same image serves the local devcontainer and cloud workers
 # (ADR-0008). Stage 1 builds cad (Go, static). Stage 2 is the runtime: git,
-# gh, node, Claude Code CLI, cad, and agent/bootstrap.sh.
+# gh, jq, node, Claude Code CLI, cad, and agent/bootstrap.sh. jq is required
+# by this repo's own harness (bin/codingenv install, hooks) when this image
+# doubles as the local devcontainer, and by bootstrap.sh's JSON encoding.
 
 FROM golang:1.27.1-bookworm AS cad-build
 WORKDIR /src/cad
@@ -11,7 +13,7 @@ RUN CGO_ENABLED=0 go build -o /out/cad .
 FROM node:24-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl git gnupg \
+      ca-certificates curl git gnupg jq \
     && install -d -m 0755 /etc/apt/keyrings \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
       -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
