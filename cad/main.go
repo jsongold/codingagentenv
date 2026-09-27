@@ -1,7 +1,11 @@
 // cad serves host metadata (policy, capacity, workers, quota) over HTTP + SSE. It holds no task state.
+// `cad capacity` is a one-shot subcommand: it collects capacity once, prints the
+// Capacity JSON to stdout, and exits 0 without starting the server.
 package main
 
 import (
+	"encoding/json"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -9,7 +13,22 @@ import (
 	"time"
 )
 
+// runCapacityOnce collects capacity once and writes it as JSON to w.
+func runCapacityOnce(w io.Writer) error {
+	v, err := collectCapacity()
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(w).Encode(v)
+}
+
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "capacity" {
+		if err := runCapacityOnce(os.Stdout); err != nil {
+			log.Fatalf("cad: capacity: %v", err)
+		}
+		return
+	}
 	addr := os.Getenv("CAD_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:7878"

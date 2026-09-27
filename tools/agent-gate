@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
-# agent-gate <worktree> [steps-file] — run a project's merge gate with at most
-# AGENT_GATE_SLOTS (default 2) gates running at once on this machine.
+# agent-gate <worktree> [steps-file] — run a project's merge gate, capped to a
+# number of gates running at once on this machine (a "slot"). The slot count
+# comes from, in order: AGENT_GATE_SLOTS env (if set) > cad's live capacity
+# (GET ${CAD_URL:-http://127.0.0.1:7878}/v1/capacity, Bearer CAD_TOKEN if set)
+# > a one-shot `cad capacity` (built from ./cad or found on PATH) > 1 if none
+# of those work. It is re-evaluated every time a slot is acquired, since
+# capacity changes over time. If nothing currently holds a slot and the count
+# comes out 0, one gate is still allowed in (never deadlock on a small
+# machine).
 #
 # steps-file: one shell command per line, run in order inside the worktree
 # (blank lines and '#' comments skipped). Default: <worktree>/scripts/gate.steps.
@@ -18,26 +25,87 @@ export WT
 steps=${2:-$WT/scripts/gate.steps}
 [ -f "$steps" ] || { echo "agent-gate: no steps file: $steps" >&2; exit 2; }
 steps=$(cd "$(dirname "$steps")" && pwd)/$(basename "$steps")
-slots=${AGENT_GATE_SLOTS:-2}
 base=${AGENT_GATE_LOCK_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-gate}
 mkdir -p "$base"
+
+# cad_curl <curl args...> — adds the Bearer token when CAD_TOKEN is set.
+cad_curl() {
+  if [ -n "${CAD_TOKEN:-}" ]; then
+    curl -H "Authorization: Bearer $CAD_TOKEN" "$@"
+  else
+    curl "$@"
+  fi
+}
+
+# parse_slots <json> — pulls the "slots":N value out with grep, no jq assumed.
+parse_slots() {
+  printf '%s' "$1" | grep -o '"slots"[[:space:]]*:[[:space:]]*[0-9]\+' | grep -o '[0-9]\+$' | head -1
+}
+
+# get_slots — the precedence chain described in the header comment.
+get_slots() {
+  if [ -n "${AGENT_GATE_SLOTS:-}" ]; then
+    printf '%s' "$AGENT_GATE_SLOTS"
+    return
+  fi
+  local url="${CAD_URL:-http://127.0.0.1:7878}/v1/capacity" body n
+  if body=$(cad_curl -fsS --max-time 2 "$url" 2>/dev/null); then
+    n=$(parse_slots "$body")
+    [ -n "$n" ] && { printf '%s' "$n"; return; }
+  fi
+  if command -v cad >/dev/null 2>&1 && body=$(cad capacity 2>/dev/null); then
+    n=$(parse_slots "$body")
+    [ -n "$n" ] && { printf '%s' "$n"; return; }
+  fi
+  printf '1'
+}
+
+# count_alive — reclaims any slot dir whose holder PID is dead, echoes how
+# many slots (of any index) are still held by a live PID.
+count_alive() {
+  local d pid alive=0
+  for d in "$base"/slot.*; do
+    [ -d "$d" ] || continue
+    pid=$(cat "$d/pid" 2>/dev/null)
+    # ponytail: stale check races if two waiters reap the same dir at once; worst case one extra gate runs briefly
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      alive=$((alive + 1))
+    else
+      rm -rf "$d"
+    fi
+  done
+  printf '%s' "$alive"
+}
+
+# wait_step <seconds> — long-polls cad's capacity SSE stream for a real change
+# (its 2nd "data:" line: the 1st is always the just-connected snapshot),
+# bounded by --max-time; falls back to a plain sleep when cad isn't reachable
+# or nothing changes.
+wait_step() {
+  local timeout=$1 t0=$SECONDS elapsed
+  if ! cad_curl -sN --max-time "$timeout" "${CAD_URL:-http://127.0.0.1:7878}/v1/events?topics=capacity" 2>/dev/null | grep -m2 -q '^data:'; then
+    elapsed=$((SECONDS - t0))
+    [ "$elapsed" -lt "$timeout" ] && sleep "$((timeout - elapsed))"
+  fi
+}
 
 slot=""
 trap '[ -n "$slot" ] && rm -rf "$slot"' EXIT
 trap 'exit 130' INT TERM HUP
 waited=0
 while [ -z "$slot" ]; do
-  for i in $(seq "$slots"); do
+  alive=$(count_alive)
+  n=$(get_slots)
+  if [ "$n" -le 0 ] 2>/dev/null && [ "$alive" -eq 0 ]; then n=1; fi
+  for i in $(seq "$n" 2>/dev/null); do
     d="$base/slot.$i"
     if mkdir "$d" 2>/dev/null; then echo $$ >"$d/pid"; slot=$d; break; fi
-    pid=$(cat "$d/pid" 2>/dev/null)
-    # ponytail: stale check races if two waiters reap the same dir at once; worst case one extra gate runs briefly
-    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then rm -rf "$d"; fi
   done
   if [ -z "$slot" ]; then
     [ $((waited % 30)) -eq 0 ] && echo "gate: waiting for a slot (${waited}s; holders: $(cat "$base"/slot.*/pid 2>/dev/null | tr '\n' ' '))"
-    sleep 5
-    waited=$((waited + 5))
+    t0=$SECONDS
+    wait_step 5
+    waited=$((waited + SECONDS - t0))
   fi
 done
 echo "gate: acquired $slot for $WT"
