@@ -1,0 +1,8 @@
+{
+  "name": "codingagentenv-worker",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "agent"
+}
