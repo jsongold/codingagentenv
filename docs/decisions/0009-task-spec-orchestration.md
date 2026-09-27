@@ -40,24 +40,24 @@ ADR-0008 で Orchestrator（ローカルの main セッション）と Worker（
 
 ### フロー
 1. Orchestrator：ChangeGraph の node から `TaskCreate` → spec を生成 → `TaskUpdate` で in_progress。
-2. `dev-dispatch <spec>`：`cad` から値を読み、strategy で provider を決め、`agent/providers/<name>/start` に spec を渡す。
-3. provider `start`：Worker（VM / job / sandbox / ローカル worktree）を起動し、secret store の値を環境変数で注入する。
-4. Worker bootstrap（`agent/bootstrap.sh`、ChangeGraph c7）：`repo` を clone、`base` から `branch` を作る、`cad` を起動する。
+2. `dev-dispatch <spec>`：`cad` から値を読み、strategy で provider を決め、`agent/providers/<name>/start` に spec と Worker で実行するエージェントのコマンド（手順 5）を渡す。
+3. provider `start`：Worker（VM / job / sandbox / ローカル worktree）を起動し、`REPO`・`BRANCH`・`BASE`（spec の `repo`・`branch`・`base`）と secret store の値を環境変数で注入して、`agent/bootstrap.sh <エージェントのコマンド>` を実行させる。
+4. Worker bootstrap（`agent/bootstrap.sh`、ChangeGraph c7）：環境変数 `REPO`・`BRANCH`・`BASE` を受け取り、clone して `BASE` から `BRANCH` を作り、`cad` を loopback だけで起動してから `exec "$@"`（`dev-dispatch` が渡したエージェントのコマンド）。
 5. 実装：`claude -p`（headless。`claude --help` で `-p/--print`・`--model`・`--output-format`・`--max-budget-usd`・`--permission-mode` の存在は確認済み。組み合わせと権限設定は未検証）に spec から組み立てたプロンプトを渡す。`files[]` 外の変更は PR 前に `git diff --name-only` で検出して失敗扱いにする。
 6. `done[]` を実行。全部通ったら push して PR を作る。通らなければ PR を出さず報告だけ返す。
 7. Orchestrator：PR のブランチを worktree に取り、`done[]` を実行 → 通れば `VERIFIED:` 追記。
 8. ai-review（実装者 `agent.model` を除外、quota で自動フォールバック）→ 承認 + CI green（CI があれば）→ merge → 別の `TaskUpdate` で completed。
 
 ### Worker のライフサイクル
-- 起動：`start` が返した worker id を Orchestrator が Task の metadata（または説明欄）に書く。状態は `cad` が `list` をポーリングして集める（pull、ADR-0008）。Worker から Mac へは push しない。
+- 起動：`start` が返した worker id を Orchestrator が Task の metadata（または説明欄）に書く。状態は Orchestrator 側の `cad` が各 provider の `list` をポーリングして集める（pull、ADR-0008）。Worker 内の `cad` は loopback 限定で、外からは読まない。Worker から Mac へは push しない。
 - タイムアウト：`resources.timeoutMin` を超えたら `dev-dispatch`（または provider 側の実行時間上限）が `stop` する。
 - リトライ：自動リトライはしない。失敗・タイムアウト・消失は Task の説明欄に理由を書いて pending に戻し、Orchestrator が再 dispatch を決める（Task list に failed は無い、ADR-0002）。
 - Spot の preemption：`list` で `stopped` か見えなくなった（`unknown`）Worker は失敗扱い。push 済みのブランチがあればそこから再開できる。
 - 後片付け：PR を出した後、失敗・タイムアウトのいずれでも `stop` を呼ぶ。`list` に残り続ける Worker は `stop` の漏れとして Orchestrator に見せる。
 
 ### provider スクリプトの interface（`agent/providers/<name>/`）
-- `start`：stdin に spec の JSON。stdout に1行の JSON `{"id": "...", "provider": "<name>"}`。exit 0 以外は起動失敗。
-- `list`：引数なし。stdout に ADR-0008 の Worker の JSON 配列 `[{id, provider, state, startedAt, lastSeenAt, labels}]`。`labels.specId` に spec の `id` を入れる。`cad` が定期的に呼ぶので速く、副作用なしにする。
+- `start <エージェントのコマンド...>`：stdin に spec の JSON。引数は Worker で `agent/bootstrap.sh` に渡すコマンド。stdout に1行の JSON `{"id": "...", "provider": "<name>"}`（`id` は `list` の `id` と同じ）。exit 0 以外は起動失敗。
+- `list`（契約は ChangeGraph c4 で実装）：引数なし。stdout に JSON 配列 `[{id, state: starting|running|stopped|unknown, startedAt (RFC3339), labels{}}]`。`provider` と `lastSeenAt` は `cad` が付ける。`start` は `labels.specId` に spec の `id` を入れて起動し、`list` はそれを返す。`cad` は `policy.providers.allowed` に含まれ、`list` が実行可能な provider だけをポーリングする。ディレクトリは `CAD_PROVIDERS_DIR`（`tools/cad` の既定は `<repo>/agent/providers`）。定期的に呼ばれるので速く、副作用なしにする。
 - `stop <id>`：冪等。存在しない id でも exit 0。
 - 3つとも実行ファイル（言語は問わない）。認証は provider の CLI の設定に任せ、スクリプトは秘密情報を引数や stdout に出さない。
 
