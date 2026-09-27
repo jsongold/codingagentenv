@@ -1,0 +1,42 @@
+# Task spec の例（ADR-0009）。実物は Orchestrator が dispatch 時に .claude/task-specs/<id>.yaml へ生成し、コミットしない。
+# ChangeGraph node c4（.claude/changegraph/dev-env-upgrade.yaml）を Worker に渡す場合。
+version: 1
+id: dev-env-upgrade-c4          # <changegraph 名>-<node id>。branch・worker labels にも使う
+taskId: "12"                    # 内蔵 Task list の id（1:1）。状態は Task list だけが持つ
+repo: git@github.com:jsongold/codingagentenv.git
+base: origin/main
+branch: feat/cad-workers
+goal: >-
+  cad に workers collector を追加する。policy.providers.allowed の各 provider の
+  agent/providers/<name>/list を定期実行（pull）し、結果を /v1/workers と SSE topic workers に出す。
+  Mac は Worker からの inbound を受けない。
+context:
+  - docs/decisions/0008-orchestrator-worker-cad.md   # Worker スキーマ、pull 方式
+  - docs/decisions/0009-task-spec-orchestration.md   # provider list の出力形式
+  - cad/capacity.go                                  # 既存 collector の書き方に合わせる
+files:                          # 触ってよいファイル（ChangeGraph の files と同じ）
+  - cad/workers.go
+  - cad/workers_test.go
+  - agent/providers/fake/list
+done:                           # Worker が PR 前に、Orchestrator が VERIFIED 前に、それぞれ実行する
+  - (cd cad && go vet ./... && go test -count=1 ./...)
+resources:
+  memoryMB: 2048
+  cpus: 2
+  diskGB: 10
+  timeoutMin: 45
+placement:
+  allow: [gce-spot, cloud-run-jobs, e2b, local]   # 省略時は policy.providers.allowed
+  maxCostUSD: 1.5
+  strategy: local-first         # local-first | cheapest | fastest | ranked
+  # ranked のとき: order: [e2b, gce-spot]
+  # provider: e2b               # 明示指定。strategy より優先
+agent:
+  model: claude-sonnet-4-6      # 実装者。ai-review はこのモデル系のレビュアーを除外する
+review: {}                      # 空 = policy.review に従う
+output:
+  pr: true
+  reportLines: 10
+secrets:                        # 名前だけ。値は provider ごとの secret store から注入する
+  - ANTHROPIC_API_KEY
+  - GH_TOKEN
