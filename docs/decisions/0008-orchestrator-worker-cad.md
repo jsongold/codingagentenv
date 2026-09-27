@@ -22,7 +22,7 @@
   - Capacity：`{host, collectedAt, memTotalMB, memFreeMB, cpus, load1, slots}`
   - Worker：`{id, provider, state(starting|running|stopped|unknown), startedAt, lastSeenAt, labels}`
   - Quota：`{reviewer, state(ok|exhausted), lastHitAt?, resetAt?, source(reported|probed)}`
-  - `slots = max(0, min(floor((memFree - reserveMB) / gate.memoryMB), floor(cpus / gate.cpus), maxSlots))`。上書きの優先順位は `CAD_SLOTS` 環境変数 > policy の `maxSlots`。
+  - `slots = max(0, min(floor((memFree - reserveMB) / gate.memoryMB), floor(cpus / gate.cpus), maxSlots))`。`CAD_SLOTS` 環境変数が設定されていれば計算結果を置き換える（最優先）。policy の `maxSlots` は計算の上限として効く。
   - `slots = 0` でも、何も走っていなければ agent-gate は1本だけ走らせる（持ち主の決定。詰まって永久に進まない状態を避ける）。
 - **API**
   - 読み出し：`GET /v1/meta`、`/v1/policy`、`/v1/capacity`、`/v1/workers`、`/v1/quota`、`/healthz`
