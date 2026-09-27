@@ -22,6 +22,7 @@ func writePolicy(t *testing.T, allowed ...string) {
 	t.Helper()
 	p := defaultPolicy()
 	p.Providers.Allowed = allowed
+	p.Classes = map[string]Class{"x": {}}
 	b, _ := json.Marshal(p)
 	path := filepath.Join(t.TempDir(), "policy.json")
 	if err := os.WriteFile(path, b, 0o644); err != nil {

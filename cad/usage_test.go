@@ -75,3 +75,38 @@ func TestCollectUsage(t *testing.T) {
 }
 
 func itoa64(n int64) string { b, _ := json.Marshal(n); return string(b) }
+
+func TestUsageEvery(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "p.json")
+	t.Setenv("CAD_POLICY", p)
+	t.Setenv("CAD_USAGE_EVERY", "")
+	set := func(every string) {
+		os.WriteFile(p, []byte(`{"classes":{"x":{}},"collect":{"usage":{"every":"`+every+`"}}}`), 0o644)
+		os.Chtimes(p, time.Now(), time.Now().Add(time.Duration(len(every))*time.Second)) // new mtime
+	}
+	set("5s")
+	if d := usageEvery(); d != 5*time.Second {
+		t.Fatalf("policy: %v", d)
+	}
+	set("bogus")
+	if d := usageEvery(); d != 5*time.Second {
+		t.Fatalf("invalid should keep last good: %v", d)
+	}
+	set("")
+	if d := usageEvery(); d != time.Minute {
+		t.Fatalf("removed should restore 1m: %v", d)
+	}
+	set("bogus!")
+	if d := usageEvery(); d != time.Minute {
+		t.Fatalf("invalid after removal keeps 1m: %v", d)
+	}
+	set("7s")
+	t.Setenv("CAD_USAGE_EVERY", "nope")
+	if d := usageEvery(); d != 7*time.Second {
+		t.Fatalf("invalid env falls back to policy: %v", d)
+	}
+	t.Setenv("CAD_USAGE_EVERY", "2s")
+	if d := usageEvery(); d != 2*time.Second {
+		t.Fatalf("env override: %v", d)
+	}
+}

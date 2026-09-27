@@ -11,6 +11,19 @@
     "claude-cloud":   { "vcpuHourUSD": 0,      "gibHourUSD": 0,       "minBillSec": 0,  "preemptible": false, "coldStartSec": 30, "caps": { "docker": true,  "db": true  }, "maxMemMB": 8192,  "maxCpus": 4, "maxMin": 0 }
   },
   "agents": ["claude/a12e00a7", "claude/b1c8ef41", "codex/2e33b72a", "opencode/996c87ae"],
-  "rules": [{ "agent": "claude/*", "computer": "local" }, { "agent": "opencode/*", "computer": "local" }],
-  "placement": { "reservePct": 15, "estPct": { "light-edit": 1, "gate-heavy": 4, "needs-db": 6, "long-running": 8, "urgent": 4, "retry": 4 } }
+  "rules": [{ "agent": "self", "computer": "local" }, { "agent": "opencode/*", "computer": "local" }],
+  "placement": { "reservePct": 15 },
+  "classes": {
+    "light-edit":   { "criteria": "docs/config/コメントのみ。テストの追加・変更なし", "estPct": 1 },
+    "gate-heavy":   { "criteria": "コード変更があり、テスト・型チェック・lint の通過が必要", "estPct": 4 },
+    "needs-db":     { "criteria": "DB（Postgres 等）やコンテナを起動するテストが必要", "estPct": 6 },
+    "long-running": { "criteria": "45 分を超える見込み（大きな移行・E2E）", "estPct": 8 },
+    "urgent":       { "criteria": "owner が結果を待っている（対話中の依頼）", "estPct": 4 },
+    "retry":        { "criteria": "前回失敗・中断した task の再実行", "estPct": 4 }
+  },
+  "runners": {
+    "claude":   { "mode": "subagent" },
+    "opencode": { "mode": "process", "cmd": "opencode run --model {model}", "model": "opencode-go/deepseek-v4-pro" }
+  },
+  "collect": { "usage": { "every": "60s" } }
 }

@@ -13,7 +13,7 @@ import (
 // Collectors register themselves from init() in their own file; server.go never lists them.
 type collector struct {
 	topic   string
-	every   time.Duration
+	every   func() time.Duration // read each scheduling cycle, so it can follow the policy
 	collect func() (interface{}, error)
 }
 
@@ -23,8 +23,10 @@ var collectors []collector
 const pollEvery = 2 * time.Second
 
 func register(topic string, every time.Duration, f func() (interface{}, error)) {
-	collectors = append(collectors, collector{topic, every, f})
+	collectors = append(collectors, collector{topic, fixed(every), f})
 }
+
+func fixed(d time.Duration) func() time.Duration { return func() time.Duration { return d } }
 
 type Event struct {
 	Topic string          `json:"topic"`
@@ -180,21 +182,22 @@ func (h *hub) collectOne(c collector) {
 	h.publish(c.topic, v)
 }
 
-// run starts every collector now and again once its interval has passed, checking every tick until
-// stop closes. Each run gets its own goroutine and a collector still in flight is skipped, so a slow
-// collector never delays the others (it runs again on the first tick after it finishes and is due).
+// run starts every collector now and again once its interval has passed since its last run, checking
+// every tick with its current interval (so a shortened one applies at once) until stop closes. Each
+// run gets its own goroutine and a collector still in flight is skipped, so a slow collector never
+// delays the others (it runs again on the first tick after it finishes and is due).
 func (h *hub) run(cs []collector, tick time.Duration, stop <-chan struct{}) {
-	next := make([]time.Time, len(cs))
+	last := make([]time.Time, len(cs))
 	busy := make([]atomic.Bool, len(cs))
 	t := time.NewTicker(tick)
 	defer t.Stop()
 	for {
 		now := time.Now()
 		for i := range cs {
-			if now.Before(next[i]) || !busy[i].CompareAndSwap(false, true) {
+			if now.Before(last[i].Add(cs[i].every())) || !busy[i].CompareAndSwap(false, true) {
 				continue
 			}
-			next[i] = now.Add(cs[i].every)
+			last[i] = now
 			go func() {
 				defer busy[i].Store(false)
 				h.collectOne(cs[i])

@@ -66,26 +66,26 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 `CLAUDE_CODE_TASK_LIST_ID` は `/pickup` がディレクトリ名で設定する。同じ ID の project があると Task list が混ざる。
 
 ## 配置ロジック（ADR-0010）
-分類だけ Orchestrator（Claude）が行い、配置は `cad` の `POST /v1/place` が policy の `rules`（順序付きの決定リスト、先勝ち）を上から評価して決定的に返す（同じ入力なら同じ出力）。
+調整するもの（`classes`・`rules`・`runners`・`collect`）はすべて `.agent/policy.json` に置く。分類だけ Orchestrator（Claude）が行い、配置は `cad` の `POST /v1/place` が policy の `rules`（順序付きの決定リスト、先勝ち）を上から評価して決定的に返す（同じ入力なら同じ出力）。
 
 ```
 task spec
 ├─ 0. 分類（Orchestrator = Claude が spec に class を書く）
-│     light-edit / gate-heavy / needs-db / long-running / urgent / retry
+│     policy の classes から選ぶ（seed: light-edit / gate-heavy / needs-db / long-running / urgent / retry）
 └─ 1. 配置
    ├─ Mac がスリープ中 → GitHub Actions で opencode（cad の外。未実装）
-   ├─ rule 0: claude の窓が空いている     → claude × local
+   ├─ rule 0: self（Orchestrator 自身の claude、subagent で実行）の窓が空いている → self × local
    ├─ rule 1: opencode の窓が空いている   → opencode × local
    └─ どれも窓で塞がっている → 409 defer（最も早い reset まで。キューは持たない）
       窓以外（local の slot 無しなど）で塞がっている → 422
 ```
 
-配置の記録（policy）は `cad` の CLI で編集する。ファイルは daemon と同じ（`CAD_POLICY` > `.agent/policy.json`）。書き込みは atomic で、稼働中の `cad` は mtime で再読込する（再起動不要）。usage は daemon が定期収集する（claude は `claude -p /usage`、codex は `codex app-server` の `account/rateLimits/read`）（`CAD_USAGE_EVERY`、既定 60s）。メタデータは `cad get` で読む（`CAD_ADDR`・`CAD_TOKEN`、`-ns` 必須）。
+配置の記録（policy）は `cad` の CLI で編集する。ファイルは daemon と同じ（`CAD_POLICY` > `.agent/policy.json`）。書き込みは atomic で、稼働中の `cad` は mtime で再読込する（再起動不要）。usage は daemon が定期収集する（claude は `claude -p /usage`、codex は `codex app-server` の `account/rateLimits/read`）（`CAD_USAGE_EVERY` > policy `collect.usage.every`、既定 60s）。メタデータは `cad get` で読む（`CAD_ADDR`・`CAD_TOKEN`、`-ns` 必須）。
 
 ```
 tools/cad get meta -ns dev                                   # 実行中の cad から全 topic（JSON）
 tools/cad get usage -ns dev                                  # 1 topic（usage / capacity / policy / workers / quota）
-tools/cad show [agents|computers|rules|policy]               # 引数なし = policy（rules を含む）
+tools/cad show [classes|rules|runners|collect|agents|computers|policy]  # 引数なし = policy 全体
 tools/cad add agent claude/3f9a1c0e
 tools/cad add computer gce-spot --file gce.json [--replace]  # または stdin / -
 tools/cad rm agent|computer <key>
