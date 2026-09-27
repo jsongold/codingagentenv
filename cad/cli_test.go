@@ -38,7 +38,6 @@ func TestCLIAddShowRoundtrip(t *testing.T) {
 	p := cliEnv(t)
 	for _, a := range [][]string{
 		{"add", "agent", "claude/test"},
-		{"add", "classagent", "needs-db", "claude/*"},
 		{"add", "computer", "local", "-"},
 	} {
 		if out, code := run(t, localJSON, a...); code != 0 {
@@ -54,7 +53,7 @@ func TestCLIAddShowRoundtrip(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &all); err != nil {
 		t.Fatal(err, out)
 	}
-	if all.Computers["local"].MaxMemMB != 16384 || all.ClassAgents["needs-db"][0] != "claude/*" || all.Gate.MemoryMB != 1500 {
+	if all.Computers["local"].MaxMemMB != 16384 || all.Gate.MemoryMB != 1500 {
 		t.Fatalf("show: %+v", all)
 	}
 	// The daemon reads the same file.
@@ -76,8 +75,6 @@ func TestCLIRejects(t *testing.T) {
 	}{
 		{"", []string{"add", "agent", "claude/test"}},              // duplicate
 		{"", []string{"add", "agent", "Claude/x"}},                 // bad name
-		{"", []string{"add", "classagent", "nope", "claude/*"}},    // unknown class
-		{"", []string{"add", "classagent", "retry", "claude/["}},   // bad pattern
 		{"{not json", []string{"add", "computer", "x", "-"}},       // invalid JSON
 		{`{"vcpuHourUSD":1}`, []string{"add", "computer", "x"}},    // missing fields
 		{"", []string{"rm", "agent", "claude/none"}},               // not found
@@ -112,12 +109,9 @@ func TestCLIRm(t *testing.T) {
 	cliEnv(t)
 	run(t, "", "add", "agent", "claude/a")
 	run(t, "", "add", "agent", "claude/b")
-	run(t, "", "add", "classagent", "retry", "claude/*")
-	run(t, "", "add", "classagent", "retry", "codex/*")
 	run(t, localJSON, "add", "computer", "local")
 	for _, a := range [][]string{
 		{"rm", "agent", "claude/a"},
-		{"rm", "classagent", "retry", "codex/*"},
 		{"rm", "computer", "local"},
 	} {
 		if out, code := run(t, "", a...); code != 0 {
@@ -125,11 +119,8 @@ func TestCLIRm(t *testing.T) {
 		}
 	}
 	pol, _ := loadPolicy()
-	if len(pol.Agents) != 1 || pol.Agents[0] != "claude/b" || len(pol.ClassAgents["retry"]) != 1 || len(pol.Computers) != 0 {
+	if len(pol.Agents) != 1 || pol.Agents[0] != "claude/b" || len(pol.Computers) != 0 {
 		t.Fatalf("after rm: %+v", pol)
-	}
-	if _, code := run(t, "", "rm", "classagent", "retry"); code != 0 {
-		t.Fatal("rm whole class failed")
 	}
 }
 

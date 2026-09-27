@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -18,11 +17,10 @@ import (
 const cliUsage = `usage:
   cad                                   run the server (env: CAD_ADDR, CAD_TOKEN, CAD_POLICY, CAD_SLOTS, CAD_USAGE_EVERY, CAD_CLAUDE_BIN, ...)
   cad get meta|<topic> -ns <namespace>  print the running cad's metadata as JSON (GET /v1/meta, /v1/<topic>; env: CAD_ADDR, CAD_TOKEN)
-  cad show [agents|computers|classAgents|policy]   print records (no arg = the policy)
+  cad show [agents|computers|rules|policy]   print records (no arg = the policy)
   cad add agent <service/account>
   cad add computer <name> [--replace] [--file f.json | -]  (JSON body; piped stdin also works)
-  cad add classagent <class> <pattern>
-  cad rm agent <agent> | computer <name> | classagent <class> [pattern]
+  cad rm agent <agent> | computer <name>
 files: CAD_POLICY > .agent/policy.json. A running cad re-reads it on mtime change. Usage is collected by cad (topic "usage").
 `
 
@@ -182,8 +180,8 @@ func show(kind string, w io.Writer) error {
 		return printJSON(w, p.Agents)
 	case "computers":
 		return printJSON(w, p.Computers)
-	case "classagents":
-		return printJSON(w, p.ClassAgents)
+	case "rules":
+		return printJSON(w, p.Rules)
 	case "", "policy":
 		return printJSON(w, p)
 	}
@@ -238,39 +236,10 @@ func add(kind string, args []string, stdin io.Reader) error {
 			p.Computers = map[string]Computer{}
 		}
 		p.Computers[name] = c
-	case "classagent":
-		if len(args) != 2 {
-			return errUsage
-		}
-		class, pat := args[0], args[1]
-		if !isKnownClass(class) {
-			return fmt.Errorf("class %q: want one of %v", class, knownClasses)
-		}
-		if _, err := path.Match(pat, ""); err != nil {
-			return fmt.Errorf("pattern %q: %v", pat, err)
-		}
-		for _, x := range p.ClassAgents[class] {
-			if x == pat {
-				return fmt.Errorf("classagent %s %q already exists", class, pat)
-			}
-		}
-		if p.ClassAgents == nil {
-			p.ClassAgents = map[string][]string{}
-		}
-		p.ClassAgents[class] = append(p.ClassAgents[class], pat)
 	default:
 		return errUsage
 	}
 	return savePolicy(p)
-}
-
-func isKnownClass(c string) bool {
-	for _, k := range knownClasses {
-		if k == c {
-			return true
-		}
-	}
-	return false
 }
 
 // readBody returns the JSON body from --file, a "-" positional, or piped stdin.
@@ -327,17 +296,6 @@ func rm(kind string, args []string) error {
 			return fmt.Errorf("computer %q not found", args[0])
 		}
 		delete(p.Computers, args[0])
-	case kind == "classagent" && len(args) == 1:
-		if _, ok := p.ClassAgents[args[0]]; !ok {
-			return fmt.Errorf("classagent %q not found", args[0])
-		}
-		delete(p.ClassAgents, args[0])
-	case kind == "classagent" && len(args) == 2:
-		pats := p.ClassAgents[args[0]]
-		p.ClassAgents[args[0]] = without(pats, args[1])
-		if len(p.ClassAgents[args[0]]) == len(pats) {
-			return fmt.Errorf("classagent %s %q not found", args[0], args[1])
-		}
 	default:
 		return errUsage
 	}
