@@ -3,6 +3,7 @@
 # checked-out worktree and post the result as a PR comment. Use when the GitHub
 # Codex bot is out of quota. Refuses if the worktree HEAD is not the PR head.
 # Output: $CODEX_REVIEW_DIR/lrev-<pr>.md (default ${XDG_STATE_HOME:-~/.local/state}/codex-review).
+# Prints "#<pr> done P1=<n> <comment URL>". Exits 3 when codex hits its usage limit.
 # Env: CODEX_REVIEW_MODEL (gpt-6-sol), CODEX_REVIEW_EFFORT (high), CODEX_REVIEW_BASE (origin/main).
 set -uo pipefail
 p=${1:?usage: codex-localreview <pr> <worktree>}
@@ -19,10 +20,15 @@ h=$(git rev-parse HEAD)
 md=$out/lrev-$p.md
 rm -f "$md"
 codex exec review --base "$base" -m "$model" -c "model_reasoning_effort=\"$effort\"" -o "$md" >"$out/lrev-$p.log" 2>&1
+# codex's usage-limit error: "Your workspace is out of credits..." / codex_error_info "usage_limit_exceeded".
+if [ ! -s "$md" ] && grep -qiE 'usage_limit_exceeded|out of credits|usage limit' "$out/lrev-$p.log"; then
+  echo "#$p QUOTA: $(tail -1 "$out/lrev-$p.log")"
+  exit 3
+fi
 [ -s "$md" ] || { echo "#$p FAILED: $(tail -2 "$out/lrev-$p.log")"; exit 1; }
 {
   echo "**Codex local review ($model, $effort) on ${h:0:7}** — the GitHub Codex bot is at its usage limit, so this was run locally with the Codex CLI (\`codex exec review --base $base\`)."
   echo
   cat "$md"
 } >"$out/lrev-$p.post.md"
-gh pr comment "$p" --body-file "$out/lrev-$p.post.md" >/dev/null && echo "#$p done P1=$(grep -cE '\[P1\]' "$md")"
+url=$(gh pr comment "$p" --body-file "$out/lrev-$p.post.md") && echo "#$p done P1=$(grep -cE '\[P1\]' "$md") $url"
