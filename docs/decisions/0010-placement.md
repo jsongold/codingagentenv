@@ -50,6 +50,11 @@ ADR-0008 / 0009 は「provider の固定一覧（`policy.providers.allowed`）�
 - **同時実行**：2つの place が同時に来ると同じ空きを二重に数えうる。lease（関門）は実害が出るまで入れない。
 - **Orchestrator は Claude Code のまま**（Task list と `VERIFIED:` の hook が強制できるのはここだけ、ADR-0002 / 0004）。Codex・opencode・Gemini などは Worker またはレビュアーとして使う。
 
+## 戦略（owner 決定・2026-09-27）
+- **通常運用**：Claude を local で使い切るまで使い、使用枠が尽きたら opencode にフォールバックする（opencode のモデルは可変。現在は DeepSeek）。`classAgents` は全 class を `["claude/*", "opencode/*"]`、`agentPriority` は `["claude", "opencode"]` にする。
+- **codex はレビュー専用**：実装 Agent としては使わない。`policy.agents` には残す（レビュー枠の usage 収集のため）が、どの class の `classAgents` にも含めない＝`place` が codex を選ぶことはない。
+- **Mac がスリープしたら** GitHub Actions が opencode を起動して PR を作る（今は設計のみ・実装は未着手の future work）。
+
 ## 検討して却下した案
 | 案 | 却下理由 |
 |---|---|
