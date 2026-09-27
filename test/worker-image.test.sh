@@ -4,8 +4,9 @@
 # - resource-limited, to check cad sees the container's cgroup limits, not the host's
 # - with a child command, to check bootstrap reports its exit code (ADR-0009) instead of exec'ing it away
 # - against a local (file://) bare repo, network-free, to check the BRANCH
-#   checkout logic (both when BRANCH is already checked out by clone and when
-#   it's new) and that GH_TOKEN never lands in .git/config
+#   checkout logic (already checked out by clone, new, and colliding with a
+#   tag of the same name) and that GH_TOKEN never lands in .git/config or
+#   ~/.gitconfig, while still being usable by a later git credential lookup
 # Run: bash test/worker-image.test.sh
 set -u
 
@@ -62,7 +63,8 @@ git init --quiet --bare -b main "$FIXDIR/repo.git"
 wt=$(mktemp -d)
 git clone --quiet "$FIXDIR/repo.git" "$wt"
 git -C "$wt" -c user.email=t@example.com -c user.name=t commit --quiet --allow-empty -m init
-git -C "$wt" push --quiet origin main
+git -C "$wt" tag feature # collides with the branch name used below
+git -C "$wt" push --quiet origin main --tags
 rm -rf "$wt"
 
 clone_env=(-e REPO=test/repo -e CLONE_URL=file:///repo.git -e BASE=main -v "$FIXDIR/repo.git:/repo.git:ro")
@@ -73,13 +75,19 @@ check "BRANCH == default branch already checked out by clone: exits 0" 0 "$?"
 check "BRANCH == default branch already checked out by clone: on main" main "$(echo "$out" | head -n1)"
 
 out=$(docker run --rm "${clone_env[@]}" -e BRANCH=feature \
-  "$IMG" bootstrap sh -c 'git -C "$WORKDIR" rev-parse --abbrev-ref HEAD')
-check "new BRANCH created from origin/BASE: exits 0" 0 "$?"
-check "new BRANCH created from origin/BASE: on feature" feature "$(echo "$out" | head -n1)"
+  "$IMG" bootstrap sh -c 'git -C "$WORKDIR" symbolic-ref -q HEAD')
+check "new BRANCH colliding with a tag of the same name: exits 0" 0 "$?"
+check "new BRANCH colliding with a tag of the same name: on branch, not detached" refs/heads/feature "$(echo "$out" | head -n1)"
 
 out=$(docker run --rm "${clone_env[@]}" -e BRANCH=main -e GH_TOKEN=dummy-secret-abc123 \
-  "$IMG" bootstrap sh -c 'grep -q dummy-secret-abc123 "$WORKDIR/.git/config" && echo FOUND || echo NOTFOUND')
-check "GH_TOKEN never persisted in .git/config" NOTFOUND "$(echo "$out" | head -n1)"
+  "$IMG" bootstrap sh -c '
+    grep -q dummy-secret-abc123 "$WORKDIR/.git/config" && echo CFG_FOUND || echo CFG_NOTFOUND
+    grep -q dummy-secret-abc123 "$HOME/.gitconfig" 2>/dev/null && echo GLOBAL_FOUND || echo GLOBAL_NOTFOUND
+    printf "protocol=https\nhost=github.com\n" | git credential fill | grep -q "password=dummy-secret-abc123" && echo CRED_OK || echo CRED_MISSING
+  ')
+check "GH_TOKEN never persisted in .git/config" CFG_NOTFOUND "$(echo "$out" | sed -n 1p)"
+check "GH_TOKEN never persisted in ~/.gitconfig" GLOBAL_NOTFOUND "$(echo "$out" | sed -n 2p)"
+check "GH_TOKEN still usable by a later git credential lookup (child agent)" CRED_OK "$(echo "$out" | sed -n 3p)"
 
 docker image rm "$IMG" >/dev/null 2>&1
 

@@ -9,12 +9,15 @@
 # mechanism later.
 #
 # Env: REPO (owner/name; clone is skipped when unset), BRANCH (required if
-# REPO is set), BASE (default main), GH_TOKEN (optional clone auth, sent as a
-# non-persistent header — never written to .git/config, never echoed),
-# CLONE_URL (override the derived https://github.com/<REPO>.git, e.g. for a
-# local file:// repo in tests), CAD_ADDR (default 127.0.0.1:7878, must be
-# loopback), CAD_TOKEN (bearer token cad requires beyond /healthz), WORKDIR
-# (default /home/agent/workspace), RESULT_FILE (default /tmp/agent-result.json).
+# REPO is set), BASE (default main), GH_TOKEN (optional; authenticates git
+# against github.com for bootstrap's own clone/fetch AND any later fetch/push
+# the child agent command runs, via a `gh` credential helper that reads
+# GH_TOKEN from the environment at call time — the token itself is never
+# written to .git/config or ~/.gitconfig, never echoed), CLONE_URL (override
+# the derived https://github.com/<REPO>.git, e.g. for a local file:// repo in
+# tests), CAD_ADDR (default 127.0.0.1:7878, must be loopback), CAD_TOKEN
+# (bearer token cad requires beyond /healthz), WORKDIR (default
+# /home/agent/workspace), RESULT_FILE (default /tmp/agent-result.json).
 set -euo pipefail
 
 CAD_ADDR=${CAD_ADDR:-127.0.0.1:7878}
@@ -29,28 +32,30 @@ esac
 if [ -n "${REPO:-}" ]; then
   : "${BRANCH:?bootstrap: BRANCH is required when REPO is set}"
   url=${CLONE_URL:-https://github.com/${REPO}.git}
-  # Non-persistent auth: -c only affects this git invocation, so the token
-  # never lands in $WORKDIR/.git/config (unlike embedding it in the remote
-  # URL, which `git clone` saves verbatim as remote.origin.url).
-  auth=()
   if [ -n "${GH_TOKEN:-}" ]; then
-    b64=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
-    auth+=(-c "http.extraheader=Authorization: Basic $b64")
+    # Global, not per-repo: this authenticates bootstrap's own clone/fetch
+    # below AND any later fetch/push the child agent command runs. `gh auth
+    # git-credential` reads GH_TOKEN from its own process environment each
+    # time git invokes it, so the token is never written to disk here --
+    # only the helper command itself is (`git config --global --get
+    # credential.https://github.com.helper`) -- and it stays live for as
+    # long as GH_TOKEN stays set.
+    gh auth setup-git --hostname github.com --force >/dev/null
   fi
   # A CLONE_URL override (used for local/file:// testing) commonly points at
   # a bind-mounted path this container doesn't own; trust it explicitly
-  # rather than failing on git's dubious-ownership check. (safe.directory
-  # is read before command-line config is applied, so -c can't set it here;
+  # rather than failing on git's dubious-ownership check. (safe.directory is
+  # read before command-line config is applied, so `-c` can't set it here;
   # it must go through a config file.)
   [ -n "${CLONE_URL:-}" ] && git config --global --add safe.directory '*'
   # Mask the token in any error output git prints, as defense in depth.
-  if ! git "${auth[@]}" clone --quiet "$url" "$WORKDIR" 2> >(sed "s/${GH_TOKEN:-x-no-token-set-x}/***/g" >&2); then
+  if ! git clone --quiet "$url" "$WORKDIR" 2> >(sed "s/${GH_TOKEN:-x-no-token-set-x}/***/g" >&2); then
     echo "bootstrap: git clone failed" >&2
     exit 1
   fi
   cd "$WORKDIR"
-  git "${auth[@]}" fetch --quiet origin "$BASE"
-  if git rev-parse --verify --quiet "$BRANCH" >/dev/null; then
+  git fetch --quiet origin "$BASE"
+  if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
     # clone already checked this out locally (BRANCH is the remote's default branch).
     git checkout --quiet "$BRANCH"
   elif git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
