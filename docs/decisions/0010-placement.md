@@ -57,7 +57,16 @@ ADR-0008 / 0009 は「provider の固定一覧（`policy.providers.allowed`）�
 ## 戦略（owner 決定・2026-09-27）
 - **通常運用**：Claude を local で使い切るまで使い、使用枠が尽きたら opencode にフォールバックする（opencode のモデルは可変。現在は DeepSeek）。`rules` を `[{self, local}, {opencode/*, local}]` にする（順序が優先度）。
 - **codex はレビュー専用**：実装 Agent としては使わない。`policy.agents` には残す（レビュー枠の usage 収集のため）が、どの rule にも一致させない＝`place` が codex を選ぶことはない。
-- **Mac がスリープしたら** GitHub Actions が opencode を起動して PR を作る。これは `cad` の外で扱い、rules には書かない（今は設計のみ・実装は未着手の future work）。
+- **Mac がスリープしたら** GitHub Actions が opencode を起動して PR を作る。これは `cad` の外で扱い、rules には書かない（下記）。
+
+## Mac 睡眠時（GitHub Actions）
+`.github/workflows/opencode-sleep.yml`。
+- owner が寝る前に Issue に `ai` ラベルを手で付ける（1 晩最大 3 件程度）
+- Actions は起動時に `wip` ラベルを付けてロックにする。失敗・取消時は `wip` を外し、run の URL を Issue にコメントする
+- Orchestrator は `ai` または `wip` の付いた Issue を拾わない
+- 同時実行 1（concurrency group、取消なし）、timeout 60 分。モデルは `opencode-go/deepseek-v4-pro`
+- GitHub の token は PAT（`OPENCODE_GH_PAT`）。`GITHUB_TOKEN` で作った PR は CI を起動しないため。未設定なら `github.token` で動くが CI は走らない
+- KPI = PR が出た夜の数 / `ai` を付けた夜の数
 
 ## 検討して却下した案
 | 案 | 却下理由 |

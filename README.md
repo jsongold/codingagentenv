@@ -73,7 +73,7 @@ task spec
 ├─ 0. 分類（Orchestrator = Claude が spec に class を書く）
 │     policy の classes から選ぶ（seed: light-edit / gate-heavy / needs-db / long-running / urgent / retry）
 └─ 1. 配置
-   ├─ Mac がスリープ中 → GitHub Actions で opencode（cad の外。未実装）
+   ├─ Mac がスリープ中 → GitHub Actions で opencode（cad の外。.github/workflows/opencode-sleep.yml）
    ├─ rule 0: self（Orchestrator 自身の claude、subagent で実行）の窓が空いている → self × local
    ├─ rule 1: opencode の窓が空いている   → opencode × local
    └─ どれも窓で塞がっている → 409 defer（最も早い reset まで。キューは持たない）
