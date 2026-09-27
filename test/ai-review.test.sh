@@ -14,21 +14,24 @@ check() { # name, expected, actual
 WT=$TMP/wt
 git init -q "$WT" && git -C "$WT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
 git -C "$WT" remote add origin "$WT"
-export FAKE_HEAD=$(git -C "$WT" rev-parse HEAD)
+HEAD_SHA=$(git -C "$WT" rev-parse HEAD)
+export HEAD_FILE=$TMP/head # the PR head the fake gh reports; fakes write here to simulate a push
+echo "$HEAD_SHA" >"$HEAD_FILE"
 
 mkdir -p "$TMP/bin"
 cat >"$TMP/bin/gh" <<'EOF'
 #!/bin/bash
 echo "gh $*" >>"$CALLS"
 case "$1 $2" in
-  "pr view") echo "$FAKE_HEAD" ;;
+  "pr view") cat "$HEAD_FILE" ;;
   "pr comment") echo "https://github.test/pr/1#comment" ;;
-  api*) [ -n "${FAKE_BOT:-}" ] && echo "$FAKE_BOT"; exit 0 ;;
+  api*) while [ "$1" != --jq ]; do shift; done; echo "${FAKE_REVIEWS:-[]}" | jq -r "$2" ;;
 esac
 EOF
 cat >"$TMP/bin/codex-localreview" <<'EOF'
 #!/bin/bash
 echo "codex-localreview $*" >>"$CALLS"
+[ -n "${FAKE_MOVE:-}" ] && echo moved >"$HEAD_FILE"
 case ${FAKE_LOCAL:-1} in
   0) echo "#$1 done P1=0 https://github.test/pr/1#local" ;;
   3) echo "#$1 QUOTA: out of credits"; exit 3 ;;
@@ -38,13 +41,14 @@ EOF
 cat >"$TMP/bin/claude" <<'EOF'
 #!/bin/bash
 echo "claude $* stdin=$(head -c 20)" >>"$CALLS"
+[ -n "${FAKE_MOVE:-}" ] && echo moved >"$HEAD_FILE"
 [ "${FAKE_CLAUDE:-1}" = 0 ] && echo "No issues found." || { echo "claude broke" >&2; exit 1; }
 EOF
 chmod +x "$TMP/bin"/*
 export PATH="$TMP/bin:$PATH" CALLS="$TMP/calls" XDG_STATE_HOME="$TMP/state"
 
 printf '{"review":{"reviewers":["codex-bot","codex-local","claude-opus"],"excludeImplementer":true}}' >"$TMP/policy.json"
-export CAD_POLICY="$TMP/policy.json"
+export CAD_POLICY="$TMP/policy.json" AI_REVIEW_IMPLEMENTER=someone-else
 
 # Fake cad: GET /v1/quota serves $TMP/quota.json; POSTs are appended to $TMP/posts.
 echo '[]' >"$TMP/quota.json"
@@ -64,18 +68,37 @@ for _ in $(seq 50); do [ -s "$TMP/port" ] && break; sleep 0.1; done
 export CAD_URL="http://127.0.0.1:$(cat "$TMP/port")"
 
 review() { # env assignments may precede; runs ai-review 1 $WT "$@"
-  : >"$CALLS"; : >"$TMP/posts"
+  : >"$CALLS"; : >"$TMP/posts"; echo "$HEAD_SHA" >"$HEAD_FILE"
   bash "$ROOT/tools/ai-review" 1 "$WT" "$@" >"$TMP/out" 2>"$TMP/err"
 }
 called() { grep -c "^$1" "$CALLS"; }
 
-FAKE_BOT=https://github.test/pr/1#bot review
+bot() { printf '[{"user":{"login":"chatgpt-codex-connector[bot]"},"commit_id":"%s","state":"%s","html_url":"https://github.test/pr/1#bot"}]' "$1" "$2"; }
+FAKE_REVIEWS=$(bot "$HEAD_SHA" COMMENTED) review
 check "bot review on head: exit 0" 0 $?
 check "codex-bot has priority" "codex-bot reviewed #1: https://github.test/pr/1#bot" "$(cat "$TMP/out")"
 check "later reviewers not run" 0 "$(called codex-localreview)"
 
 FAKE_LOCAL=0 review
 check "no bot review -> codex-local" "codex-local reviewed #1: https://github.test/pr/1#local" "$(cat "$TMP/out")"
+
+FAKE_REVIEWS=$(bot "$HEAD_SHA" DISMISSED) FAKE_LOCAL=0 review
+check "dismissed bot review is not coverage" "codex-local reviewed #1: https://github.test/pr/1#local" "$(cat "$TMP/out")"
+FAKE_REVIEWS=$(bot 0000000 COMMENTED) FAKE_LOCAL=0 review
+check "bot review on an old commit is not coverage" "codex-local reviewed #1: https://github.test/pr/1#local" "$(cat "$TMP/out")"
+
+AI_REVIEW_IMPLEMENTER= FAKE_LOCAL=0 review
+check "no implementer with excludeImplementer: exit 1" 1 $?
+check "no implementer: clear message, no review" "ai-review: policy review.excludeImplementer is on: pass --implementer <name> or set AI_REVIEW_IMPLEMENTER|0" "$(cat "$TMP/err")|$(wc -l <"$CALLS" | tr -d ' ')"
+AI_REVIEW_IMPLEMENTER= FAKE_LOCAL=0 review --implementer ''
+check "empty --implementer is refused" 1 $?
+
+FAKE_MOVE=1 FAKE_CLAUDE=0 review --implementer codex-local
+check "head moved during claude review: exit 1" 1 $?
+check "stale claude review is not posted" 0 "$(called 'gh pr comment')"
+check "stale is reported" 1 "$(grep -c 'stale: #1 head moved' "$TMP/err")"
+FAKE_MOVE=1 FAKE_LOCAL=0 review
+check "head moved during codex-local review: exit 1, not accepted" "1|" "$?|$(cat "$TMP/out")"
 
 FAKE_LOCAL=0 FAKE_CLAUDE=0 review --implementer codex-local
 check "implementer excluded -> claude-opus" "claude-opus reviewed #1: https://github.test/pr/1#comment" "$(cat "$TMP/out")"
@@ -87,7 +110,7 @@ FAKE_LOCAL=0 FAKE_CLAUDE=0 AI_REVIEW_IMPLEMENTER=codex-local review
 check "AI_REVIEW_IMPLEMENTER also excludes" 0 "$(called codex-localreview)"
 
 echo '[{"reviewer":"codex-bot","state":"exhausted"}]' >"$TMP/quota.json"
-FAKE_BOT=https://github.test/pr/1#bot FAKE_LOCAL=0 review
+FAKE_REVIEWS=$(bot "$HEAD_SHA" COMMENTED) FAKE_LOCAL=0 review
 check "exhausted reviewer skipped" "codex-local reviewed #1: https://github.test/pr/1#local" "$(cat "$TMP/out")"
 check "exhausted reviewer not queried" 0 "$(called 'gh api')"
 echo '[]' >"$TMP/quota.json"

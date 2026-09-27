@@ -66,6 +66,12 @@ async function policy(): Promise<{ reviewers: string[]; excludeImplementer: bool
   return { reviewers, excludeImplementer: p.review.excludeImplementer !== false };
 }
 
+// A long review can outlive the head it reviewed; never accept or post a review of an old head.
+function ensureHead(head: string, name: string): void {
+  const now = prHead();
+  if (now !== head) fail(`stale: #${pr} head moved ${head.slice(0, 7)} -> ${now.slice(0, 7)} during ${name} review; rerun ai-review`);
+}
+
 function prHead(): string {
   const r = run("gh", ["pr", "view", pr, "--json", "headRefOid", "-q", ".headRefOid"]);
   return r.code === 0 ? r.out : fail(`gh pr view ${pr}: ${r.last}`);
@@ -75,7 +81,7 @@ const CODEX_BOT = "chatgpt-codex-connector[bot]";
 
 // The GitHub Codex bot reviews on its own; use its review only if it already covers the PR head.
 function codexBot(head: string): Result {
-  const jq = `.[] | select(.user.login == "${CODEX_BOT}" and .commit_id == "${head}") | .html_url`;
+  const jq = `.[] | select(.user.login == "${CODEX_BOT}" and .commit_id == "${head}" and .state != "DISMISSED") | .html_url`;
   const r = run("gh", ["api", "--paginate", `repos/{owner}/{repo}/pulls/${pr}/reviews`, "--jq", jq]);
   if (r.code !== 0) return { ok: false, quota: false, reason: `gh api: ${r.last}` };
   const url = r.out.split("\n").filter(Boolean).pop();
@@ -104,6 +110,7 @@ function claudeOpus(head: string): Result {
   ], PROMPT); // prompt on stdin: --allowedTools is variadic and would swallow a positional prompt
   // ponytail: Claude's usage-limit output is unverified, so a quota hit here counts as a plain failure.
   if (r.code !== 0 || !r.out) return { ok: false, quota: false, reason: `claude: ${r.last || "empty review"}` };
+  ensureHead(head, "claude-opus");
   const dir = join(process.env.XDG_STATE_HOME ?? join(homedir(), ".local/state"), "ai-review");
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `claude-${pr}.md`);
@@ -113,6 +120,8 @@ function claudeOpus(head: string): Result {
 }
 
 const { reviewers, excludeImplementer } = await policy();
+if (excludeImplementer && !implementer.trim())
+  fail("policy review.excludeImplementer is on: pass --implementer <name> or set AI_REVIEW_IMPLEMENTER");
 const quotas: any[] = (await cad("/v1/quota")) ?? [];
 const exhausted = new Set(quotas.filter((q) => q?.state === "exhausted").map((q) => q.reviewer));
 let head = "";
@@ -128,6 +137,7 @@ for (const name of reviewers) {
     : name === "claude-opus" ? claudeOpus(head)
     : { ok: false, quota: false, reason: "unknown reviewer" };
   if (r.ok) {
+    ensureHead(head, name);
     console.log(`${name} reviewed #${pr}: ${r.where}`);
     process.exit(0);
   }
