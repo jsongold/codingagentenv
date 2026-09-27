@@ -32,6 +32,7 @@ func newServer(h *hub, token string) http.Handler {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		case p == "events":
 			h.serveEvents(w, r)
+		case p != "events" && !requireNS(w, r):
 		case p == "meta":
 			m := map[string]json.RawMessage{}
 			for _, e := range h.current() {

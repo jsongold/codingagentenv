@@ -76,7 +76,7 @@ func TestPollWorkersFakeProvider(t *testing.T) {
 	srv := httptest.NewServer(newServer(h, ""))
 	defer srv.Close()
 	var ws []Worker
-	if err := json.NewDecoder(get(t, srv.URL+"/v1/workers", "").Body).Decode(&ws); err != nil {
+	if err := json.NewDecoder(get(t, srv.URL+"/v1/workers?ns=t", "").Body).Decode(&ws); err != nil {
 		t.Fatal(err)
 	}
 	if len(ws) != 3 {

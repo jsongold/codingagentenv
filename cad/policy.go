@@ -28,10 +28,11 @@ type Policy struct {
 		Allowed []string `json:"allowed"`
 	} `json:"providers"`
 	// Placement (ADR-0010). providers.allowed above still drives worker polling.
-	Computers   map[string]Computer `json:"computers"`
-	Agents      []string            `json:"agents"`      // e.g. "claude/default", "claude/3f9a1c0e"
-	ClassAgents map[string][]string `json:"classAgents"` // class -> path.Match patterns over Agents
-	Placement   struct {
+	Computers     map[string]Computer `json:"computers"`
+	Agents        []string            `json:"agents"`        // e.g. "claude/default", "claude/3f9a1c0e"
+	AgentPriority []string            `json:"agentPriority"` // service order for the agent tie-break, e.g. ["claude","codex"]
+	ClassAgents   map[string][]string `json:"classAgents"`   // class -> path.Match patterns over Agents
+	Placement     struct {
 		ReservePct float64            `json:"reservePct"` // usage headroom kept free per window
 		EstPct     map[string]float64 `json:"estPct"`     // class -> estimated usage % one task consumes
 	} `json:"placement"`
@@ -56,6 +57,7 @@ func defaultPolicy() Policy {
 	p.Review.Reviewers = []string{"codex-bot", "codex-local", "claude-opus"}
 	p.Review.ExcludeImplementer, p.Review.RequireCI = true, true
 	p.Providers.Allowed = []string{"gce-spot", "cloud-run-jobs", "e2b", "local"}
+	p.AgentPriority = []string{"claude", "codex", "opencode"}
 	return p
 }
 
@@ -100,5 +102,5 @@ func currentPolicy() Policy {
 }
 
 func init() {
-	register("policy", func() (interface{}, error) { return currentPolicy(), nil })
+	register("policy", pollEvery, func() (interface{}, error) { return currentPolicy(), nil })
 }

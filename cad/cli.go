@@ -12,20 +12,18 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
-	"time"
 )
 
 const cliUsage = `usage:
-  cad                                   run the server (env: CAD_ADDR, CAD_TOKEN, CAD_POLICY, CAD_USAGE, ...)
-  cad show [agents|computers|classAgents|usage|policy]   print records (no arg = everything)
+  cad                                   run the server (env: CAD_ADDR, CAD_TOKEN, CAD_POLICY, CAD_SLOTS, CAD_USAGE_EVERY, CAD_CLAUDE_BIN, ...)
+  cad get meta|<topic> -ns <namespace>  print the running cad's metadata as JSON (GET /v1/meta, /v1/<topic>; env: CAD_ADDR, CAD_TOKEN)
+  cad show [agents|computers|classAgents|policy]   print records (no arg = the policy)
   cad add agent <service/account>
   cad add computer <name> [--replace] [--file f.json | -]  (JSON body; piped stdin also works)
   cad add classagent <class> <pattern>
-  cad set usage <agent> [--5h pct] [--5h-reset RFC3339] [--7d pct] [--7d-reset RFC3339] [--file f.json | -]
-  cad rm agent <agent> | computer <name> | classagent <class> [pattern] | usage <agent>
-files: CAD_POLICY > .agent/policy.json, CAD_USAGE > .agent/usage.json. A running cad re-reads them on mtime change.
+  cad rm agent <agent> | computer <name> | classagent <class> [pattern]
+files: CAD_POLICY > .agent/policy.json. A running cad re-reads it on mtime change. Usage is collected by cad (topic "usage").
 `
 
 // knownClasses are the task classes of ADR-0010.
@@ -42,7 +40,7 @@ func isCLI(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "show", "add", "set", "rm", "help", "-h", "-help", "--help":
+	case "get", "show", "add", "rm", "help", "-h", "-help", "--help":
 		return true
 	}
 	return false
@@ -55,12 +53,18 @@ func runCLI(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if errors.Is(err, errUsage) {
 			fmt.Fprint(stderr, cliUsage)
 		}
+		if errors.Is(err, errNS) {
+			return 2
+		}
 		return 1
 	}
 	return 0
 }
 
-var errUsage = errors.New("bad usage")
+var (
+	errUsage = errors.New("bad usage")
+	errNS    = fmt.Errorf("-ns <namespace> required (%s): %w", nsRe, errUsage)
+)
 
 func cli(args []string, stdin io.Reader, stdout io.Writer) error {
 	kind := ""
@@ -76,11 +80,8 @@ func cli(args []string, stdin io.Reader, stdout io.Writer) error {
 		return show(kind, stdout)
 	case "add":
 		return add(kind, rest, stdin)
-	case "set":
-		if kind != "usage" || len(rest) < 1 {
-			return errUsage
-		}
-		return setUsage(rest[0], rest[1:], stdin)
+	case "get":
+		return getCmd(args[1:], stdout)
 	case "rm":
 		return rm(kind, rest)
 	}
@@ -92,13 +93,6 @@ func policyFile() string {
 		return p
 	}
 	return ".agent/policy.json"
-}
-
-func usageFile() string {
-	if p := os.Getenv("CAD_USAGE"); p != "" {
-		return p
-	}
-	return ".agent/usage.json"
 }
 
 // loadPolicy reads the policy file; a missing file yields defaultPolicy (add creates it).
@@ -116,22 +110,6 @@ func loadPolicy() (Policy, error) {
 	}
 	p.Source = policyFile()
 	return p, nil
-}
-
-// loadUsageRaw keeps every key (including "_provisional") so writes drop nothing.
-func loadUsageRaw() (map[string]json.RawMessage, error) {
-	raw := map[string]json.RawMessage{}
-	b, err := os.ReadFile(usageFile())
-	if errors.Is(err, os.ErrNotExist) {
-		return raw, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if _, err := parseUsage(b); err != nil {
-		return nil, fmt.Errorf("%s: %v", usageFile(), err)
-	}
-	return raw, json.Unmarshal(b, &raw)
 }
 
 func savePolicy(p Policy) error {
@@ -153,17 +131,6 @@ func savePolicy(p Policy) error {
 		return err
 	}
 	return writeAtomic(policyFile(), b)
-}
-
-func saveUsage(raw map[string]json.RawMessage) error {
-	b, err := json.MarshalIndent(raw, "", "  ")
-	if err != nil {
-		return err
-	}
-	if _, err := parseUsage(b); err != nil {
-		return err
-	}
-	return writeAtomic(usageFile(), b)
 }
 
 // writeAtomic writes a temp file next to name and renames it over name, so readers
@@ -206,31 +173,18 @@ func printJSON(w io.Writer, v interface{}) error {
 }
 
 func show(kind string, w io.Writer) error {
-	var p Policy
-	var u map[string]json.RawMessage
-	var err error
-	if kind != "usage" {
-		if p, err = loadPolicy(); err != nil {
-			return err
-		}
-	}
-	if kind == "" || kind == "usage" {
-		if u, err = loadUsageRaw(); err != nil {
-			return err
-		}
+	p, err := loadPolicy()
+	if err != nil {
+		return err
 	}
 	switch kind {
-	case "":
-		return printJSON(w, map[string]interface{}{"policy": p, "usage": u})
 	case "agents":
 		return printJSON(w, p.Agents)
 	case "computers":
 		return printJSON(w, p.Computers)
 	case "classagents":
 		return printJSON(w, p.ClassAgents)
-	case "usage":
-		return printJSON(w, u)
-	case "policy":
+	case "", "policy":
 		return printJSON(w, p)
 	}
 	return errUsage
@@ -353,83 +307,7 @@ func parseComputer(b []byte) (Computer, error) {
 	return c, d.Decode(&c)
 }
 
-func setUsage(agent string, args []string, stdin io.Reader) error {
-	if !agentRe.MatchString(agent) {
-		return fmt.Errorf("agent %q: want <service>/<account>", agent)
-	}
-	raw, err := loadUsageRaw()
-	if err != nil {
-		return err
-	}
-	var u AgentUsage
-	if v, ok := raw[agent]; ok {
-		if err := json.Unmarshal(v, &u); err != nil {
-			return err
-		}
-	}
-	fs := flag.NewFlagSet("set usage", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	pct := func(dst *float64) func(string) error {
-		return func(s string) error {
-			v, err := strconv.ParseFloat(s, 64)
-			if err == nil && (v < 0 || v > 100) {
-				err = fmt.Errorf("want 0..100")
-			}
-			*dst = v
-			return err
-		}
-	}
-	reset := func(dst *time.Time) func(string) error {
-		return func(s string) (err error) { *dst, err = time.Parse(time.RFC3339, s); return }
-	}
-	fs.Func("5h", "", pct(&u.FiveHour.UsedPct))
-	fs.Func("5h-reset", "", reset(&u.FiveHour.ResetsAt))
-	fs.Func("7d", "", pct(&u.SevenDay.UsedPct))
-	fs.Func("7d-reset", "", reset(&u.SevenDay.ResetsAt))
-	file := fs.String("file", "", "")
-	if err := fs.Parse(args); err != nil {
-		return fmt.Errorf("%v: %w", err, errUsage)
-	}
-	nflags := 0
-	fs.Visit(func(*flag.Flag) { nflags++ })
-	if *file != "" || len(fs.Args()) > 0 || nflags == 0 {
-		if nflags > 1 || (nflags == 1 && *file == "") {
-			return fmt.Errorf("--file/stdin cannot be combined with window flags: %w", errUsage)
-		}
-		body, err := readBody(*file, fs.Args(), stdin)
-		if err != nil {
-			return err
-		}
-		d := json.NewDecoder(bytes.NewReader(body))
-		d.DisallowUnknownFields()
-		u = AgentUsage{}
-		if err := d.Decode(&u); err != nil {
-			return fmt.Errorf("usage body: %v", err)
-		}
-	}
-	b, err := json.Marshal(u)
-	if err != nil {
-		return err
-	}
-	raw[agent] = b
-	return saveUsage(raw)
-}
-
 func rm(kind string, args []string) error {
-	if kind == "usage" {
-		if len(args) != 1 {
-			return errUsage
-		}
-		raw, err := loadUsageRaw()
-		if err != nil {
-			return err
-		}
-		if _, ok := raw[args[0]]; !ok || strings.HasPrefix(args[0], "_") {
-			return fmt.Errorf("usage %q not found", args[0])
-		}
-		delete(raw, args[0])
-		return saveUsage(raw)
-	}
 	p, err := loadPolicy()
 	if err != nil {
 		return err

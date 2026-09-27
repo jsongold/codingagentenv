@@ -27,9 +27,8 @@ func main() {
 		log.Fatalf("cad: refusing to bind non-loopback %s without CAD_TOKEN", addr)
 	}
 	h := newHub()
-	h.collectAll()
-	go h.run(2 * time.Second)
-	go h.runQuotaResets(2 * time.Second)
+	go h.run(collectors, 250*time.Millisecond, nil)
+	go h.runQuotaResets(pollEvery)
 	log.Printf("cad: listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, newServer(h, token)))
 }

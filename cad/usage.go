@@ -1,12 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -15,68 +20,199 @@ type UsageWindow struct {
 	ResetsAt time.Time `json:"resetsAt"`
 }
 
-// AgentUsage is one agent's subscription usage (ADR-0010 window filter).
+// AgentUsage is one agent's subscription usage (ADR-0010 window filter). Error is set when the
+// collector could not refresh it; Stale when the value it read is older than 2 intervals.
 type AgentUsage struct {
-	FiveHour UsageWindow `json:"fiveHour"`
-	SevenDay UsageWindow `json:"sevenDay"`
+	FiveHour  UsageWindow `json:"fiveHour"`
+	SevenDay  UsageWindow `json:"sevenDay"`
+	FetchedAt time.Time   `json:"fetchedAt,omitzero"`
+	Stale     bool        `json:"stale,omitempty"`
+	Error     string      `json:"error,omitempty"`
 }
 
-var (
-	useMu   sync.Mutex
-	use     = map[string]AgentUsage{}
-	usePath string
-	useMod  time.Time
-)
+// UsageMap is published on the "usage" topic. fetchedAt is excluded from the change key
+// (like capacity's collectedAt) so a refresh with the same numbers emits no event.
+type UsageMap map[string]AgentUsage
 
-// parseUsage reads {"<agent>": AgentUsage}; keys starting with "_" (e.g. "_provisional") are ignored.
-func parseUsage(b []byte) (map[string]AgentUsage, error) {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return nil, err
+func (m UsageMap) changeKey() interface{} {
+	k := make(map[string]AgentUsage, len(m))
+	for a, u := range m {
+		u.FetchedAt = time.Time{}
+		k[a] = u
 	}
-	u := map[string]AgentUsage{}
-	for k, v := range raw {
-		if strings.HasPrefix(k, "_") {
+	return k
+}
+
+const usageTimeout = 30 * time.Second
+
+func usageEvery() time.Duration {
+	if v := os.Getenv("CAD_USAGE_EVERY"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err == nil && d > 0 {
+			return d
+		}
+		log.Printf("cad: ignoring invalid CAD_USAGE_EVERY=%q", v)
+	}
+	return time.Minute
+}
+
+// usageStore maps a claude agent to its config dir ("" = default, no CLAUDE_CONFIG_DIR) and .claude.json.
+func usageStore(agent string) (dir, file string, err error) {
+	if !agentRe.MatchString(agent) { // keeps the id a single path element
+		return "", "", errors.New("bad agent name")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", "", err
+	}
+	id := strings.TrimPrefix(agent, "claude/")
+	if id == "default" {
+		return "", filepath.Join(home, ".claude.json"), nil
+	}
+	dir = filepath.Join(home, ".aienv", ".store", id)
+	return dir, filepath.Join(dir, ".claude.json"), nil
+}
+
+// claudeBin: CAD_CLAUDE_BIN > ~/.local/bin/claude > PATH, skipping the aienv shim (~/.aienv/bin).
+func claudeBin() (string, error) {
+	if b := os.Getenv("CAD_CLAUDE_BIN"); b != "" {
+		return b, nil
+	}
+	home, _ := os.UserHomeDir()
+	if p := filepath.Join(home, ".local", "bin", "claude"); isExecutable(p) {
+		return p, nil
+	}
+	shim := filepath.Join(home, ".aienv", "bin")
+	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
+		if p := filepath.Join(d, "claude"); filepath.Clean(d) != shim && isExecutable(p) {
+			return p, nil
+		}
+	}
+	return "", errors.New("claude binary not found (set CAD_CLAUDE_BIN)")
+}
+
+// runClaudeUsage runs `claude -p /usage`, which refreshes .cachedUsageUtilization in the store's
+// .claude.json without a model request. Output is discarded. Tests replace usageRunner.
+func runClaudeUsage(ctx context.Context, configDir string) error {
+	bin, err := claudeBin()
+	if err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, bin, "-p", "/usage", "--output-format", "stream-json", "--verbose")
+	cmd.Dir = os.TempDir() // keep the project settings/hooks of cad's cwd out of it
+	for _, kv := range os.Environ() {
+		switch k, _, _ := strings.Cut(kv, "="); k {
+		case "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR":
+		default:
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
+	if configDir != "" {
+		cmd.Env = append(cmd.Env, "CLAUDE_CONFIG_DIR="+configDir)
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = workerKillGrace
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("claude -p /usage: %w", err) // exit status only; stderr is not kept
+	}
+	return nil
+}
+
+var usageRunner = runClaudeUsage
+
+// readUsage decodes only .cachedUsageUtilization; the rest of the file (account data) is never kept.
+func readUsage(file string) (AgentUsage, error) {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return AgentUsage{}, fmt.Errorf("read .claude.json: %w", errors.Unwrap(err)) // no path in the reason
+	}
+	type win struct {
+		Utilization float64   `json:"utilization"`
+		ResetsAt    time.Time `json:"resets_at"`
+	}
+	var f struct {
+		C *struct {
+			FetchedAtMs int64 `json:"fetchedAtMs"`
+			Utilization struct {
+				FiveHour *win `json:"five_hour"`
+				SevenDay *win `json:"seven_day"`
+			} `json:"utilization"`
+		} `json:"cachedUsageUtilization"`
+	}
+	if err := json.Unmarshal(b, &f); err != nil {
+		return AgentUsage{}, errors.New("parse .claude.json failed")
+	}
+	if f.C == nil || f.C.Utilization.FiveHour == nil || f.C.Utilization.SevenDay == nil {
+		return AgentUsage{}, errors.New("cachedUsageUtilization missing")
+	}
+	u := f.C.Utilization
+	return AgentUsage{
+		FiveHour:  UsageWindow{u.FiveHour.Utilization, u.FiveHour.ResetsAt},
+		SevenDay:  UsageWindow{u.SevenDay.Utilization, u.SevenDay.ResetsAt},
+		FetchedAt: time.UnixMilli(f.C.FetchedAtMs).UTC(),
+	}, nil
+}
+
+// collectUsage refreshes every claude/* agent concurrently, so the total is one command's time.
+func collectUsage(agents []string, every time.Duration) UsageMap {
+	out := UsageMap{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, a := range agents {
+		if !strings.HasPrefix(a, "claude/") {
 			continue
 		}
-		var a AgentUsage
-		if err := json.Unmarshal(v, &a); err != nil {
-			return nil, err
-		}
-		u[k] = a
+		wg.Go(func() {
+			u := usageFor(a, every)
+			mu.Lock()
+			out[a] = u
+			mu.Unlock()
+		})
 	}
-	return u, nil
+	wg.Wait()
+	return out
 }
 
-// currentUsage resolves CAD_USAGE > ./.agent/usage.json (if present) > empty (all unknown),
-// re-reading on mtime change like currentPolicy. A bad file is logged and the last good one kept.
-// ponytail: .agent/usage.json is provisional hand-written data; a statusline writer will replace it.
-func currentUsage() map[string]AgentUsage {
-	useMu.Lock()
-	defer useMu.Unlock()
-	path := os.Getenv("CAD_USAGE")
-	if path == "" {
-		path = ".agent/usage.json"
-		if _, err := os.Stat(path); err != nil {
-			use, usePath = map[string]AgentUsage{}, ""
-			return use
+// usageFor keeps a failed agent with Error set (and the last cached numbers, if the file has them).
+func usageFor(agent string, every time.Duration) AgentUsage {
+	dir, file, err := usageStore(agent)
+	if err != nil {
+		return AgentUsage{Error: err.Error()}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), min(usageTimeout, every))
+	defer cancel()
+	runErr := usageRunner(ctx, dir)
+	u, err := readUsage(file)
+	switch {
+	case runErr != nil:
+		u.Error = runErr.Error()
+	case err != nil:
+		u.Error = err.Error()
+	}
+	u.Stale = u.Error == "" && time.Since(u.FetchedAt) > 2*every
+	return u
+}
+
+// usableUsage turns the published usage into what place filters on: agents with Error or Stale
+// are dropped (place reports them as "usage unknown") and windows whose reset has passed count as 0%.
+func usableUsage(m UsageMap, now time.Time) map[string]AgentUsage {
+	out := map[string]AgentUsage{}
+	for a, u := range m {
+		if u.Error != "" || u.Stale {
+			continue
 		}
-	}
-	if abs, err := filepath.Abs(path); err == nil {
-		path = abs
-	}
-	st, err := os.Stat(path)
-	if err == nil && (path != usePath || !st.ModTime().Equal(useMod)) {
-		var b []byte
-		var u map[string]AgentUsage
-		if b, err = os.ReadFile(path); err == nil {
-			if u, err = parseUsage(b); err == nil {
-				use, usePath, useMod = u, path, st.ModTime()
+		for _, w := range []*UsageWindow{&u.FiveHour, &u.SevenDay} {
+			if !w.ResetsAt.After(now) {
+				w.UsedPct = 0
 			}
 		}
+		out[a] = u
 	}
-	if err != nil {
-		log.Printf("cad: usage %s: %v (serving last good)", path, err)
-	}
-	return use
+	return out
+}
+
+func init() {
+	every := usageEvery()
+	register("usage", every, func() (interface{}, error) { return collectUsage(currentPolicy().Agents, every), nil })
 }

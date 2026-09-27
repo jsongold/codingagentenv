@@ -82,7 +82,7 @@ cad_auth=()
 [ -n "${CAD_TOKEN:-}" ] && cad_auth=(-H "Authorization: Bearer $CAD_TOKEN")
 
 if [ "$#" -eq 0 ]; then
-  curl -fsS "${cad_auth[@]}" "http://${CAD_ADDR}/v1/capacity"
+  curl -fsS "${cad_auth[@]}" "http://${CAD_ADDR}/v1/capacity?ns=${CAD_NS:-default}"
   echo
   exit 0
 fi

@@ -6,7 +6,9 @@ import (
 	"math"
 	"net/http"
 	"path"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -56,7 +58,21 @@ func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int)
 			}
 		}
 	}
-	sort.Strings(agents)
+	prio := func(a string) int { // service order from policy.agentPriority; unlisted services go last
+		svc, _, _ := strings.Cut(a, "/")
+		for i, p := range pol.AgentPriority {
+			if p == svc {
+				return i
+			}
+		}
+		return len(pol.AgentPriority)
+	}
+	sort.Slice(agents, func(i, j int) bool {
+		if pi, pj := prio(agents[i]), prio(agents[j]); pi != pj {
+			return pi < pj
+		}
+		return agents[i] < agents[j]
+	})
 	if len(agents) == 0 {
 		drop("class %q: no agent in policy.agents matches classAgents", s.Class)
 	}
@@ -169,7 +185,7 @@ func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int)
 			return []float64{cost, pre, cold}
 		}
 	}
-	// Agents are already sorted and computer keys don't depend on the agent, so the best
+	// Agents are already in (priority, name) order and computer keys don't depend on the agent, so the best
 	// pair is (first agent, best computer); ties fall back to the computer name (keep is sorted).
 	sort.SliceStable(keep, func(i, j int) bool {
 		a, b := key(keep[i]), key(keep[j])
@@ -194,23 +210,38 @@ func without(xs []string, x string) []string {
 	return out
 }
 
-// localSlots reads slots from the published capacity topic (CAD_SLOTS already applied there).
-func (h *hub) localSlots() int {
+// topic decodes the published value of name into v; false if it is not published (yet).
+func (h *hub) topic(name string, v interface{}) bool {
 	for _, e := range h.current() {
-		if e.Topic == "capacity" {
-			var c Capacity
-			if json.Unmarshal(e.Data, &c) == nil {
-				return c.Slots
-			}
+		if e.Topic == name {
+			return json.Unmarshal(e.Data, v) == nil
 		}
 	}
-	return 0
+	return false
+}
+
+// localSlots reads slots from the published capacity topic (CAD_SLOTS already applied there).
+func (h *hub) localSlots() int {
+	var c Capacity
+	h.topic("capacity", &c)
+	return c.Slots
+}
+
+// nsRe validates the required ns query parameter (ADR-0010; one namespace per cad for now).
+var nsRe = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+// requireNS answers 400 and returns false when ?ns= is missing or malformed.
+func requireNS(w http.ResponseWriter, r *http.Request) bool {
+	if !nsRe.MatchString(r.URL.Query().Get("ns")) {
+		http.Error(w, "ns query parameter required (^[a-z0-9-]+$)", http.StatusBadRequest)
+		return false
+	}
+	return true
 }
 
 func (h *hub) postPlace(w http.ResponseWriter, r *http.Request) {
 	// ns is required (ADR-0010) but not used yet: there is one policy per cad.
-	if r.URL.Query().Get("ns") == "" {
-		http.Error(w, "ns query parameter required", http.StatusBadRequest)
+	if !requireNS(w, r) {
 		return
 	}
 	var s PlaceSpec
@@ -220,7 +251,9 @@ func (h *hub) postPlace(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `want {"class":..,"resources":{..},"placement":{"strategy":"cheap|fast|safe|ranked",..}}`, http.StatusBadRequest)
 		return
 	}
-	p, status, until := place(currentPolicy(), currentUsage(), s, h.localSlots())
+	var u UsageMap
+	h.topic("usage", &u)
+	p, status, until := place(currentPolicy(), usableUsage(u, time.Now()), s, h.localSlots())
 	if status == http.StatusOK {
 		writeJSON(w, p)
 		return

@@ -55,7 +55,7 @@ func TestAuth(t *testing.T) {
 	for _, c := range []struct {
 		path, token string
 		want        int
-	}{{"/healthz", "", 200}, {"/v1/meta", "", 401}, {"/v1/meta", "wrong", 401}, {"/v1/meta", "s3cret", 200}} {
+	}{{"/healthz", "", 200}, {"/v1/meta?ns=t", "", 401}, {"/v1/meta?ns=t", "wrong", 401}, {"/v1/meta?ns=t", "s3cret", 200}, {"/v1/meta", "s3cret", 400}, {"/v1/quota", "s3cret", 400}, {"/v1/meta?ns=Bad!", "s3cret", 400}} {
 		if res := get(t, srv.URL+c.path, c.token); res.StatusCode != c.want {
 			t.Errorf("%s token=%q: %d want %d", c.path, c.token, res.StatusCode, c.want)
 		}
@@ -72,7 +72,7 @@ func TestCapacityShape(t *testing.T) {
 	srv := httptest.NewServer(newServer(h, ""))
 	defer srv.Close()
 	var m map[string]interface{}
-	if err := json.NewDecoder(get(t, srv.URL+"/v1/capacity", "").Body).Decode(&m); err != nil {
+	if err := json.NewDecoder(get(t, srv.URL+"/v1/capacity?ns=t", "").Body).Decode(&m); err != nil {
 		t.Fatal(err)
 	}
 	for _, k := range []string{"host", "collectedAt", "memTotalMB", "memFreeMB", "cpus", "load1", "slots"} {
@@ -128,7 +128,7 @@ func TestQuotaAndEvents(t *testing.T) {
 	}
 
 	var qs []Quota
-	json.NewDecoder(get(t, srv.URL+"/v1/quota", "").Body).Decode(&qs)
+	json.NewDecoder(get(t, srv.URL+"/v1/quota?ns=t", "").Body).Decode(&qs)
 	if len(qs) != 1 || qs[0].State != "exhausted" || qs[0].LastHitAt == nil || qs[0].ResetAt == nil || qs[0].Source != "api" {
 		t.Fatalf("quota: %+v", qs)
 	}

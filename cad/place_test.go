@@ -25,17 +25,13 @@ func seedPolicy(t *testing.T) Policy {
 	return p
 }
 
+// seedUsage is fixed test usage (the old provisional .agent/usage.json).
 func seedUsage(t *testing.T) map[string]AgentUsage {
-	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", ".agent", "usage.json"))
-	if err != nil {
-		t.Fatal(err)
+	at := func(s string) time.Time { v, _ := time.Parse(time.RFC3339, s); return v }
+	w := func(pct5, pct7 float64) AgentUsage {
+		return AgentUsage{FiveHour: UsageWindow{pct5, at("2026-09-27T15:00:00Z")}, SevenDay: UsageWindow{pct7, at("2026-10-03T00:00:00Z")}}
 	}
-	u, err := parseUsage(b)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return u
+	return map[string]AgentUsage{"claude/a12e00a7": w(30, 40), "claude/b1c8ef41": w(90, 50), "claude/default": w(10, 20), "codex/2e33b72a": w(20, 30), "opencode/996c87ae": w(0, 0)}
 }
 
 func spec(class, strategy string, mem, min int, maxCost float64, allow ...string) PlaceSpec {
@@ -98,13 +94,27 @@ func TestPlaceTieBreakAndDeterminism(t *testing.T) {
 			t.Fatalf("run %d: %+v != %+v", i, again, first)
 		}
 	}
+	// Service priority beats the agent name; unlisted services go last.
+	pol.AgentPriority = []string{"codex", "claude"}
+	if got, _, _ := place(pol, nil, s, 0); got.Agent != "codex/x" {
+		t.Fatalf("agentPriority: %+v", got)
+	}
+	pol.AgentPriority, pol.Agents = []string{"codex"}, []string{"claude/a", "aaa/z", "codex/x"}
+	pol.ClassAgents["light-edit"] = []string{"*/*"}
+	if got, _, _ := place(pol, nil, s, 0); got.Agent != "codex/x" {
+		t.Fatalf("listed first: %+v", got)
+	}
+	pol.Agents = []string{"claude/a", "aaa/z"}
+	if got, _, _ := place(pol, nil, s, 0); got.Agent != "aaa/z" {
+		t.Fatalf("unlisted by name: %+v", got)
+	}
 }
 
 func TestPostPlace(t *testing.T) {
 	t.Setenv("CAD_POLICY", filepath.Join("..", ".agent", "policy.json"))
-	t.Setenv("CAD_USAGE", filepath.Join("..", ".agent", "usage.json"))
 	h := newHub()
 	h.publish("capacity", Capacity{Slots: 2})
+	h.publish("usage", UsageMap(seedUsage(t)))
 	srv := httptest.NewServer(newServer(h, "tok"))
 	defer srv.Close()
 	post := func(q, body, token string) *http.Response {
@@ -146,7 +156,7 @@ func TestPlaceWindow(t *testing.T) {
 	pol, seed := seedPolicy(t), seedUsage(t)
 	at := func(s string) time.Time { v, _ := time.Parse(time.RFC3339, s); return v }
 	full := func(pct5, pct7 float64, r5, r7 string) AgentUsage {
-		return AgentUsage{UsageWindow{pct5, at(r5)}, UsageWindow{pct7, at(r7)}}
+		return AgentUsage{FiveHour: UsageWindow{pct5, at(r5)}, SevenDay: UsageWindow{pct7, at(r7)}}
 	}
 	has := func(rs []string, want string) bool {
 		for _, r := range rs {
@@ -200,5 +210,39 @@ func TestPlaceWindow(t *testing.T) {
 	// Same usage but no feasible computer: the window isn't the cause -> 422.
 	if _, st, _ = place(pol, u, spec("needs-db", "cheap", 1024, 30, 0, "cloud-run-jobs"), 5); st != http.StatusUnprocessableEntity {
 		t.Errorf("422: %d", st)
+	}
+}
+
+func TestPlaceHubUsage(t *testing.T) {
+	t.Setenv("CAD_POLICY", filepath.Join("..", ".agent", "policy.json"))
+	now := time.Now()
+	past, future := UsageWindow{95, now.Add(-time.Minute)}, UsageWindow{95, now.Add(time.Hour)}
+	u := UsageMap{
+		"claude/a12e00a7": {FiveHour: future, SevenDay: UsageWindow{1, now.Add(time.Hour)}}, // 5h over
+		"claude/b1c8ef41": {FiveHour: past, SevenDay: past},                                 // both reset: 0%
+		"claude/default":  {Error: "claude -p /usage: exit status 1"},
+	}
+	got := usableUsage(u, now)
+	if b := got["claude/b1c8ef41"]; b.FiveHour.UsedPct != 0 || b.SevenDay.UsedPct != 0 {
+		t.Fatalf("past reset not 0%%: %+v", b)
+	}
+	if _, ok := got["claude/default"]; ok {
+		t.Fatal("error agent kept as known")
+	}
+	h := newHub()
+	h.publish("capacity", Capacity{Slots: 2})
+	h.publish("usage", u)
+	srv := httptest.NewServer(newServer(h, ""))
+	defer srv.Close()
+	res, err := http.Post(srv.URL+"/v1/place?ns=a", "application/json", strings.NewReader(`{"class":"needs-db","resources":{"memoryMB":1024,"cpus":1,"timeoutMin":30}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p Placement
+	json.NewDecoder(res.Body).Decode(&p)
+	res.Body.Close()
+	reasons := strings.Join(p.Reason, "|")
+	if res.StatusCode != 200 || p.Agent != "claude/b1c8ef41" || !strings.Contains(reasons, "claude/a12e00a7: 5h window") || !strings.Contains(reasons, "claude/default: usage unknown") {
+		t.Fatalf("%d %+v", res.StatusCode, p)
 	}
 }

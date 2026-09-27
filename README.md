@@ -73,7 +73,7 @@ task spec
 ├─ 0. 分類（Orchestrator = Claude が spec に class を書く）
 │     light-edit / gate-heavy / needs-db / long-running / urgent / retry
 └─ 1. 配置（dev-dispatch。判断しない）
-   ├─ admission（サブスク窓。cad /v1/usage、サービス × アカウント単位）
+   ├─ admission（サブスク窓。cad の usage topic、サービス × アカウント単位）
    │   ├─ 5h 窓: 使用% + 稼働数 × est + est > 100 − reservePct → defer(resetsAt)
    │   ├─ 7d 窓: 均等ペース超過                                → defer(resetsAt)
    │   └─ 稼働 Worker ≥ maxWorkers                            → defer(5 分後)
@@ -92,15 +92,16 @@ task spec
        └─ 候補なし → exit 2（起動しない）
 ```
 
-配置の記録（policy / usage）は `cad` の CLI で編集する。ファイルは daemon と同じ（`CAD_POLICY` > `.agent/policy.json`、`CAD_USAGE` > `.agent/usage.json`）。書き込みは atomic で、稼働中の `cad` は mtime で再読込する（再起動不要）。
+配置の記録（policy）は `cad` の CLI で編集する。ファイルは daemon と同じ（`CAD_POLICY` > `.agent/policy.json`）。書き込みは atomic で、稼働中の `cad` は mtime で再読込する（再起動不要）。usage は daemon が `claude -p /usage` で定期収集する（`CAD_USAGE_EVERY`、既定 60s）。メタデータは `cad get` で読む（`CAD_ADDR`・`CAD_TOKEN`、`-ns` 必須）。
 
 ```
-tools/cad show [agents|computers|classAgents|usage|policy]   # 引数なし = 全部
+tools/cad get meta -ns dev                                   # 実行中の cad から全 topic（JSON）
+tools/cad get usage -ns dev                                  # 1 topic（usage / capacity / policy / workers / quota）
+tools/cad show [agents|computers|classAgents|policy]         # 引数なし = policy
 tools/cad add agent claude/3f9a1c0e
 tools/cad add computer gce-spot --file gce.json [--replace]  # または stdin / -
 tools/cad add classagent needs-db 'claude/*'
-tools/cad set usage claude/3f9a1c0e --5h 40 --5h-reset 2026-09-27T15:00:00Z
-tools/cad rm agent|computer|classagent|usage <key> [pattern]
+tools/cad rm agent|computer|classagent <key> [pattern]
 ```
 
 ## トラブルシュート

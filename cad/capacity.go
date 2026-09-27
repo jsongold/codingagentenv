@@ -169,4 +169,4 @@ func readDarwin() (int, int, float64, error) {
 	return atoi(lines[0]) >> 20, pages * page >> 20, load, nil
 }
 
-func init() { register("capacity", collectCapacity) }
+func init() { register("capacity", pollEvery, collectCapacity) }
