@@ -65,6 +65,33 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 
 `CLAUDE_CODE_TASK_LIST_ID` は `/pickup` がディレクトリ名で設定する。同じ ID の project があると Task list が混ざる。
 
+## 配置ロジック（設計中・未実装。ADR-0010 で確定）
+分類だけ Claude が行い、配置は `dev-dispatch` が cad の値から決定的に選ぶ（同じ入力なら同じ出力）。詳細は `.claude/design/placement-strategy.md`。
+
+```
+task spec
+├─ 0. 分類（Orchestrator = Claude が spec に class を書く）
+│     light-edit / gate-heavy / needs-db / long-running / urgent / retry
+└─ 1. 配置（dev-dispatch。判断しない）
+   ├─ admission（サブスク窓。cad /v1/usage、サービス × アカウント単位）
+   │   ├─ 5h 窓: 使用% + 稼働数 × est + est > 100 − reservePct → defer(resetsAt)
+   │   ├─ 7d 窓: 均等ペース超過                                → defer(resetsAt)
+   │   └─ 稼働 Worker ≥ maxWorkers                            → defer(5 分後)
+   │      defer = 非 0 で返すだけ。キューは持たない（Task は pending のまま）
+   ├─ Agent = サービス × アカウント（アカウントは aienv の store id。未決）
+   ├─ provider 明示指定あり → feasible なら採用 / 不可なら exit 2
+   └─ 候補 = spec.allow ∩ policy.providers.allowed
+       ├─ feasible で絞る: memory・cpu・timeout・needs-db なら caps.db・maxCostUSD・safe なら非 preemptible
+       ├─ local が feasible → local（最優先。slots は CAD_SLOTS=5 の固定上限、稼働数は数えず macOS に任せる）
+       ├─ それ以外は strategy で並べる
+       │   cheap（既定）: cost → preemptible → cold start
+       │   fast        : cold start → cost
+       │   safe        : cost → cold start（preemptible は除外済み）
+       │   ranked      : spec の order 順
+       ├─ 同点は provider 名の辞書順
+       └─ 候補なし → exit 2（起動しない）
+```
+
 ## トラブルシュート
 
 - Task tools (`TaskCreate` など) が見えない → `~/.claude/settings.json` の `env` に `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` があるか確認する。代替のキューを自作しない (ADR-0002)。
