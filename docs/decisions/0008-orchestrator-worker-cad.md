@@ -13,7 +13,7 @@
 タスクの状態は内蔵 Task list で持つ（ADR-0002）。新しい仕組みがタスク状態を持つと、キューの自作になり ADR-0002 と衝突する。
 
 ## 決定
-- **分割**：Orchestrator はローカル Mac（IDE + Claude Code の main セッション）。Worker はローカルまたは任意のクラウド。provider は固定せず、エージェントが `policy.providers.allowed` の中から task ごとに選ぶ。
+- **分割**：Orchestrator はローカル Mac（IDE + Claude Code の main セッション）。Worker はローカルまたは任意のクラウド。provider は固定せず、エージェントが `policy.providers.allowed` の中から task ごとに選ぶ。クラウドでの task の起動・追跡は `dev-dispatch` ツールが行い、provider ごとのスクリプトを `agent/providers/<name>/` に置く（start / list / stop）。`cad` はその状態を読むだけ。詳細は後続の ADR / PR で決める。
 - **動的な値はプロンプトで取らない**。slots・レビュアー選択などはツール／アプリが決定的に返す。
 - **メタデータアプリ `cad` をこの repo に新設する**。Go（標準ライブラリのみ、単一バイナリ、linux + darwin）。repo の TS 優先の例外とする。理由は Worker への配布が単一バイナリで済むこと、常駐メモリが小さいこと。
 - **`cad` の責務はこれだけ**：メタデータ（policy・capacity・workers・reviewer quota）の読み出しを提供し、そのデータを収集する。インメモリ。タスク状態は持たない（タスクは内蔵 Task list のまま、ADR-0002）。ローカルでもクラウドでも動く。
@@ -22,14 +22,16 @@
   - Capacity：`{host, collectedAt, memTotalMB, memFreeMB, cpus, load1, slots}`
   - Worker：`{id, provider, state(starting|running|stopped|unknown), startedAt, lastSeenAt, labels}`
   - Quota：`{reviewer, state(ok|exhausted), lastHitAt?, resetAt?, source(reported|probed)}`
-  - `slots = min(floor((memFree - reserveMB) / gate.memoryMB), cpus / gate.cpus, maxSlots)`。上書きの優先順位は `CAD_SLOTS` 環境変数 > policy の `maxSlots`。
+  - `slots = max(0, min(floor((memFree - reserveMB) / gate.memoryMB), floor(cpus / gate.cpus), maxSlots))`。上書きの優先順位は `CAD_SLOTS` 環境変数 > policy の `maxSlots`。
+  - `slots = 0` でも、何も走っていなければ agent-gate は1本だけ走らせる（持ち主の決定。詰まって永久に進まない状態を避ける）。
 - **API**
   - 読み出し：`GET /v1/meta`、`/v1/policy`、`/v1/capacity`、`/v1/workers`、`/v1/quota`、`/healthz`
   - 書き込みは `POST /v1/quota/:reviewer` の1つだけ
-  - Push：SSE `GET /v1/events?topics=...`。topic 単位。`Event{topic, rev, at, data}`。`Last-Event-ID` で再開、接続時に snapshot を送り、変化があったときだけ publish する。
-- **環境変数**：`CAD_ADDR`（既定 `127.0.0.1:7878`）、`CAD_TOKEN`（loopback 以外に bind するときは必須）、`CAD_POLICY`、`CAD_SLOTS`。
+  - Push：SSE `GET /v1/events?topics=...`。topic 単位。`Event{topic, rev, at, data}`。変化があったときだけ publish する。
+  - `rev` は topic をまたいだ単一のグローバルな単調増加カウンタ。接続時は購読 topic の snapshot を `rev` 順に送る。`Last-Event-ID` で再開すると、購読 topic のうち `rev > Last-Event-ID` のイベントをリングバッファから再送する。id がバッファより古ければ snapshot を送り直す。
+- **環境変数**：`CAD_ADDR`（既定 `127.0.0.1:7878`）、`CAD_TOKEN`（`/healthz` 以外の全エンドポイントで `Authorization: Bearer <token>` を要求する。loopback 以外に bind するのに未設定なら起動を拒否する）、`CAD_POLICY`、`CAD_SLOTS`。
 - **Worker の状態は `cad` が provider をポーリングして集める（pull）**。Mac はクラウドの Worker からの inbound 接続を受けない。
-- **レビュー方針**：実装者ではない独立した AI レビュアー + CI green。レビュアーは優先順位リストで持ち、quota が切れたら自動で次にフォールバックする。
+- **レビュー方針**：merge の条件は「実装者以外の独立した AI レビュアーの承認 + CI green（CI が設定されている場合）」。レビュアーは優先順位リストで持ち、quota が切れたら自動で次にフォールバックする。従来の「merge には Codex レビューが必須」というルールはこの ADR で置き換える（ハーネスのルールは PR #2 で更新）。
 
 ## 検討して却下した案
 | 案 | 却下理由 |
