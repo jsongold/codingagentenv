@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# fake provider's list script: prints a static 2-worker JSON array. Used by
+# cad's tests and for manual smoke-testing the workers topic. "fake" is not in
+# the default policy allowed list, so it only runs when a test/dev policy adds it.
+set -euo pipefail
+cat <<'JSON'
+[
+  {"id": "fake-1", "state": "running", "startedAt": "2026-01-01T00:00:00Z", "labels": {"role": "test"}},
+  {"id": "fake-2", "state": "starting", "startedAt": "2026-01-01T00:05:00Z", "labels": {}},
+  {"id": "fake-3", "state": "stopped", "startedAt": "2026-01-01T00:10:00Z", "exitCode": 0, "labels": {"result": "ok"}}
+]
+JSON

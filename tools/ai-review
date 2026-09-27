@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# ai-review <pr> <worktree> [--implementer <name>] — independent AI review with reviewer
+# priority, implementer exclusion and quota fallback. Logic lives in agent/ai-review.ts.
+exec node "$(dirname "$(readlink -f "$0")")/../agent/ai-review.ts" "$@"
