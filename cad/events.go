@@ -13,7 +13,7 @@ import (
 // Collectors register themselves from init() in their own file; server.go never lists them.
 type collector struct {
 	topic   string
-	every   time.Duration
+	every   func() time.Duration // read each scheduling cycle, so it can follow the policy
 	collect func() (interface{}, error)
 }
 
@@ -23,8 +23,10 @@ var collectors []collector
 const pollEvery = 2 * time.Second
 
 func register(topic string, every time.Duration, f func() (interface{}, error)) {
-	collectors = append(collectors, collector{topic, every, f})
+	collectors = append(collectors, collector{topic, fixed(every), f})
 }
+
+func fixed(d time.Duration) func() time.Duration { return func() time.Duration { return d } }
 
 type Event struct {
 	Topic string          `json:"topic"`
@@ -194,7 +196,7 @@ func (h *hub) run(cs []collector, tick time.Duration, stop <-chan struct{}) {
 			if now.Before(next[i]) || !busy[i].CompareAndSwap(false, true) {
 				continue
 			}
-			next[i] = now.Add(cs[i].every)
+			next[i] = now.Add(cs[i].every())
 			go func() {
 				defer busy[i].Store(false)
 				h.collectOne(cs[i])

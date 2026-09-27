@@ -129,3 +129,20 @@ func TestIsCLI(t *testing.T) {
 		t.Fatal("isCLI")
 	}
 }
+
+func TestCLIShowSections(t *testing.T) {
+	t.Setenv("CAD_POLICY", filepath.Join("..", ".agent", "policy.json"))
+	for sec, want := range map[string]string{"classes": `"light-edit"`, "runners": `"subagent"`, "collect": `"60s"`, "rules": `"self"`} {
+		if out, code := run(t, "", "show", sec); code != 0 || !strings.Contains(out, want) {
+			t.Errorf("show %s: %d %s", sec, code, out)
+		}
+	}
+}
+
+func TestCLIRejectsBadRunner(t *testing.T) {
+	p := cliEnv(t)
+	os.WriteFile(p, []byte(`{"runners":{"opencode":{"mode":"process"}}}`), 0o644)
+	if out, code := run(t, "", "show", "runners"); code != 1 || !strings.Contains(out, "process needs cmd") {
+		t.Fatalf("%d %s", code, out)
+	}
+}

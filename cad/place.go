@@ -3,17 +3,20 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"path"
 	"regexp"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 )
 
 // PlaceSpec is the POST /v1/place body (ADR-0010). Other fields are ignored.
 type PlaceSpec struct {
 	Class string `json:"class"`
+	Self  string `json:"self,omitempty"` // the Orchestrator's own agent, matched by rule agent "self"
 }
 
 type Placement struct {
@@ -21,6 +24,7 @@ type Placement struct {
 	Computer string   `json:"computer,omitempty"`
 	Rule     int      `json:"rule"`
 	Reason   []string `json:"reason"`
+	Runner   *Runner  `json:"runner,omitempty"` // policy.runners[service of Agent]
 }
 
 // place evaluates policy.rules top to bottom; the first rule with a usable agent wins (ADR-0010).
@@ -28,7 +32,13 @@ type Placement struct {
 // Returns 200, 409 (some rule was blocked only by usage windows; deferUntil set) or 422.
 func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int) (out Placement, status int, deferUntil time.Time) {
 	drop := func(format string, a ...interface{}) { out.Reason = append(out.Reason, fmt.Sprintf(format, a...)) }
-	limit, est := 100-pol.Placement.ReservePct, pol.Placement.EstPct[s.Class]
+	limit, est := 100-pol.Placement.ReservePct, pol.Classes[s.Class].EstPct
+	pick := func(a, computer string, i int) {
+		out.Agent, out.Computer, out.Rule = a, computer, i
+		if r, ok := pol.Runners[strings.SplitN(a, "/", 2)[0]]; ok {
+			out.Runner = &r
+		}
+	}
 	agents := append([]string(nil), pol.Agents...)
 	sort.Strings(agents)
 	for i, r := range pol.Rules {
@@ -44,16 +54,24 @@ func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int)
 			drop("rule %d: no local slot", i)
 			continue
 		}
+		cands := agents
+		if r.Agent == "self" {
+			if !slices.Contains(agents, s.Self) {
+				drop("rule %d: self unknown", i)
+				continue
+			}
+			cands = []string{s.Self}
+		}
 		matched := false
-		for _, a := range agents {
-			if ok, _ := path.Match(r.Agent, a); !ok {
+		for _, a := range cands {
+			if ok, _ := path.Match(r.Agent, a); !ok && r.Agent != "self" {
 				continue
 			}
 			matched = true
 			u, ok := usage[a]
 			if !ok {
 				drop("%s: usage unknown", a)
-				out.Agent, out.Computer, out.Rule = a, r.Computer, i
+				pick(a, r.Computer, i)
 				return out, http.StatusOK, time.Time{}
 			}
 			over, free := false, time.Time{} // free: when it fits again = latest resetsAt of exceeded windows
@@ -70,7 +88,7 @@ func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int)
 				}
 			}
 			if !over {
-				out.Agent, out.Computer, out.Rule = a, r.Computer, i
+				pick(a, r.Computer, i)
 				return out, http.StatusOK, time.Time{}
 			}
 			if deferUntil.IsZero() || free.Before(deferUntil) {
@@ -133,13 +151,15 @@ func (h *hub) postPlace(w http.ResponseWriter, r *http.Request) {
 	}
 	var s PlaceSpec
 	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&s)
-	if err != nil || !slices.Contains(knownClasses, s.Class) {
-		http.Error(w, fmt.Sprintf(`want {"class":..} with class in %v`, knownClasses), http.StatusBadRequest)
+	pol := currentPolicy()
+	if _, ok := pol.Classes[s.Class]; err != nil || !ok || (s.Self != "" && !agentRe.MatchString(s.Self)) {
+		classes := slices.Sorted(maps.Keys(pol.Classes))
+		http.Error(w, fmt.Sprintf(`want {"class":..,"self"?:"<service>/<account>"} with class in %v`, classes), http.StatusBadRequest)
 		return
 	}
 	var u UsageMap
 	h.topic("usage", &u)
-	p, status, until := place(currentPolicy(), usableUsage(u, time.Now()), s, h.localSlots())
+	p, status, until := place(pol, usableUsage(u, time.Now()), s, h.localSlots())
 	if status == http.StatusOK {
 		writeJSON(w, p)
 		return

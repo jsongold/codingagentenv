@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -45,15 +46,28 @@ func (m UsageMap) changeKey() interface{} {
 
 const usageTimeout = 30 * time.Second
 
+var lastUsageEvery atomic.Int64 // last good interval (ns); 0 = none yet (1m)
+
+// usageEvery: CAD_USAGE_EVERY > policy collect.usage.every > last good > 1m. Read on every
+// scheduling cycle, so a policy edit takes effect without a restart.
 func usageEvery() time.Duration {
-	if v := os.Getenv("CAD_USAGE_EVERY"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err == nil && d > 0 {
-			return d
-		}
-		log.Printf("cad: ignoring invalid CAD_USAGE_EVERY=%q", v)
+	d := time.Duration(lastUsageEvery.Load())
+	if d == 0 {
+		d = time.Minute
 	}
-	return time.Minute
+	v, src := os.Getenv("CAD_USAGE_EVERY"), "CAD_USAGE_EVERY"
+	if v == "" {
+		v, src = currentPolicy().Collect.Usage.Every, "collect.usage.every"
+	}
+	if v == "" {
+		return d
+	}
+	if n, err := time.ParseDuration(v); err == nil && n > 0 {
+		lastUsageEvery.Store(int64(n))
+		return n
+	}
+	log.Printf("cad: ignoring invalid %s=%q (using %s)", src, v, d)
+	return d
 }
 
 // usageStore maps a claude agent to its config dir ("" = default, no CLAUDE_CONFIG_DIR) and .claude.json.
@@ -233,6 +247,7 @@ func usableUsage(m UsageMap, now time.Time) map[string]AgentUsage {
 }
 
 func init() {
-	every := usageEvery()
-	register("usage", every, func() (interface{}, error) { return collectUsage(currentPolicy().Agents, every), nil })
+	collectors = append(collectors, collector{"usage", usageEvery, func() (interface{}, error) {
+		return collectUsage(currentPolicy().Agents, usageEvery()), nil
+	}})
 }

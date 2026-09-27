@@ -17,15 +17,12 @@ import (
 const cliUsage = `usage:
   cad                                   run the server (env: CAD_ADDR, CAD_TOKEN, CAD_POLICY, CAD_SLOTS, CAD_USAGE_EVERY, CAD_CLAUDE_BIN, ...)
   cad get meta|<topic> -ns <namespace>  print the running cad's metadata as JSON (GET /v1/meta, /v1/<topic>; env: CAD_ADDR, CAD_TOKEN)
-  cad show [agents|computers|rules|policy]   print records (no arg = the policy)
+  cad show [classes|rules|runners|collect|agents|computers|policy]  print records (no arg = the policy)
   cad add agent <service/account>
   cad add computer <name> [--replace] [--file f.json | -]  (JSON body; piped stdin also works)
   cad rm agent <agent> | computer <name>
 files: CAD_POLICY > .agent/policy.json. A running cad re-reads it on mtime change. Usage is collected by cad (topic "usage").
 `
-
-// knownClasses are the task classes of ADR-0010.
-var knownClasses = []string{"light-edit", "gate-heavy", "needs-db", "long-running", "urgent", "retry"}
 
 var agentRe = regexp.MustCompile(`^[a-z0-9-]+/[a-z0-9-]+$`)
 
@@ -106,6 +103,9 @@ func loadPolicy() (Policy, error) {
 	if err := json.Unmarshal(b, &p); err != nil {
 		return Policy{}, fmt.Errorf("%s: %v", policyFile(), err)
 	}
+	if err := p.check(); err != nil {
+		return Policy{}, fmt.Errorf("%s: %v", policyFile(), err)
+	}
 	p.Source = policyFile()
 	return p, nil
 }
@@ -182,6 +182,12 @@ func show(kind string, w io.Writer) error {
 		return printJSON(w, p.Computers)
 	case "rules":
 		return printJSON(w, p.Rules)
+	case "classes":
+		return printJSON(w, p.Classes)
+	case "runners":
+		return printJSON(w, p.Runners)
+	case "collect":
+		return printJSON(w, p.Collect)
 	case "", "policy":
 		return printJSON(w, p)
 	}

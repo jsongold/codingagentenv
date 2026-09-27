@@ -12,14 +12,14 @@ ADR-0008 / 0009 は「provider の固定一覧（`policy.providers.allowed`）�
 設計メモ（`.claude/design/placement-strategy.md`、未コミット）は「slots=0 の Mac があるので local-first を既定にしない」としたが、この ADR の owner 決定（local slots は固定上限）で置き換える。
 
 ## 決定
-- **判断は1つだけ**：Orchestrator（Claude）が task の class を分類して spec に書く。class は `light-edit` / `gate-heavy` / `needs-db` / `long-running` / `urgent` / `retry`。それ以外（Agent・Computer の選択、admission、検証）は決定的な情報（`cad` の値、aienv、policy、spec）から機械的に決まる。分類の誤りは Orchestrator が class を付け替えて再 dispatch して直す。検証も機械的（対象 repo の CI + spec の `done[]`）。
+- **判断は1つだけ**：Orchestrator（Claude）が task の class を分類して spec に書く。class は `policy.classes` の名前（seed は `light-edit` / `gate-heavy` / `needs-db` / `long-running` / `urgent` / `retry`）。それ以外（Agent・Computer の選択、admission、検証）は決定的な情報（`cad` の値、aienv、policy、spec）から機械的に決まる。分類の誤りは Orchestrator が class を付け替えて再 dispatch して直す。検証も機械的（対象 repo の CI + spec の `done[]`）。
 - **配置は (Agent, Computer) の組を選ぶ**。
   - Agent = サービス × アカウント（例 `claude/3f9a1c0e`、`codex/<id>`）。アカウント id は aienv の store id（8桁 hex。`aienv resolve <app> [dir]` の出力パスの basename、メタデータは `<store>/.aienv-meta`）。aienv の binding が無いディレクトリは `claude/default`（`~/.claude`）。
   - アカウントの正本は aienv。`cad` は読むだけで、登録・変更はしない。
   - aienv の shim は `CLAUDE_CODE_OAUTH_TOKEN` を unset する。よって ADR-0009 の「Worker は token 固定で認証」は成り立たない。Worker は `CLAUDE_CONFIG_DIR` 型の store を使うか、shim を通らずに `claude` を起動する（どちらにするかは実装 PR で決める）。
 - **配置は 2 段の分類問題**。段 1（task 文 → class）は Orchestrator（LLM）。段 2（(class, メタデータ) → (Agent, Computer)）は policy の `rules`（データとして持つ順序付きの決定リスト）を評価する決定的なコード。task ごとには判断しない。v0.0.1 で strategy/cost 方式（`classAgents`・`agentPriority`・strategy・cost・coldStart・preemptible・local-first の特例）を置き換えた。`policy.computers` の属性は記録として残すが place は使わない。
-- **`cad` のエンドポイント `POST /v1/place?ns=<ns>` として実装する**。入力は `{"class": ...}`（未知・空の class は 400。他のフィールドは無視）。task の状態を持たない純関数（ADR-0002 / 0008 と整合）。同じ spec と同じ `cad` の値なら同じ答え。`ns` は必須で、無ければ 400（Issue #10）。
-  - `200 {agent, computer, rule, reason[]}`：採用した組、採用した rule の番号、落とした候補の理由
+- **`cad` のエンドポイント `POST /v1/place?ns=<ns>` として実装する**。入力は `{"class": ..., "self"?: "<service>/<account>"}`（`policy.classes` に無い・空の class、形式違いの self は 400。他のフィールドは無視）。task の状態を持たない純関数（ADR-0002 / 0008 と整合）。同じ spec と同じ `cad` の値なら同じ答え。`ns` は必須で、無ければ 400（Issue #10）。
+  - `200 {agent, computer, rule, reason[], runner}`：採用した組、採用した rule の番号、落とした候補の理由、Agent のサービスの起動方法（`policy.runners`）
   - `409 {defer_until, reason}`：使用枠の窓だけで塞がった rule があり今は置けない。`cad` は待たない・キューを持たない。Orchestrator は Task を pending のまま `DEFER:` を説明欄に書き、後で再 dispatch する
   - `422 {reason}`：条件を満たす組が無い（起動しない）
 - **アルゴリズム**（policy.rules = `[{agent: <path.Match パターン>, computer: <名前>, class?: [...]}]`、先勝ち）
@@ -29,22 +29,33 @@ ADR-0008 / 0009 は「provider の固定一覧（`policy.providers.allowed`）�
       skip if r.class ∧ spec.class ∉ r.class              # "rule i: class"
       skip if r.computer ∉ pol.computers ∪ {local}
       skip if r.computer == local ∧ slots < 1             # "rule i: no local slot"
-      for a in sorted(pol.agents) matching r.agent:
+      r.agent == self: spec.self ∉ pol.agents → skip        # "rule i: self unknown"
+      for a in ({spec.self} if r.agent == self else sorted(pol.agents) matching r.agent):
         usage 無し / error / stale → return 200 (a, r.computer, i)   # "usage unknown"
-        各窓（null は無視、resetsAt 経過は 0%）: used% + est[class] ≤ 100 − reservePct
+        各窓（null は無視、resetsAt 経過は 0%）: used% + classes[class].estPct ≤ 100 − reservePct
           → 全部 ok なら return 200 (a, r.computer, i)
           → 超えた窓は "a: 5h window" / "a: 7d window"
     窓だけで塞がった rule があれば 409 (defer_until = 塞がった Agent が空く最も早い時刻) else 422
   ```
-  既定の seed は `[{claude/*, local}, {opencode/*, local}]`（claude を使い切ったら opencode）。
-- **usage は `cad` の collector が集める**（owner 決定：メタデータを作って配るのは `cad` だけ）。topic `usage`、間隔 `CAD_USAGE_EVERY`（既定 60s）。対象は claude と codex（優先度 claude > codex > opencode。opencode は未対応で `usage unknown`）。`policy.agents` の `claude/*` ごとに `claude -p "/usage" --output-format stream-json --verbose` を並列に実行し（モデル呼び出しなし・約2秒。`claude/default` は `CLAUDE_CONFIG_DIR` なし、`claude/<id>` は `~/.aienv/.store/<id>`）、store の `.claude.json` の `.cachedUsageUtilization` だけを読む（他のキーはアカウント情報なので読まない・出さない）。失敗・キー無しの Agent は `error` 付きで残し、place はそれを `usage unknown` として扱う。resetsAt を過ぎた窓は 0% とみなす。SSE の変化判定から `fetchedAt` を除く。`codex/*` は Agent ごとに `codex app-server`（`CODEX_HOME=~/.aienv/.store/<id>`、`codex/default` は `CODEX_HOME` なし＝`~/.codex`。`OPENAI_API_KEY`・`CODEX_ACCESS_TOKEN` は子に渡さない。bin は `CAD_CODEX_BIN` > `/opt/homebrew/bin/codex` > PATH）を起動し、stdio の JSON-RPC で `initialize` → `initialized` → `account/rateLimits/read` を送って `rateLimitsByLimitId` の全 snapshot の `primary/secondary` だけを読む（map が無い・空なら `rateLimits`）（モデル呼び出しなし・約0.5秒・timeout 20s）。窓は長さで振り分ける（300分 → fiveHour、10080分 → sevenDay、それ以外の長さは無視。同じ長さが複数あれば usedPercent の最大。どの limit にも無い窓は `null` で、place はその窓で絞らない）。app-server が失敗したら `$CODEX_HOME/sessions/**/rollout-*.jsonl` の最新ファイルの最後の `token_count` の `rate_limits.primary/secondary` を同じ規則で読み、`stale` を付ける（place は使わない）。両方失敗なら `error`。
+  既定の seed は `[{self, local}, {opencode/*, local}]`（Orchestrator 自身の claude を使い切ったら opencode）。
+- **usage は `cad` の collector が集める**（owner 決定：メタデータを作って配るのは `cad` だけ）。topic `usage`、間隔 `CAD_USAGE_EVERY` > policy `collect.usage.every`（既定 60s）。対象は claude と codex（優先度 claude > codex > opencode。opencode は未対応で `usage unknown`）。`policy.agents` の `claude/*` ごとに `claude -p "/usage" --output-format stream-json --verbose` を並列に実行し（モデル呼び出しなし・約2秒。`claude/default` は `CLAUDE_CONFIG_DIR` なし、`claude/<id>` は `~/.aienv/.store/<id>`）、store の `.claude.json` の `.cachedUsageUtilization` だけを読む（他のキーはアカウント情報なので読まない・出さない）。失敗・キー無しの Agent は `error` 付きで残し、place はそれを `usage unknown` として扱う。resetsAt を過ぎた窓は 0% とみなす。SSE の変化判定から `fetchedAt` を除く。`codex/*` は Agent ごとに `codex app-server`（`CODEX_HOME=~/.aienv/.store/<id>`、`codex/default` は `CODEX_HOME` なし＝`~/.codex`。`OPENAI_API_KEY`・`CODEX_ACCESS_TOKEN` は子に渡さない。bin は `CAD_CODEX_BIN` > `/opt/homebrew/bin/codex` > PATH）を起動し、stdio の JSON-RPC で `initialize` → `initialized` → `account/rateLimits/read` を送って `rateLimitsByLimitId` の全 snapshot の `primary/secondary` だけを読む（map が無い・空なら `rateLimits`）（モデル呼び出しなし・約0.5秒・timeout 20s）。窓は長さで振り分ける（300分 → fiveHour、10080分 → sevenDay、それ以外の長さは無視。同じ長さが複数あれば usedPercent の最大。どの limit にも無い窓は `null` で、place はその窓で絞らない）。app-server が失敗したら `$CODEX_HOME/sessions/**/rollout-*.jsonl` の最新ファイルの最後の `token_count` の `rate_limits.primary/secondary` を同じ規則で読み、`stale` を付ける（place は使わない）。両方失敗なら `error`。
 - **client は `cad get meta -ns <ns>`**（`cad get <topic> -ns <ns>`）。実行中の `cad` の `GET /v1/meta?ns=`（`/v1/<topic>?ns=`）を 2 秒 timeout で1回叩いて JSON を出すだけ。`-ns` が無ければ exit 2（通信しない）、daemon に届かなければ exit 1。サーバ側も `GET /v1/meta`・`/v1/<topic>` は `ns`（`^[a-z0-9-]+$`）必須で、無ければ 400（`/healthz`・`/v1/events` は対象外）。
 - local の slots は `CAD_SLOTS=5`（policy `maxSlots` 5）の固定上限。稼働中の ws は数えない。メモリの取り合いは macOS に任せる。1 slot = 1 ws（Claude Code セッション1つとその Subagent）。
 - **同時実行**：2つの place が同時に来ると同じ空きを二重に数えうる。lease（関門）は実害が出るまで入れない。
 - **Orchestrator は Claude Code のまま**（Task list と `VERIFIED:` の hook が強制できるのはここだけ、ADR-0002 / 0004）。Codex・opencode・Gemini などは Worker またはレビュアーとして使う。
 
+## 設定はファイル（.agent/policy.json）
+仕様も精度も日々変わるので、調整するものはすべて `.agent/policy.json`（`CAD_POLICY` で差し替え可）に置き、コードには置かない。稼働中の `cad` は mtime で再読込する（壊れたファイルは log に出して直前の良い policy を使い続ける）。`cad show [classes|rules|runners|collect|agents|computers|policy]` で読む。
+- `classes`：`{name: {criteria, estPct}}`。place が受け付ける class の一覧（コードの固定一覧を置き換え）。`criteria` は Orchestrator が分類に使う基準、`estPct` は 1 task が使う使用枠の見積もり（旧 `placement.estPct`）。class の追加はファイルの編集だけで済む
+- `rules`：順序付きの決定リスト（上記）。`agent` は `path.Match` のパターンか `self`
+- `runners`：`{service: {mode, cmd?, model?}}`。`mode` は `subagent`（Orchestrator の Task subagent）か `process`（`cmd` を起動。`{model}` は `model` に置換）。`process` は `cmd` 必須（読み込み時に検証）。place の 200 に選んだ Agent のサービスの runner を入れる。cad 自身は起動しない（読み取り専用のデータ）
+- `collect.usage.every`：usage collector の間隔（Go の duration）。スケジュールのたびに読むので再起動不要。`CAD_USAGE_EVERY` があればそちらが優先。不正な値は直前の良い値を使う
+- `placement.reservePct`・`agents`・`computers`：従来どおり
+
+**self（owner 決定）**：Claude の task は常に Orchestrator セッションの subagent として動く。よって Claude の Agent は常に Orchestrator 自身のアカウントで、他の claude アカウントを選んでも使えない。Orchestrator は place に `"self": "<service>/<account>"` を渡し、rule の `agent: "self"` はそれだけに一致する（`policy.agents` に無い・渡されない場合は rule を飛ばす）。窓の判定は他の Agent と同じ。runner は `claude: {mode: subagent}`。
+
 ## 戦略（owner 決定・2026-09-27）
-- **通常運用**：Claude を local で使い切るまで使い、使用枠が尽きたら opencode にフォールバックする（opencode のモデルは可変。現在は DeepSeek）。`rules` を `[{claude/*, local}, {opencode/*, local}]` にする（順序が優先度）。
+- **通常運用**：Claude を local で使い切るまで使い、使用枠が尽きたら opencode にフォールバックする（opencode のモデルは可変。現在は DeepSeek）。`rules` を `[{self, local}, {opencode/*, local}]` にする（順序が優先度）。
 - **codex はレビュー専用**：実装 Agent としては使わない。`policy.agents` には残す（レビュー枠の usage 収集のため）が、どの rule にも一致させない＝`place` が codex を選ぶことはない。
 - **Mac がスリープしたら** GitHub Actions が opencode を起動して PR を作る。これは `cad` の外で扱い、rules には書かない（今は設計のみ・実装は未着手の future work）。
 
@@ -69,7 +80,7 @@ aienv を別 repo のまま使うか、この repo に取り込むかは却下�
 ## 未決
 - aienv のコマンド名（`codingenv aienv` か `caenv` か）と、aienv をこの repo に取り込むか。
 - aienv の binding の外にある worktree（例 `../<repo>-pr-N`）が別アカウントを継承する問題：(a) 運用で避ける、(b) aienv が git worktree の親 repo を辿って binding を引く。
-- opencode の usage collector。それまで opencode の Agent は `usage unknown`。usage の無い Agent は落とさず reason に `usage unknown` を残す。window の閾値は policy `placement.reservePct` / `placement.estPct`（仮値）。
+- opencode の usage collector。それまで opencode の Agent は `usage unknown`。usage の無い Agent は落とさず reason に `usage unknown` を残す。window の閾値は policy `placement.reservePct` / `classes.<name>.estPct`（仮値）。
 - lease（関門）を入れる基準。
 
 ## 再検討する条件

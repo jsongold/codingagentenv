@@ -10,9 +10,9 @@ func TestRunIntervals(t *testing.T) {
 	var fast, slow, block atomic.Int32
 	release := make(chan struct{})
 	cs := []collector{
-		{"fast", 20 * time.Millisecond, func() (interface{}, error) { fast.Add(1); return fast.Load(), nil }},
-		{"slow", time.Hour, func() (interface{}, error) { slow.Add(1); return 1, nil }},
-		{"block", time.Millisecond, func() (interface{}, error) { block.Add(1); <-release; return 1, nil }},
+		{"fast", fixed(20 * time.Millisecond), func() (interface{}, error) { fast.Add(1); return fast.Load(), nil }},
+		{"slow", fixed(time.Hour), func() (interface{}, error) { slow.Add(1); return 1, nil }},
+		{"block", fixed(time.Millisecond), func() (interface{}, error) { block.Add(1); <-release; return 1, nil }},
 	}
 	h := newHub()
 	stop := make(chan struct{})
