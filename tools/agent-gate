@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# agent-gate <worktree> [steps-file] — run a project's merge gate with at most
+# AGENT_GATE_SLOTS (default 2) gates running at once on this machine.
+#
+# steps-file: one shell command per line, run in order inside the worktree
+# (blank lines and '#' comments skipped). Default: <worktree>/scripts/gate.steps.
+# Every step runs even after a failure; exit 1 if any failed. Steps see $WT (the
+# worktree) and have this directory on PATH, so they can call `testdb url "$WT"`.
+# Example: examples/morphloop.gate.steps.
+#
+# Slots are mkdir locks under AGENT_GATE_LOCK_DIR (default
+# ${XDG_STATE_HOME:-~/.local/state}/agent-gate); a slot whose holder PID is dead is reclaimed.
+set -uo pipefail
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+export PATH="$here:$PATH"
+WT=$(cd "${1:?usage: agent-gate <worktree> [steps-file]}" && pwd) || exit 2
+export WT
+steps=${2:-$WT/scripts/gate.steps}
+[ -f "$steps" ] || { echo "agent-gate: no steps file: $steps" >&2; exit 2; }
+steps=$(cd "$(dirname "$steps")" && pwd)/$(basename "$steps")
+slots=${AGENT_GATE_SLOTS:-2}
+base=${AGENT_GATE_LOCK_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-gate}
+mkdir -p "$base"
+
+slot=""
+trap '[ -n "$slot" ] && rm -rf "$slot"' EXIT
+trap 'exit 130' INT TERM HUP
+waited=0
+while [ -z "$slot" ]; do
+  for i in $(seq "$slots"); do
+    d="$base/slot.$i"
+    if mkdir "$d" 2>/dev/null; then echo $$ >"$d/pid"; slot=$d; break; fi
+    pid=$(cat "$d/pid" 2>/dev/null)
+    # ponytail: stale check races if two waiters reap the same dir at once; worst case one extra gate runs briefly
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then rm -rf "$d"; fi
+  done
+  if [ -z "$slot" ]; then
+    [ $((waited % 30)) -eq 0 ] && echo "gate: waiting for a slot (${waited}s; holders: $(cat "$base"/slot.*/pid 2>/dev/null | tr '\n' ' '))"
+    sleep 5
+    waited=$((waited + 5))
+  fi
+done
+echo "gate: acquired $slot for $WT"
+cd "$WT" || exit 2
+log=$(mktemp)
+fail=0
+while IFS= read -r c || [ -n "$c" ]; do
+  case $c in '' | '#'*) continue ;; esac
+  start=$SECONDS
+  eval "$c" >"$log" 2>&1 </dev/null
+  rc=$?
+  echo "[$rc] $c ($((SECONDS - start))s)"
+  if [ $rc -ne 0 ]; then fail=1; tail -25 "$log"; else tail -1 "$log"; fi
+done <"$steps"
+rm -f "$log"
+echo "gate: overall $([ $fail -eq 0 ] && echo PASS || echo FAIL)"
+exit $fail

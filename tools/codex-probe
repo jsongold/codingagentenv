@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# codex-probe <queue-file> — wait until Codex has credits, then codex-localreview
+# every "<pr> <worktree>" line in the queue (worktree paths relative to the cwd).
+# Probes every CODEX_PROBE_INTERVAL seconds (1800), CODEX_PROBE_TRIES times (16).
+# Run it in the background.
+set -uo pipefail
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+q=$(cd "$(dirname "${1:?usage: codex-probe <queue-file>}")" && pwd)/$(basename "$1")
+model=${CODEX_REVIEW_MODEL:-gpt-6-sol}
+tries=${CODEX_PROBE_TRIES:-16}
+interval=${CODEX_PROBE_INTERVAL:-1800}
+for i in $(seq "$tries"); do
+  if (cd /tmp && timeout 90 codex exec -m "$model" -s read-only --skip-git-repo-check "reply OK" 2>&1 | tail -3) | grep -q "^OK"; then
+    echo "CODEX BACK at $(date +%H:%M)"
+    while read -r pr wt; do
+      [ -z "$pr" ] && continue
+      git -C "$wt" pull -q --ff-only 2>/dev/null
+      "$here/codex-localreview" "$pr" "$wt" || echo "#$pr review FAILED"
+    done <"$q"
+    exit 0
+  fi
+  [ "$i" -lt "$tries" ] && sleep "$interval"
+done
+echo "codex still out after $tries probes"
+exit 1

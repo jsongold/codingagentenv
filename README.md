@@ -16,6 +16,7 @@ bin/codingenv uninstall   # install が入れたものだけを取り除く
 
 install が行うこと：
 - `bin/codingenv` を `~/.local/bin/codingenv`（`BIN_DIR` で変更可）へ symlink する
+- `tools/*` を同じ `BIN_DIR` へ同名で symlink する（同名の通常ファイルがあればその tool だけ飛ばす）
 - `skills/*` と `hooks/harness-*.sh` を `~/.claude/skills/`、`~/.claude/hooks/` へ symlink する
 - `~/.claude/settings.json` に `env.CLAUDE_CODE_ENABLE_TODO_TOOLS=1` と hook 2つ（ADR-0004）を追記する
   - SessionStart：handoff が1件ならその全文、複数なら一覧を ADR 一覧とともに文脈に入れる。handoff が無ければ旧 PROGRESS.md を後方互換で読む。handoff も PROGRESS.md も無い project では何もしない
@@ -49,9 +50,18 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 | hooks/harness-task-completed.sh | 未検証の completed を拒否する | TaskCompleted hook | 固定 |
 | global/CLAUDE.harness.md | `~/.claude/CLAUDE.md` のハーネス節の正本 | `bin/codingenv install` で展開 | 随時 |
 | bin/codingenv | global への展開・drift 検出・取り外し | 手で実行 | 固定 |
-| test/hooks.test.sh, test/harness.test.sh | hook と `bin/codingenv` のテスト | `bash test/<name>` | 固定 |
+| tools/agent-gate | マシン全体で同時 N 本（`AGENT_GATE_SLOTS`、既定 2）に制限して project の gate を走らせる | `agent-gate <worktree> [steps-file]` | 固定 |
+| tools/testdb | 共有テスト Postgres（`up`）と worktree ごとの DB URL（`url <worktree>`）。コンテナ名・image・port 等は `TESTDB_*` | Subagent / gate の steps | 固定 |
+| tools/codex-localreview | Codex CLI でローカルレビューして PR にコメント（bot の quota 切れ時） | `codex-localreview <pr> <worktree>` | 固定 |
+| tools/codex-probe | Codex の復帰を待ち、キュー（`<pr> <worktree>` 行）を順にローカルレビュー | バックグラウンドで実行 | 固定 |
+| examples/morphloop.gate.steps | gate の steps ファイル例（morphloop の 7 ステップ） | `agent-gate` の第 2 引数 | 随時 |
+| test/hooks.test.sh, test/harness.test.sh, test/tools.test.sh | hook・`bin/codingenv`・`agent-gate` のテスト | `bash test/<name>` | 固定 |
 
 `/resume` は Claude Code の built-in コマンド（セッション履歴の再開）なので、スキル名には使わない。
+
+## project の gate を agent-gate に載せる
+project 側は steps ファイル（1 行 1 コマンド、`#` はコメント）を置くだけ。既定の場所は `<worktree>/scripts/gate.steps`、別の場所なら第 2 引数で渡す。各行は worktree 内で順に実行され、失敗しても最後まで走り、1 つでも失敗すれば exit 1。steps からは `$WT`（worktree の絶対パス）と `testdb` が使える。例は `examples/morphloop.gate.steps`。
+ロックは `AGENT_GATE_LOCK_DIR`（既定 `${XDG_STATE_HOME:-~/.local/state}/agent-gate`）。Docker を sandbox 内から使う場合は `DOCKER_CONFIG` を呼び出し側で設定する。
 
 ## 運用ループ
 1. `/dispatch <やりたいこと>` → main が Task list に分解し、Subagent に実行させ、検証してコミット

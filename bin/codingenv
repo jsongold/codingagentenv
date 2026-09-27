@@ -5,6 +5,7 @@
 #   bin/codingenv install     symlink skills and hooks, register hooks and env,
 #                           sync the harness section of ~/.claude/CLAUDE.md,
 #                           link this command into ~/.local/bin as `codingenv`
+#                           and tools/* into ~/.local/bin under their own names
 #   bin/codingenv uninstall   remove everything install added
 #   bin/codingenv status      report drift; exit 1 if anything is missing
 #
@@ -32,6 +33,7 @@ HEADING='## ハーネス（全プロジェクト共通）'
 ENV_KEY=CLAUDE_CODE_ENABLE_TODO_TOOLS
 
 SKILLS=$(cd "$ROOT/skills" && ls -d */ | tr -d /)
+TOOLS=$(cd "$ROOT/tools" && ls) # linked into BIN_DIR under their own names
 HOOKS='SessionStart:harness-session-start.sh TaskCompleted:harness-task-completed.sh'
 
 hook_command() { printf 'bash "$HOME/.claude/hooks/%s"' "$1"; }
@@ -69,6 +71,13 @@ install() {
   mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/hooks" "$BIN_DIR"
 
   ln -sfn "$ROOT/bin/codingenv" "$BIN_DIR/$CMD"
+  for name in $TOOLS; do
+    if [ -e "$BIN_DIR/$name" ] && [ ! -L "$BIN_DIR/$name" ]; then
+      echo "skip tool $name: $BIN_DIR/$name exists and is not a symlink" >&2
+    else
+      ln -sfn "$ROOT/tools/$name" "$BIN_DIR/$name"
+    fi
+  done
   for name in $SKILLS; do
     ln -sfn "$ROOT/skills/$name" "$CLAUDE_DIR/skills/$name"
   done
@@ -99,6 +108,9 @@ install() {
 
 uninstall() {
   [ "$(readlink "$BIN_DIR/$CMD" 2>/dev/null)" = "$ROOT/bin/codingenv" ] && rm "$BIN_DIR/$CMD"
+  for name in $TOOLS; do
+    [ "$(readlink "$BIN_DIR/$name" 2>/dev/null)" = "$ROOT/tools/$name" ] && rm "$BIN_DIR/$name"
+  done
   for name in $SKILLS; do
     [ "$(readlink "$CLAUDE_DIR/skills/$name" 2>/dev/null)" = "$ROOT/skills/$name" ] && rm "$CLAUDE_DIR/skills/$name"
   done
@@ -135,6 +147,9 @@ status() {
   same() { [ "$1" = "$2" ] && echo yes || echo no; }
 
   report "command $CMD" "$(same "$(readlink "$BIN_DIR/$CMD" 2>/dev/null)" "$ROOT/bin/codingenv")"
+  for name in $TOOLS; do
+    report "tool $name" "$(same "$(readlink "$BIN_DIR/$name" 2>/dev/null)" "$ROOT/tools/$name")"
+  done
   for name in $SKILLS; do
     report "skill $name" "$(same "$(readlink "$CLAUDE_DIR/skills/$name" 2>/dev/null)" "$ROOT/skills/$name")"
   done

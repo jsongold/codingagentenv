@@ -38,6 +38,7 @@ check "status passes after install" 0 $?
 check "command is linked" "$ROOT/bin/codingenv" "$(readlink "$TMP/bin/codingenv")"
 CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" "$TMP/bin/codingenv" status >/dev/null 2>&1
 check "linked command finds the repo" 0 $?
+check "tools are linked" "$ROOT/tools/agent-gate" "$(readlink "$TMP/bin/agent-gate")"
 check "skills are symlinked" "$ROOT/skills/dispatch" "$(readlink "$FAKE/skills/dispatch")"
 check "other skills are untouched" yes "$([ -d "$FAKE/skills/mine" ] && echo yes)"
 check "hook scripts are symlinked" "$ROOT/hooks/harness-task-completed.sh" "$(readlink "$FAKE/hooks/harness-task-completed.sh")"
@@ -61,6 +62,7 @@ check "install repairs it" 0 "$(grep -c 'edited by hand' "$FAKE/CLAUDE.md")"
 
 harness uninstall >/dev/null
 check "uninstall removes the command link" no "$([ -e "$TMP/bin/codingenv" ] && echo yes || echo no)"
+check "uninstall removes tool links" no "$([ -e "$TMP/bin/testdb" ] && echo yes || echo no)"
 check "uninstall removes skill links" no "$([ -e "$FAKE/skills/dispatch" ] && echo yes || echo no)"
 check "uninstall removes hook links" no "$([ -e "$FAKE/hooks/harness-session-start.sh" ] && echo yes || echo no)"
 check "uninstall keeps existing hooks" existing "$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$FAKE/settings.json")"

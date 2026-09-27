@@ -19,7 +19,7 @@
 3. 着手前に「目的・完了条件・次の一手」を3行で復唱し、ずれがあれば質問する
 
 ## コマンド
-- テスト：`bash test/hooks.test.sh` と `bash test/harness.test.sh`。lint / 起動：なし
+- テスト：`bash test/hooks.test.sh`、`bash test/harness.test.sh`、`bash test/tools.test.sh`。lint / 起動：なし
 - global への展開：`bin/codingenv install`（ユーザーが実行する）。drift の確認：`bin/codingenv status`（読み取りのみ。Claude が実行してよい）
 - `/dispatch <やりたいこと>`：Task list に分解して Subagent に実行させる
 - `/handoff [name]`：/clear 前に .claude/handoff/<name>.md を書き出して（自分のファイルだけ）コミット

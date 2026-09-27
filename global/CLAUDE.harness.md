@@ -17,3 +17,7 @@
 - PR 本文には、開発者がローカルで検証できるコピペ実行可能なコマンドを必ず書く（レビュー用 worktree の作成と移動から検証・片付けまで。例: `git fetch origin pull/<N>/head` → `git worktree add --detach ../<repo>-pr-<N> FETCH_HEAD` → `cd` → 依存インストール → lint/型/テスト → 必要なら手動確認手順 → `git worktree remove`。`gh pr checkout` は今のチェックアウトを切り替えるので使わない）。コードブロックにまとめ、プレースホルダを残さない
 - PR 本文には、その PR で「〜ができること」を箇条書きのチェックリスト（`- [ ] 〜ができる`）で書く。レビュアーが動作確認でチェックを付けられる粒度にする
 - PR のブランチに main を取り込むときは rebase ではなく merge（`git merge origin/main`）。履歴を書き換えないので force push が不要になる。force push はしない
+- main セッションはオーケストレーター専任。実装・gate・merge・CI 待ち・レビュー・調査はすべて Subagent に出し、報告は 10 行以内にさせる
+- Subagent は 1 回のツール呼び出しを約 4 分以内に収める（600 秒進捗なしで watchdog に殺される）。長い pytest・CI 待ち・レビューは `run_in_background` で走らせてポーリングする
+- gate は `agent-gate <worktree> [steps-file]` 経由で走らせる（マシン全体で同時 2 本まで）。テスト DB は per-run コンテナを作らず、共有 Postgres（`testdb up` / `testdb url <worktree>` で worktree ごとに 1 DB）を使う
+- merge には Codex レビューが必須。GitHub の Codex bot が quota 切れなら `codex-localreview <pr> <worktree>`（復帰待ちは `codex-probe <queue-file>` をバックグラウンドで）。Claude のレビューは事前チェック扱いで、merge 条件にはならない
