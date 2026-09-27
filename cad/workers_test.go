@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // resetWorkerStore clears the package-level worker cache between tests, since
@@ -29,12 +30,10 @@ func writePolicy(t *testing.T, allowed ...string) {
 	t.Setenv("CAD_POLICY", path)
 }
 
-// writeProvider writes an executable list script under a fresh providers dir
-// and points CAD_PROVIDERS_DIR at it; returns the script's path for editing.
-func writeProvider(t *testing.T, name, script string) string {
+// writeScript writes an executable list script for provider name under dir;
+// returns the script's path for editing/removing.
+func writeScript(t *testing.T, dir, name, script string) string {
 	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("CAD_PROVIDERS_DIR", dir)
 	path := filepath.Join(dir, name, "list")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -43,6 +42,15 @@ func writeProvider(t *testing.T, name, script string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// writeProvider writes an executable list script under a fresh providers dir
+// and points CAD_PROVIDERS_DIR at it; returns the script's path for editing.
+func writeProvider(t *testing.T, name, script string) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("CAD_PROVIDERS_DIR", dir)
+	return writeScript(t, dir, name, script)
 }
 
 const fakeScript = `#!/bin/sh
@@ -138,5 +146,85 @@ func TestPollWorkersFailingKeepsThenUnknown(t *testing.T) {
 		if w.State != "unknown" {
 			t.Errorf("want state unknown after %d failures, got %+v", workerFailThreshold, w)
 		}
+	}
+}
+
+func TestPollWorkersEvictsDisallowedProvider(t *testing.T) {
+	resetWorkerStore()
+	dir := t.TempDir()
+	t.Setenv("CAD_PROVIDERS_DIR", dir)
+	writeScript(t, dir, "keep", fakeScript)
+	writeScript(t, dir, "evict", fakeScript)
+	writePolicy(t, "keep", "evict")
+
+	pollWorkers()
+	if ws := currentWorkers(); len(ws) != 6 {
+		t.Fatalf("setup: want 6 workers (2 providers x 3), got %d: %+v", len(ws), ws)
+	}
+
+	writePolicy(t, "keep") // "evict" is no longer allowed
+	pollWorkers()
+	ws := currentWorkers()
+	if len(ws) != 3 {
+		t.Fatalf("want evicted provider's workers gone, got %+v", ws)
+	}
+	for _, w := range ws {
+		if w.Provider != "keep" {
+			t.Errorf("want only keep's workers left, got %+v", w)
+		}
+	}
+}
+
+func TestPollWorkersScriptDisappearsBecomesUnknown(t *testing.T) {
+	resetWorkerStore()
+	dir := t.TempDir()
+	t.Setenv("CAD_PROVIDERS_DIR", dir)
+	script := writeScript(t, dir, "gone", fakeScript)
+	writePolicy(t, "gone")
+
+	pollWorkers()
+	if ws := currentWorkers(); len(ws) != 3 || ws[0].State != "running" {
+		t.Fatalf("setup: want 3 running workers, got %+v", ws)
+	}
+
+	if err := os.Remove(script); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < workerFailThreshold-1; i++ {
+		pollWorkers()
+		if ws := currentWorkers(); len(ws) != 3 || ws[0].State != "running" {
+			t.Fatalf("poll %d: want previous list kept with state running, got %+v", i, ws)
+		}
+	}
+
+	pollWorkers() // reaches workerFailThreshold
+	after := currentWorkers()
+	if len(after) != 3 {
+		t.Fatalf("want previous list still present, got %+v", after)
+	}
+	for _, w := range after {
+		if w.State != "unknown" {
+			t.Errorf("want state unknown after script disappeared %d times, got %+v", workerFailThreshold, w)
+		}
+	}
+}
+
+// spawnAndExitScript backgrounds a long sleep (inheriting the stdout/stderr
+// pipes) and exits immediately, simulating a provider script whose grandchild
+// would otherwise keep os/exec's Wait() blocked past the intended timeout.
+const spawnAndExitScript = "#!/bin/sh\nsleep 60 &\nexit 0\n"
+
+func TestPollWorkersDoesNotHangOnDetachedChild(t *testing.T) {
+	resetWorkerStore()
+	writeProvider(t, "hangy", spawnAndExitScript)
+	writePolicy(t, "hangy")
+
+	start := time.Now()
+	pollWorkers()
+	elapsed := time.Since(start)
+	limit := workerListTimeout + workerKillGrace + 3*time.Second
+	if elapsed > limit {
+		t.Fatalf("pollWorkers took %s, want under %s (a detached grandchild must not block Wait)", elapsed, limit)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -49,7 +50,8 @@ func (l WorkerList) changeKey() interface{} {
 const (
 	workerPollInterval  = 10 * time.Second // ADR-0008: cad pulls worker state from providers
 	workerListTimeout   = 5 * time.Second
-	workerFailThreshold = 3 // consecutive failures before a provider's workers flip to "unknown"
+	workerKillGrace     = 2 * time.Second // extra time to force-close pipes if a grandchild still holds them
+	workerFailThreshold = 3               // consecutive failures before a provider's workers flip to "unknown"
 )
 
 // rawWorker is what a provider's `list` script prints (see agent/providers/<name>/list).
@@ -83,10 +85,16 @@ func isExecutable(path string) bool {
 }
 
 // runList runs a provider's list script with a timeout and parses its stdout.
+// The script gets its own process group so a timeout kills any children it
+// spawned too; WaitDelay bounds Wait() even if a grandchild still holds the
+// output pipes open (e.g. it detached before the group kill landed).
 func runList(script string) ([]rawWorker, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), workerListTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, script)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = workerKillGrace
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	if err := cmd.Run(); err != nil {
@@ -99,36 +107,60 @@ func runList(script string) ([]rawWorker, error) {
 	return list, nil
 }
 
+// markFailure records a failed poll for provider and, once it has failed
+// workerFailThreshold times in a row, flips its cached workers to "unknown".
+func markFailure(provider string) {
+	workerStore.mu.Lock()
+	defer workerStore.mu.Unlock()
+	workerStore.fails[provider]++
+	if workerStore.fails[provider] >= workerFailThreshold {
+		for i := range workerStore.byProvider[provider] {
+			workerStore.byProvider[provider][i].State = "unknown"
+		}
+	}
+}
+
 // pollWorkers refreshes the cache for every allowed provider that has an
-// executable list script. A failing provider keeps its previous list; that
+// executable list script. A failing provider (including one whose script
+// disappeared or lost its executable bit) keeps its previous list; that
 // list's entries flip to "unknown" once the provider has failed
-// workerFailThreshold times in a row.
+// workerFailThreshold times in a row. Providers no longer in the allowed set
+// are evicted from the cache so stale workers don't linger forever.
 func pollWorkers() {
 	dir := providersDir()
-	for _, provider := range currentPolicy().Providers.Allowed {
+	allowed := currentPolicy().Providers.Allowed
+	allowedSet := make(map[string]bool, len(allowed))
+	for _, p := range allowed {
+		allowedSet[p] = true
+	}
+	workerStore.mu.Lock()
+	for p := range workerStore.byProvider {
+		if !allowedSet[p] {
+			delete(workerStore.byProvider, p)
+			delete(workerStore.fails, p)
+		}
+	}
+	workerStore.mu.Unlock()
+
+	for _, provider := range allowed {
 		script := filepath.Join(dir, provider, "list")
 		if !isExecutable(script) {
+			markFailure(provider)
 			continue
 		}
 		list, err := runList(script)
-		workerStore.mu.Lock()
 		if err != nil {
 			log.Printf("cad: worker provider %s: %v", provider, err)
-			workerStore.fails[provider]++
-			if workerStore.fails[provider] >= workerFailThreshold {
-				for i := range workerStore.byProvider[provider] {
-					workerStore.byProvider[provider][i].State = "unknown"
-				}
-			}
-			workerStore.mu.Unlock()
+			markFailure(provider)
 			continue
 		}
-		workerStore.fails[provider] = 0
 		now := time.Now().UTC()
 		workers := make([]Worker, len(list))
 		for i, rw := range list {
 			workers[i] = Worker{ID: rw.ID, Provider: provider, State: rw.State, StartedAt: rw.StartedAt, LastSeenAt: now, Labels: rw.Labels, ExitCode: rw.ExitCode}
 		}
+		workerStore.mu.Lock()
+		workerStore.fails[provider] = 0
 		workerStore.byProvider[provider] = workers
 		workerStore.mu.Unlock()
 	}
