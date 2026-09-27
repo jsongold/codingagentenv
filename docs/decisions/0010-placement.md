@@ -19,7 +19,7 @@ ADR-0008 / 0009 は「provider の固定一覧（`policy.providers.allowed`）�
   - aienv の shim は `CLAUDE_CODE_OAUTH_TOKEN` を unset する。よって ADR-0009 の「Worker は token 固定で認証」は成り立たない。Worker は `CLAUDE_CONFIG_DIR` 型の store を使うか、shim を通らずに `claude` を起動する（どちらにするかは実装 PR で決める）。
 - **Agent の向き不向きは表で持つ**。policy に `classAgents`（class → 許可する Agent のパターン。例 `needs-db: ["claude/*"]`）を足す。task ごとには判断しない。
 - **`cad` のエンドポイント `POST /v1/place?ns=<ns>` として実装する**。入力は spec（JSON）。task の状態を持たない純関数（ADR-0002 / 0008 と整合）。同じ spec と同じ `cad` の値なら同じ答え。`ns` は必須で、無ければ 400（Issue #10）。
-  - `200 {agent, computer, reason[]}`：採用した組と、各段で落とした候補の理由
+  - `200 {agent, computer, costUSD, reason[]}`：採用した組とその見積り料金、各段で落とした候補の理由
   - `409 {defer_until, reason}`：admission / 使用枠の窓で今は置けない。`cad` は待たない・キューを持たない。Orchestrator は Task を pending のまま `DEFER:` を説明欄に書き、後で再 dispatch する
   - `422 {reason}`：条件を満たす組が無い（起動しない）
 - **アルゴリズム**
@@ -69,7 +69,7 @@ aienv を別 repo のまま使うか、この repo に取り込むかは却下�
 ## 未決
 - aienv のコマンド名（`codingenv aienv` か `caenv` か）と、aienv をこの repo に取り込むか。
 - aienv の binding の外にある worktree（例 `../<repo>-pr-N`）が別アカウントを継承する問題：(a) 運用で避ける、(b) aienv が git worktree の親 repo を辿って binding を引く。
-- `cad` にまだ pricing / usage の topic が無い間の place の振る舞い。案：Computer の静的な属性（cost・coldStart・preemptible・caps・上限）を policy に書く。window の filter は飛ばし、reason に `usage unknown` を残す。
+- usage の正式な収集元。当面は仮データ `.agent/usage.json`（`CAD_USAGE` で上書き、mtime で再読込、`"_provisional": true`）を window filter に使い、後で statusline の writer が置き換える。usage の無い Agent は落とさず reason に `usage unknown` を残す。Computer の静的な属性（cost・coldStart・preemptible・caps・上限）は policy に書く。window の閾値は policy `placement.reservePct` / `placement.estPct`（仮値）。
 - lease（関門）を入れる基準。
 
 ## 再検討する条件
