@@ -198,4 +198,4 @@ func collectWorkers() (interface{}, error) {
 	return currentWorkers(), nil
 }
 
-func init() { register("workers", collectWorkers) }
+func init() { register("workers", pollEvery, collectWorkers) }

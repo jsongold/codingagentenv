@@ -1,8 +1,0 @@
-{
-  "_provisional": true,
-  "claude/a12e00a7":  { "fiveHour": { "usedPct": 30, "resetsAt": "2026-09-27T15:00:00Z" }, "sevenDay": { "usedPct": 40, "resetsAt": "2026-10-03T00:00:00Z" } },
-  "claude/b1c8ef41":  { "fiveHour": { "usedPct": 90, "resetsAt": "2026-09-27T15:00:00Z" }, "sevenDay": { "usedPct": 50, "resetsAt": "2026-10-03T00:00:00Z" } },
-  "claude/default":   { "fiveHour": { "usedPct": 10, "resetsAt": "2026-09-27T15:00:00Z" }, "sevenDay": { "usedPct": 20, "resetsAt": "2026-10-03T00:00:00Z" } },
-  "codex/2e33b72a":   { "fiveHour": { "usedPct": 20, "resetsAt": "2026-09-27T15:00:00Z" }, "sevenDay": { "usedPct": 30, "resetsAt": "2026-10-03T00:00:00Z" } },
-  "opencode/996c87ae": { "fiveHour": { "usedPct": 0, "resetsAt": "2026-09-27T15:00:00Z" }, "sevenDay": { "usedPct": 0, "resetsAt": "2026-10-03T00:00:00Z" } }
-}

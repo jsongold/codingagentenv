@@ -58,7 +58,7 @@ const fs = require("fs"), [q, posts, portFile] = process.argv.slice(1);
 require("http").createServer((req, res) => {
   let b = ""; req.on("data", (c) => (b += c)).on("end", () => {
     if (req.method === "POST") { fs.appendFileSync(posts, `${req.url} ${b}\n`); res.writeHead(204).end(); }
-    else if (req.url === "/v1/quota") res.end(fs.readFileSync(q));
+    else if (req.url === "/v1/quota?ns=default") res.end(fs.readFileSync(q));
     else res.writeHead(404).end();
   });
 }).listen(0, "127.0.0.1", function () { fs.writeFileSync(portFile, String(this.address().port)); });

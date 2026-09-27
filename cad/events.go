@@ -6,19 +6,24 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // Collectors register themselves from init() in their own file; server.go never lists them.
 type collector struct {
 	topic   string
+	every   time.Duration
 	collect func() (interface{}, error)
 }
 
 var collectors []collector
 
-func register(topic string, f func() (interface{}, error)) {
-	collectors = append(collectors, collector{topic, f})
+// pollEvery is the cadence of the cheap collectors (policy, capacity, workers).
+const pollEvery = 2 * time.Second
+
+func register(topic string, every time.Duration, f func() (interface{}, error)) {
+	collectors = append(collectors, collector{topic, every, f})
 }
 
 type Event struct {
@@ -166,19 +171,39 @@ func (h *hub) setQuota(q Quota) {
 	h.publish("quota", list)
 }
 
-func (h *hub) collectAll() {
-	for _, c := range collectors {
-		v, err := c.collect()
-		if err != nil {
-			log.Printf("cad: collect %s: %v", c.topic, err)
-			continue
-		}
-		h.publish(c.topic, v)
+func (h *hub) collectOne(c collector) {
+	v, err := c.collect()
+	if err != nil {
+		log.Printf("cad: collect %s: %v", c.topic, err)
+		return
 	}
+	h.publish(c.topic, v)
 }
 
-func (h *hub) run(every time.Duration) {
-	for range time.Tick(every) {
-		h.collectAll()
+// run starts every collector now and again once its interval has passed, checking every tick until
+// stop closes. Each run gets its own goroutine and a collector still in flight is skipped, so a slow
+// collector never delays the others (it runs again on the first tick after it finishes and is due).
+func (h *hub) run(cs []collector, tick time.Duration, stop <-chan struct{}) {
+	next := make([]time.Time, len(cs))
+	busy := make([]atomic.Bool, len(cs))
+	t := time.NewTicker(tick)
+	defer t.Stop()
+	for {
+		now := time.Now()
+		for i := range cs {
+			if now.Before(next[i]) || !busy[i].CompareAndSwap(false, true) {
+				continue
+			}
+			next[i] = now.Add(cs[i].every)
+			go func() {
+				defer busy[i].Store(false)
+				h.collectOne(cs[i])
+			}()
+		}
+		select {
+		case <-t.C:
+		case <-stop:
+			return
+		}
 	}
 }

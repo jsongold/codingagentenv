@@ -41,9 +41,11 @@ ADR-0008 / 0009 は「provider の固定一覧（`policy.providers.allowed`）�
       fast  : coldStart, cost
       safe  : cost, coldStart
       ranked: spec.order
-    tie-break: (agent, computer) lexicographic
+    tie-break: (policy.agentPriority のサービス順, agent, computer)   # 既定 ["claude","codex","opencode"]、一覧に無いサービスは最後
     return first, reasons dropped per stage
   ```
+- **usage は `cad` の collector が集める**（owner 決定：メタデータを作って配るのは `cad` だけ）。topic `usage`、間隔 `CAD_USAGE_EVERY`（既定 60s）。当面は claude のみ（優先度 claude > codex > opencode）。`policy.agents` の `claude/*` ごとに `claude -p "/usage" --output-format stream-json --verbose` を並列に実行し（モデル呼び出しなし・約2秒。`claude/default` は `CLAUDE_CONFIG_DIR` なし、`claude/<id>` は `~/.aienv/.store/<id>`）、store の `.claude.json` の `.cachedUsageUtilization` だけを読む（他のキーはアカウント情報なので読まない・出さない）。失敗・キー無しの Agent は `error` 付きで残し、place はそれを `usage unknown` として扱う。resetsAt を過ぎた窓は 0% とみなす。SSE の変化判定から `fetchedAt` を除く。
+- **client は `cad get meta -ns <ns>`**（`cad get <topic> -ns <ns>`）。実行中の `cad` の `GET /v1/meta?ns=`（`/v1/<topic>?ns=`）を 2 秒 timeout で1回叩いて JSON を出すだけ。`-ns` が無ければ exit 2（通信しない）、daemon に届かなければ exit 1。サーバ側も `GET /v1/meta`・`/v1/<topic>` は `ns`（`^[a-z0-9-]+$`）必須で、無ければ 400（`/healthz`・`/v1/events` は対象外）。
 - **local-first を既定にする**。local の slots は `CAD_SLOTS=5`（policy `maxSlots` 5）の固定上限。稼働中の ws は数えない。メモリの取り合いは macOS に任せる。1 slot = 1 ws（Claude Code セッション1つとその Subagent）。
 - **同時実行**：2つの place が同時に来ると同じ空きを二重に数えうる。lease（関門）は実害が出るまで入れない。
 - **Orchestrator は Claude Code のまま**（Task list と `VERIFIED:` の hook が強制できるのはここだけ、ADR-0002 / 0004）。Codex・opencode・Gemini などは Worker またはレビュアーとして使う。
@@ -69,7 +71,7 @@ aienv を別 repo のまま使うか、この repo に取り込むかは却下�
 ## 未決
 - aienv のコマンド名（`codingenv aienv` か `caenv` か）と、aienv をこの repo に取り込むか。
 - aienv の binding の外にある worktree（例 `../<repo>-pr-N`）が別アカウントを継承する問題：(a) 運用で避ける、(b) aienv が git worktree の親 repo を辿って binding を引く。
-- usage の正式な収集元。当面は仮データ `.agent/usage.json`（`CAD_USAGE` で上書き、mtime で再読込、`"_provisional": true`）を window filter に使い、後で statusline の writer が置き換える。usage の無い Agent は落とさず reason に `usage unknown` を残す。Computer の静的な属性（cost・coldStart・preemptible・caps・上限）は policy に書く。window の閾値は policy `placement.reservePct` / `placement.estPct`（仮値）。
+- codex / opencode の usage collector（codex は app-server の `account/rateLimits/read` が候補）。それまで codex/opencode の Agent は `usage unknown`。usage の無い Agent は落とさず reason に `usage unknown` を残す。Computer の静的な属性（cost・coldStart・preemptible・caps・上限）は policy に書く。window の閾値は policy `placement.reservePct` / `placement.estPct`（仮値）。
 - lease（関門）を入れる基準。
 
 ## 再検討する条件

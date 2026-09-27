@@ -2,7 +2,7 @@
 // Tries policy review.reviewers in order, skipping the implementer and reviewers cad reports as
 // exhausted. A backend that hits its quota is reported to cad and the next reviewer is tried.
 // Prints "<reviewer> reviewed #<pr>: <comment URL or file>"; exits 1 with a one-line reason if none succeeds.
-// Env: CAD_URL (http://127.0.0.1:7878), CAD_TOKEN, CAD_POLICY, AI_REVIEW_IMPLEMENTER.
+// Env: CAD_URL (http://127.0.0.1:7878), CAD_NS (default), CAD_TOKEN, CAD_POLICY, AI_REVIEW_IMPLEMENTER.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -29,6 +29,7 @@ const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 process.env.PATH = `${process.env.PATH}${delimiter}${join(repo, "tools")}`;
 
 const cadURL = process.env.CAD_URL ?? "http://127.0.0.1:7878";
+const cadNS = `ns=${encodeURIComponent(process.env.CAD_NS ?? "default")}`; // cad requires ?ns= on GETs
 const cadHeaders: Record<string, string> = process.env.CAD_TOKEN ? { Authorization: `Bearer ${process.env.CAD_TOKEN}` } : {};
 
 // Returns undefined when cad is unreachable or answers non-2xx.
@@ -60,7 +61,7 @@ async function policy(): Promise<{ reviewers: string[]; excludeImplementer: bool
   let p: any;
   if (process.env.CAD_POLICY) p = read(process.env.CAD_POLICY);
   else if (existsSync(".agent/policy.json")) p = read(".agent/policy.json");
-  else p = (await cad("/v1/policy")) ?? read(join(repo, ".agent/policy.json"));
+  else p = (await cad(`/v1/policy?${cadNS}`)) ?? read(join(repo, ".agent/policy.json"));
   const reviewers = p?.review?.reviewers;
   if (!Array.isArray(reviewers) || reviewers.length === 0) fail("policy has no review.reviewers");
   return { reviewers, excludeImplementer: p.review.excludeImplementer !== false };
@@ -125,7 +126,7 @@ function claudeOpus(head: string): Result {
 const { reviewers, excludeImplementer } = await policy();
 if (excludeImplementer && !implementer.trim())
   fail("policy review.excludeImplementer is on: pass --implementer <name> or set AI_REVIEW_IMPLEMENTER");
-const quotas: any[] = (await cad("/v1/quota")) ?? [];
+const quotas: any[] = (await cad(`/v1/quota?${cadNS}`)) ?? [];
 const exhausted = new Set(quotas.filter((q) => q?.state === "exhausted").map((q) => q.reviewer));
 let head = "";
 const tried: string[] = [];
