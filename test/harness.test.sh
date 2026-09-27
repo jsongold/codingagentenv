@@ -38,7 +38,7 @@ check "status passes after install" 0 $?
 check "command is linked" "$ROOT/bin/codingenv" "$(readlink "$TMP/bin/codingenv")"
 CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" "$TMP/bin/codingenv" status >/dev/null 2>&1
 check "linked command finds the repo" 0 $?
-check "tools are linked" "$ROOT/tools/agent-gate" "$(readlink "$TMP/bin/agent-gate")"
+check "tools are linked" "$ROOT/tools/testdb" "$(readlink "$TMP/bin/testdb")"
 check "skills are symlinked" "$ROOT/skills/dispatch" "$(readlink "$FAKE/skills/dispatch")"
 check "other skills are untouched" yes "$([ -d "$FAKE/skills/mine" ] && echo yes)"
 check "hook scripts are symlinked" "$ROOT/hooks/harness-task-completed.sh" "$(readlink "$FAKE/hooks/harness-task-completed.sh")"

@@ -1,9 +1,0 @@
-# morphloop merge gate: agent-gate <worktree> examples/morphloop.gate.steps
-# (or copy to <worktree>/scripts/gate.steps). Needs `testdb up` once.
-uv sync --locked
-uv run ruff check .
-uv run ruff format --check .
-uv run lint-imports
-uv run mypy
-TEST_DATABASE_URL=$(testdb url "$WT") uv run pytest -q
-bash scripts/check-sdk-wheel.sh
