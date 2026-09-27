@@ -31,7 +31,11 @@ type Policy struct {
 	Computers   map[string]Computer `json:"computers"`
 	Agents      []string            `json:"agents"`      // e.g. "claude/default", "claude/3f9a1c0e"
 	ClassAgents map[string][]string `json:"classAgents"` // class -> path.Match patterns over Agents
-	Source      string              `json:"source"`      // file path, or "builtin"
+	Placement   struct {
+		ReservePct float64            `json:"reservePct"` // usage headroom kept free per window
+		EstPct     map[string]float64 `json:"estPct"`     // class -> estimated usage % one task consumes
+	} `json:"placement"`
+	Source string `json:"source"` // file path, or "builtin"
 }
 
 // Computer holds a placement target's static attributes (pricing, caps, limits; 0 limit = none).

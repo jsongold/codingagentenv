@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path"
 	"sort"
+	"time"
 )
 
 // PlaceSpec is the POST /v1/place body (ADR-0010).
@@ -41,9 +42,9 @@ func placeCost(c Computer, s PlaceSpec) float64 {
 	return (c.VCPUHourUSD*s.Resources.CPUs + c.GiBHourUSD*float64(s.Resources.MemoryMB)/1024) * min / 60
 }
 
-// place is pure: same policy, spec and localSlots give the same answer. ok=false means 422.
-func place(pol Policy, s PlaceSpec, localSlots int) (Placement, bool) {
-	var out Placement
+// place is pure: same policy, usage, spec and localSlots give the same answer.
+// Returns 200, 409 (usage window emptied the agents; deferUntil set) or 422.
+func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int) (out Placement, status int, deferUntil time.Time) {
 	drop := func(format string, a ...interface{}) { out.Reason = append(out.Reason, fmt.Sprintf(format, a...)) }
 
 	var agents []string
@@ -59,6 +60,38 @@ func place(pol Policy, s PlaceSpec, localSlots int) (Placement, bool) {
 	if len(agents) == 0 {
 		drop("class %q: no agent in policy.agents matches classAgents", s.Class)
 	}
+
+	// Window filter: agent-only, so it filters agents rather than pairs.
+	limit, est := 100-pol.Placement.ReservePct, pol.Placement.EstPct[s.Class]
+	windowed := len(agents) > 0
+	var fit []string
+	for _, a := range agents {
+		u, ok := usage[a]
+		if !ok {
+			drop("%s: usage unknown", a)
+			fit = append(fit, a)
+			continue
+		}
+		over, free := false, time.Time{} // free: when it fits again = latest resetsAt of exceeded windows
+		for _, w := range []struct {
+			name string
+			w    UsageWindow
+		}{{"5h", u.FiveHour}, {"7d", u.SevenDay}} {
+			if w.w.UsedPct+est > limit {
+				drop("%s: %s window", a, w.name)
+				over = true
+				if w.w.ResetsAt.After(free) {
+					free = w.w.ResetsAt
+				}
+			}
+		}
+		if !over {
+			fit = append(fit, a)
+		} else if deferUntil.IsZero() || free.Before(deferUntil) {
+			deferUntil = free
+		}
+	}
+	agents = fit
 
 	names := s.Placement.Allow
 	if len(names) == 0 {
@@ -96,9 +129,6 @@ func place(pol Policy, s PlaceSpec, localSlots int) (Placement, bool) {
 			keep = append(keep, n)
 		}
 	}
-	// ponytail: cad has no usage topic yet; the window filter (and 409 defer_until) goes here once it does.
-	drop("usage unknown: window filter skipped")
-
 	for _, n := range keep {
 		if n == "local" && len(keep) > 1 {
 			drop("local-first: dropped %v", without(keep, "local"))
@@ -106,8 +136,11 @@ func place(pol Policy, s PlaceSpec, localSlots int) (Placement, bool) {
 			break
 		}
 	}
+	if len(keep) > 0 && len(agents) == 0 && windowed { // window filter emptied it
+		return out, http.StatusConflict, deferUntil
+	}
 	if len(agents) == 0 || len(keep) == 0 {
-		return out, false
+		return out, http.StatusUnprocessableEntity, time.Time{}
 	}
 
 	rank := map[string]int{}
@@ -148,7 +181,7 @@ func place(pol Policy, s PlaceSpec, localSlots int) (Placement, bool) {
 		return false
 	})
 	out.Agent, out.Computer, out.CostUSD = agents[0], keep[0], placeCost(pol.Computers[keep[0]], s)
-	return out, true
+	return out, http.StatusOK, time.Time{}
 }
 
 func without(xs []string, x string) []string {
@@ -187,12 +220,16 @@ func (h *hub) postPlace(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `want {"class":..,"resources":{..},"placement":{"strategy":"cheap|fast|safe|ranked",..}}`, http.StatusBadRequest)
 		return
 	}
-	p, ok := place(currentPolicy(), s, h.localSlots())
-	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnprocessableEntity)
-		json.NewEncoder(w).Encode(map[string][]string{"reason": p.Reason})
+	p, status, until := place(currentPolicy(), currentUsage(), s, h.localSlots())
+	if status == http.StatusOK {
+		writeJSON(w, p)
 		return
 	}
-	writeJSON(w, p)
+	body := map[string]interface{}{"reason": p.Reason}
+	if status == http.StatusConflict {
+		body["defer_until"] = until
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(body)
 }
