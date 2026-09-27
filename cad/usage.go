@@ -46,27 +46,40 @@ func (m UsageMap) changeKey() interface{} {
 
 const usageTimeout = 30 * time.Second
 
-var lastUsageEvery atomic.Int64 // last good interval (ns); 0 = none yet (1m)
+var (
+	lastUsageEvery atomic.Int64 // last good policy interval (ns); 0 = none yet (1m)
+	badUsageEvery  atomic.Value // last invalid "src=value" logged, so a tick-rate caller logs it once
+)
 
-// usageEvery: CAD_USAGE_EVERY > policy collect.usage.every > last good > 1m. Read on every
-// scheduling cycle, so a policy edit takes effect without a restart.
+// usageEvery: CAD_USAGE_EVERY (if valid) > policy collect.usage.every > 1m when absent; an invalid
+// policy value keeps the last good one. Read on every scheduling tick, so a policy edit applies
+// without a restart.
 func usageEvery() time.Duration {
-	d := time.Duration(lastUsageEvery.Load())
-	if d == 0 {
-		d = time.Minute
+	warn := func(src, v string, using interface{}) {
+		if k := src + "=" + v; badUsageEvery.Swap(k) != k {
+			log.Printf("cad: ignoring invalid %s=%q (using %v)", src, v, using)
+		}
 	}
-	v, src := os.Getenv("CAD_USAGE_EVERY"), "CAD_USAGE_EVERY"
-	if v == "" {
-		v, src = currentPolicy().Collect.Usage.Every, "collect.usage.every"
+	if v := os.Getenv("CAD_USAGE_EVERY"); v != "" {
+		if n, err := time.ParseDuration(v); err == nil && n > 0 {
+			return n
+		}
+		warn("CAD_USAGE_EVERY", v, "collect.usage.every")
 	}
+	v := currentPolicy().Collect.Usage.Every
 	if v == "" {
-		return d
+		lastUsageEvery.Store(int64(time.Minute))
+		return time.Minute
 	}
 	if n, err := time.ParseDuration(v); err == nil && n > 0 {
 		lastUsageEvery.Store(int64(n))
 		return n
 	}
-	log.Printf("cad: ignoring invalid %s=%q (using %s)", src, v, d)
+	d := time.Duration(lastUsageEvery.Load())
+	if d == 0 {
+		d = time.Minute
+	}
+	warn("collect.usage.every", v, d)
 	return d
 }
 

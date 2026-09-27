@@ -33,11 +33,8 @@ type Placement struct {
 func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int) (out Placement, status int, deferUntil time.Time) {
 	drop := func(format string, a ...interface{}) { out.Reason = append(out.Reason, fmt.Sprintf(format, a...)) }
 	limit, est := 100-pol.Placement.ReservePct, pol.Classes[s.Class].EstPct
-	pick := func(a, computer string, i int) {
-		out.Agent, out.Computer, out.Rule = a, computer, i
-		if r, ok := pol.Runners[strings.SplitN(a, "/", 2)[0]]; ok {
-			out.Runner = &r
-		}
+	pick := func(a, computer string, i int, rn Runner) {
+		out.Agent, out.Computer, out.Rule, out.Runner = a, computer, i, &rn
 	}
 	agents := append([]string(nil), pol.Agents...)
 	sort.Strings(agents)
@@ -68,10 +65,19 @@ func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int)
 				continue
 			}
 			matched = true
+			rn, ok := pol.Runners[strings.SplitN(a, "/", 2)[0]]
+			if !ok { // the Orchestrator could not launch it
+				drop("%s: no runner", a)
+				continue
+			}
+			if rn.Mode == "subagent" && a != s.Self { // a subagent always runs as the Orchestrator's account
+				drop("%s: subagent runs only as self", a)
+				continue
+			}
 			u, ok := usage[a]
 			if !ok {
 				drop("%s: usage unknown", a)
-				pick(a, r.Computer, i)
+				pick(a, r.Computer, i, rn)
 				return out, http.StatusOK, time.Time{}
 			}
 			over, free := false, time.Time{} // free: when it fits again = latest resetsAt of exceeded windows
@@ -88,7 +94,7 @@ func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int)
 				}
 			}
 			if !over {
-				pick(a, r.Computer, i)
+				pick(a, r.Computer, i, rn)
 				return out, http.StatusOK, time.Time{}
 			}
 			if deferUntil.IsZero() || free.Before(deferUntil) {

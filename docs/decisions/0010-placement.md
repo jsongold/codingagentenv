@@ -46,10 +46,10 @@ ADR-0008 / 0009 は「provider の固定一覧（`policy.providers.allowed`）�
 
 ## 設定はファイル（.agent/policy.json）
 仕様も精度も日々変わるので、調整するものはすべて `.agent/policy.json`（`CAD_POLICY` で差し替え可）に置き、コードには置かない。稼働中の `cad` は mtime で再読込する（壊れたファイルは log に出して直前の良い policy を使い続ける）。`cad show [classes|rules|runners|collect|agents|computers|policy]` で読む。
-- `classes`：`{name: {criteria, estPct}}`。place が受け付ける class の一覧（コードの固定一覧を置き換え）。`criteria` は Orchestrator が分類に使う基準、`estPct` は 1 task が使う使用枠の見積もり（旧 `placement.estPct`）。class の追加はファイルの編集だけで済む
+- `classes`：`{name: {criteria, estPct}}`。place が受け付ける class の一覧（コードの固定一覧を置き換え）。`criteria` は Orchestrator が分類に使う基準、`estPct` は 1 task が使う使用枠の見積もり（旧 `placement.estPct`）。class の追加はファイルの編集だけで済む。`classes` の無いファイルは daemon が読み込み時に拒否する（旧 `placement.estPct` があればそれを名指しする。自動移行はしない。直前の良い policy を使い続ける）
 - `rules`：順序付きの決定リスト（上記）。`agent` は `path.Match` のパターンか `self`
-- `runners`：`{service: {mode, cmd?, model?}}`。`mode` は `subagent`（Orchestrator の Task subagent）か `process`（`cmd` を起動。`{model}` は `model` に置換）。`process` は `cmd` 必須（読み込み時に検証）。place の 200 に選んだ Agent のサービスの runner を入れる。cad 自身は起動しない（読み取り専用のデータ）
-- `collect.usage.every`：usage collector の間隔（Go の duration）。スケジュールのたびに読むので再起動不要。`CAD_USAGE_EVERY` があればそちらが優先。不正な値は直前の良い値を使う
+- `runners`：`{service: {mode, cmd?, model?}}`。`mode` は `subagent`（Orchestrator の Task subagent）か `process`（`cmd` を起動。`{model}` は `model` に置換）。`process` は `cmd` 必須（読み込み時に検証）。place の 200 に選んだ Agent のサービスの runner を入れる。runner の無いサービスの Agent は place で `<agent>: no runner` として飛ばす。`subagent` の Agent は self のときだけ使える（それ以外は `<agent>: subagent runs only as self` で飛ばす。よって `claude/*` の rule も実質 self にしか一致しない）。cad 自身は起動しない（読み取り専用のデータ）
+- `collect.usage.every`：usage collector の間隔（Go の duration）。スケジュールのたびに読むので再起動不要。`CAD_USAGE_EVERY` があればそちらが優先。不正な値は直前の良い値を使い、設定を消すと既定の 60s に戻る。前回の実行時刻 + 現在の間隔で判定するので、短くした間隔は次の tick から効く
 - `placement.reservePct`・`agents`・`computers`：従来どおり
 
 **self（owner 決定）**：Claude の task は常に Orchestrator セッションの subagent として動く。よって Claude の Agent は常に Orchestrator 自身のアカウントで、他の claude アカウントを選んでも使えない。Orchestrator は place に `"self": "<service>/<account>"` を渡し、rule の `agent: "self"` はそれだけに一致する（`policy.agents` に無い・渡されない場合は rule を飛ばす）。窓の判定は他の Agent と同じ。runner は `claude: {mode: subagent}`。

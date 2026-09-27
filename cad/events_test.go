@@ -32,3 +32,20 @@ func TestRunIntervals(t *testing.T) {
 		t.Errorf("fast not published: %d", got)
 	}
 }
+
+// Shortening an interval right after a run applies at once, not after the old deadline.
+func TestRunIntervalShortened(t *testing.T) {
+	var every atomic.Int64
+	every.Store(int64(time.Hour))
+	var n atomic.Int32
+	cs := []collector{{"dyn", func() time.Duration { return time.Duration(every.Load()) }, func() (interface{}, error) { n.Add(1); return 1, nil }}}
+	stop := make(chan struct{})
+	defer close(stop)
+	go newHub().run(cs, 5*time.Millisecond, stop)
+	time.Sleep(50 * time.Millisecond)
+	every.Store(int64(20 * time.Millisecond))
+	time.Sleep(100 * time.Millisecond)
+	if got := n.Load(); got < 2 {
+		t.Fatalf("ran %d times; the 1h deadline was kept", got)
+	}
+}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -70,6 +71,23 @@ func (p Policy) check() error {
 	return nil
 }
 
+// requireClasses rejects a policy file without classes (place would 400 every request). The daemon
+// checks it; the CLI does not, so `cad add` can build a file up. No migration of the old format.
+func requireClasses(b []byte, p Policy) error {
+	if len(p.Classes) > 0 {
+		return nil
+	}
+	var old struct {
+		Placement struct {
+			EstPct json.RawMessage `json:"estPct"`
+		} `json:"placement"`
+	}
+	if json.Unmarshal(b, &old) == nil && old.Placement.EstPct != nil {
+		return errors.New(`no "classes" (placement.estPct was replaced by classes{name:{criteria,estPct}} — see ADR-0010)`)
+	}
+	return errors.New(`no "classes" (want classes{name:{criteria,estPct}} — see ADR-0010)`)
+}
+
 // Rule: agents matching Agent (path.Match over Agents; "self" = the spec's self) run on Computer, for the listed classes (none = any).
 type Rule struct {
 	Agent    string   `json:"agent"`
@@ -123,6 +141,7 @@ func currentPolicy() Policy {
 	}
 	st, err := os.Stat(path)
 	if err == nil && (path != polPath || !st.ModTime().Equal(polMod)) {
+		polPath, polMod = path, st.ModTime() // a bad file is logged once per change, not on every call
 		var b []byte
 		var p Policy
 		if b, err = os.ReadFile(path); err == nil {
@@ -130,8 +149,11 @@ func currentPolicy() Policy {
 				err = p.check()
 			}
 			if err == nil {
+				err = requireClasses(b, p)
+			}
+			if err == nil {
 				p.Source = path
-				pol, polPath, polMod = p, path, st.ModTime()
+				pol = p
 			}
 		}
 	}

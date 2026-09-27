@@ -187,3 +187,18 @@ func TestPostPlacePolicyClass(t *testing.T) {
 		t.Fatalf("%d %+v", res.StatusCode, p)
 	}
 }
+
+// A candidate without a runner, or a subagent-backed one other than self, is skipped.
+func TestPlaceRunnerChecks(t *testing.T) {
+	pol := seedPolicy(t)
+	pol.Rules = append([]Rule{{Agent: "codex/*", Computer: "local"}, {Agent: "claude/*", Computer: "local"}}, pol.Rules...)
+	got, st, _ := place(pol, seedUsage(), PlaceSpec{Class: "light-edit", Self: "claude/b1c8ef41"}, 5)
+	want := []string{"codex/2e33b72a: no runner", "claude/a12e00a7: subagent runs only as self"}
+	if st != 200 || got.Agent != "claude/b1c8ef41" || got.Rule != 1 || !reflect.DeepEqual(got.Reason, want) {
+		t.Fatalf("%d %+v", st, got)
+	}
+	got, st, _ = place(pol, seedUsage(), PlaceSpec{Class: "light-edit"}, 5) // no self: claude/* matches nothing usable
+	if st != 200 || got.Agent != "opencode/996c87ae" || got.Rule != 3 {
+		t.Fatalf("%d %+v", st, got)
+	}
+}
