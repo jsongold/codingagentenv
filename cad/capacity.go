@@ -23,6 +23,16 @@ type Capacity struct {
 	Slots       int       `json:"slots"`
 }
 
+// Change-detection buckets: a capacity event fires only when slots or these coarse values move.
+const (
+	memBucketMB = 256
+	loadStep    = 0.5
+)
+
+func (c Capacity) changeKey() interface{} {
+	return []interface{}{c.Host, c.MemTotalMB, c.CPUs, c.Slots, c.MemFreeMB / memBucketMB, math.Round(c.Load1 / loadStep)}
+}
+
 // slots = max(0, min(floor((free-reserve)/mem), floor(cpus/gate.cpus), maxSlots)); CAD_SLOTS overrides.
 func slots(memFreeMB, cpus int, g Gate) int {
 	if n, err := strconv.Atoi(os.Getenv("CAD_SLOTS")); err == nil {

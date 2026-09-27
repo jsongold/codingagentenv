@@ -74,6 +74,10 @@ func (h *hub) publish(topic string, v interface{}) {
 		return
 	}
 	key := compareKey(data)
+	if k, ok := v.(interface{ changeKey() interface{} }); ok {
+		b, _ := json.Marshal(k.changeKey())
+		key = string(b)
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if old, ok := h.keys[topic]; ok && old == key {

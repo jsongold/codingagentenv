@@ -133,3 +133,23 @@ func TestQuotaAndEvents(t *testing.T) {
 		t.Errorf("bad state: %d", pr.StatusCode)
 	}
 }
+
+func TestCapacityChangeKey(t *testing.T) {
+	h := newHub()
+	c := Capacity{Host: "h", MemTotalMB: 16384, MemFreeMB: 3100, CPUs: 8, Load1: 2.1, Slots: 1}
+	h.publish("capacity", c)
+	rev := h.rev
+	c.MemFreeMB, c.Load1, c.CollectedAt = 3150, 2.2, time.Now() // jitter within buckets
+	h.publish("capacity", c)
+	if h.rev != rev {
+		t.Fatalf("jitter published an event")
+	}
+	c.Slots = 2
+	h.publish("capacity", c)
+	if h.rev != rev+1 {
+		t.Fatalf("slots change did not publish")
+	}
+	if !strings.Contains(string(h.cur["capacity"].Data), `"memFreeMB":3150`) {
+		t.Errorf("served payload not exact: %s", h.cur["capacity"].Data)
+	}
+}
