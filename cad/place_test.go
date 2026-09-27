@@ -29,7 +29,7 @@ func seedPolicy(t *testing.T) Policy {
 func seedUsage(t *testing.T) map[string]AgentUsage {
 	at := func(s string) time.Time { v, _ := time.Parse(time.RFC3339, s); return v }
 	w := func(pct5, pct7 float64) AgentUsage {
-		return AgentUsage{FiveHour: UsageWindow{pct5, at("2026-09-27T15:00:00Z")}, SevenDay: UsageWindow{pct7, at("2026-10-03T00:00:00Z")}}
+		return AgentUsage{FiveHour: &UsageWindow{pct5, at("2026-09-27T15:00:00Z")}, SevenDay: &UsageWindow{pct7, at("2026-10-03T00:00:00Z")}}
 	}
 	return map[string]AgentUsage{"claude/a12e00a7": w(30, 40), "claude/b1c8ef41": w(90, 50), "claude/default": w(10, 20), "codex/2e33b72a": w(20, 30), "opencode/996c87ae": w(0, 0)}
 }
@@ -156,7 +156,7 @@ func TestPlaceWindow(t *testing.T) {
 	pol, seed := seedPolicy(t), seedUsage(t)
 	at := func(s string) time.Time { v, _ := time.Parse(time.RFC3339, s); return v }
 	full := func(pct5, pct7 float64, r5, r7 string) AgentUsage {
-		return AgentUsage{FiveHour: UsageWindow{pct5, at(r5)}, SevenDay: UsageWindow{pct7, at(r7)}}
+		return AgentUsage{FiveHour: &UsageWindow{pct5, at(r5)}, SevenDay: &UsageWindow{pct7, at(r7)}}
 	}
 	has := func(rs []string, want string) bool {
 		for _, r := range rs {
@@ -180,7 +180,7 @@ func TestPlaceWindow(t *testing.T) {
 	for k, v := range seed {
 		u[k] = v
 	}
-	for _, a := range []string{"claude/a12e00a7", "claude/b1c8ef41", "claude/default"} {
+	for _, a := range []string{"claude/a12e00a7", "claude/b1c8ef41"} {
 		u[a] = full(90, 0, "2026-09-27T15:00:00Z", "2026-10-03T00:00:00Z")
 	}
 	if got, _, _ = place(pol, u, s, 5); got.Agent != "codex/2e33b72a" {
@@ -191,6 +191,13 @@ func TestPlaceWindow(t *testing.T) {
 		t.Errorf("codex 7d filtered: %+v", got)
 	}
 
+	// A nil (null) window is not filtered and adds no reason: codex with no 5h window, 7d low.
+	u["codex/2e33b72a"] = AgentUsage{SevenDay: &UsageWindow{10, at("2026-10-03T00:00:00Z")}}
+	if got, _, _ = place(pol, u, s, 5); got.Agent != "codex/2e33b72a" || has(got.Reason, "codex/2e33b72a: 5h window") {
+		t.Errorf("null window: %+v", got)
+	}
+	u["codex/2e33b72a"] = full(0, 85, "2026-09-27T15:00:00Z", "2026-10-03T00:00:00Z")
+
 	// Unknown usage is kept (with a reason) and wins over nothing.
 	delete(u, "opencode/996c87ae")
 	if got, st, _ = place(pol, u, s, 5); st != 200 || got.Agent != "opencode/996c87ae" || !has(got.Reason, "opencode/996c87ae: usage unknown") {
@@ -199,10 +206,9 @@ func TestPlaceWindow(t *testing.T) {
 
 	// needs-db is claude-only: all claude over -> 409, defer_until = earliest agent-free time.
 	// b1c8ef41 exceeds both windows so it is free only at its later reset (10-03);
-	// the others free at their own 5h resets; earliest is default's 09-27T13.
-	u["claude/a12e00a7"] = full(90, 0, "2026-09-27T15:00:00Z", "2026-10-03T00:00:00Z")
+	// a12e00a7 frees at its own 5h reset (09-27T13), the earliest. A null window is skipped.
+	u["claude/a12e00a7"] = AgentUsage{FiveHour: &UsageWindow{90, at("2026-09-27T13:00:00Z")}}
 	u["claude/b1c8ef41"] = full(90, 90, "2026-09-27T12:00:00Z", "2026-10-03T00:00:00Z")
-	u["claude/default"] = full(90, 0, "2026-09-27T13:00:00Z", "2026-10-03T00:00:00Z")
 	_, st, until := place(pol, u, spec("needs-db", "cheap", 1024, 30, 0), 5)
 	if st != http.StatusConflict || !until.Equal(at("2026-09-27T13:00:00Z")) {
 		t.Errorf("409: %d %v", st, until)
@@ -216,15 +222,18 @@ func TestPlaceWindow(t *testing.T) {
 func TestPlaceHubUsage(t *testing.T) {
 	t.Setenv("CAD_POLICY", filepath.Join("..", ".agent", "policy.json"))
 	now := time.Now()
-	past, future := UsageWindow{95, now.Add(-time.Minute)}, UsageWindow{95, now.Add(time.Hour)}
+	past, future := &UsageWindow{95, now.Add(-time.Minute)}, &UsageWindow{95, now.Add(time.Hour)}
 	u := UsageMap{
-		"claude/a12e00a7": {FiveHour: future, SevenDay: UsageWindow{1, now.Add(time.Hour)}}, // 5h over
-		"claude/b1c8ef41": {FiveHour: past, SevenDay: past},                                 // both reset: 0%
+		"claude/a12e00a7": {FiveHour: future, SevenDay: &UsageWindow{1, now.Add(time.Hour)}}, // 5h over
+		"claude/b1c8ef41": {FiveHour: past, SevenDay: past},                                  // both reset: 0%
 		"claude/default":  {Error: "claude -p /usage: exit status 1"},
 	}
 	got := usableUsage(u, now)
 	if b := got["claude/b1c8ef41"]; b.FiveHour.UsedPct != 0 || b.SevenDay.UsedPct != 0 {
 		t.Fatalf("past reset not 0%%: %+v", b)
+	}
+	if past.UsedPct != 95 {
+		t.Fatal("usableUsage mutated the published window")
 	}
 	if _, ok := got["claude/default"]; ok {
 		t.Fatal("error agent kept as known")
@@ -242,7 +251,7 @@ func TestPlaceHubUsage(t *testing.T) {
 	json.NewDecoder(res.Body).Decode(&p)
 	res.Body.Close()
 	reasons := strings.Join(p.Reason, "|")
-	if res.StatusCode != 200 || p.Agent != "claude/b1c8ef41" || !strings.Contains(reasons, "claude/a12e00a7: 5h window") || !strings.Contains(reasons, "claude/default: usage unknown") {
+	if res.StatusCode != 200 || p.Agent != "claude/b1c8ef41" || !strings.Contains(reasons, "claude/a12e00a7: 5h window") {
 		t.Fatalf("%d %+v", res.StatusCode, p)
 	}
 }

@@ -11,7 +11,7 @@
     "claude-cloud":   { "vcpuHourUSD": 0,      "gibHourUSD": 0,       "minBillSec": 0,  "preemptible": false, "coldStartSec": 30, "caps": { "docker": true,  "db": true  }, "maxMemMB": 8192,  "maxCpus": 4, "maxMin": 0 }
   },
   "agentPriority": ["claude", "codex", "opencode"],
-  "agents": ["claude/a12e00a7", "claude/b1c8ef41", "claude/default", "codex/2e33b72a", "opencode/996c87ae"],
+  "agents": ["claude/a12e00a7", "claude/b1c8ef41", "codex/2e33b72a", "opencode/996c87ae"],
   "classAgents": {
     "light-edit": ["claude/*", "codex/*", "opencode/*"], "gate-heavy": ["claude/*", "codex/*"], "needs-db": ["claude/*"],
     "long-running": ["claude/*"], "urgent": ["claude/*"], "retry": ["claude/*"]

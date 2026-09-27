@@ -23,11 +23,11 @@ type UsageWindow struct {
 // AgentUsage is one agent's subscription usage (ADR-0010 window filter). Error is set when the
 // collector could not refresh it; Stale when the value it read is older than 2 intervals.
 type AgentUsage struct {
-	FiveHour  UsageWindow `json:"fiveHour"`
-	SevenDay  UsageWindow `json:"sevenDay"`
-	FetchedAt time.Time   `json:"fetchedAt,omitzero"`
-	Stale     bool        `json:"stale,omitempty"`
-	Error     string      `json:"error,omitempty"`
+	FiveHour  *UsageWindow `json:"fiveHour"` // nil (JSON null): the account has no such window
+	SevenDay  *UsageWindow `json:"sevenDay"`
+	FetchedAt time.Time    `json:"fetchedAt,omitzero"`
+	Stale     bool         `json:"stale,omitempty"`
+	Error     string       `json:"error,omitempty"`
 }
 
 // UsageMap is published on the "usage" topic. fetchedAt is excluded from the change key
@@ -150,13 +150,19 @@ func readUsage(file string) (AgentUsage, error) {
 	if err := json.Unmarshal(b, &f); err != nil {
 		return AgentUsage{}, errors.New("parse .claude.json failed")
 	}
-	if f.C == nil || f.C.Utilization.FiveHour == nil || f.C.Utilization.SevenDay == nil {
+	if f.C == nil {
 		return AgentUsage{}, errors.New("cachedUsageUtilization missing")
+	}
+	conv := func(w *win) *UsageWindow {
+		if w == nil {
+			return nil
+		}
+		return &UsageWindow{w.Utilization, w.ResetsAt}
 	}
 	u := f.C.Utilization
 	return AgentUsage{
-		FiveHour:  UsageWindow{u.FiveHour.Utilization, u.FiveHour.ResetsAt},
-		SevenDay:  UsageWindow{u.SevenDay.Utilization, u.SevenDay.ResetsAt},
+		FiveHour:  conv(u.FiveHour),
+		SevenDay:  conv(u.SevenDay),
 		FetchedAt: time.UnixMilli(f.C.FetchedAtMs).UTC(),
 	}, nil
 }
@@ -209,15 +215,16 @@ func usageFor(agent string, every time.Duration) AgentUsage {
 
 // usableUsage turns the published usage into what place filters on: agents with Error or Stale
 // are dropped (place reports them as "usage unknown") and windows whose reset has passed count as 0%.
+// A nil window stays nil (place does not filter on it).
 func usableUsage(m UsageMap, now time.Time) map[string]AgentUsage {
 	out := map[string]AgentUsage{}
 	for a, u := range m {
 		if u.Error != "" || u.Stale {
 			continue
 		}
-		for _, w := range []*UsageWindow{&u.FiveHour, &u.SevenDay} {
-			if !w.ResetsAt.After(now) {
-				w.UsedPct = 0
+		for _, w := range []**UsageWindow{&u.FiveHour, &u.SevenDay} {
+			if *w != nil && !(*w).ResetsAt.After(now) {
+				*w = &UsageWindow{0, (*w).ResetsAt} // copy: the published value is shared
 			}
 		}
 		out[a] = u
