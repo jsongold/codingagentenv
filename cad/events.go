@@ -81,6 +81,9 @@ func (h *hub) publish(topic string, v interface{}) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if old, ok := h.keys[topic]; ok && old == key {
+		e := h.cur[topic] // keep GET fresh; only the SSE fan-out is gated by the key
+		e.At, e.Data = time.Now().UTC(), data
+		h.cur[topic] = e
 		return
 	}
 	h.rev++
@@ -100,13 +103,13 @@ func (h *hub) publish(topic string, v interface{}) {
 	}
 }
 
-// snapshot returns current events sorted by topic. Caller holds h.mu.
+// snapshot returns current events in rev order (so SSE ids never go backwards). Caller holds h.mu.
 func (h *hub) snapshot() []Event {
 	out := make([]Event, 0, len(h.cur))
 	for _, e := range h.cur {
 		out = append(out, e)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Topic < out[j].Topic })
+	sort.Slice(out, func(i, j int) bool { return out[i].Rev < out[j].Rev })
 	return out
 }
 

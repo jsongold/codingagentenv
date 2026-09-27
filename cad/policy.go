@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -25,40 +27,57 @@ type Policy struct {
 	Providers struct {
 		Allowed []string `json:"allowed"`
 	} `json:"providers"`
+	Source string `json:"source"` // file path, or "builtin"
+}
+
+func defaultPolicy() Policy {
+	p := Policy{Version: 1, Gate: Gate{MemoryMB: 1500, CPUs: 1, ReserveMB: 2048}, Source: "builtin"}
+	p.Review.Reviewers = []string{"codex-bot", "codex-local", "claude-opus"}
+	p.Review.ExcludeImplementer, p.Review.RequireCI = true, true
+	p.Providers.Allowed = []string{"gce-spot", "cloud-run-jobs", "e2b", "local"}
+	return p
 }
 
 var (
-	polMu  sync.Mutex
-	pol    Policy
-	polMod time.Time
+	polMu   sync.Mutex
+	pol     = defaultPolicy()
+	polPath string
+	polMod  time.Time
 )
 
-// currentPolicy re-reads CAD_POLICY when its mtime changed; on error the last good policy is returned.
-func currentPolicy() (Policy, error) {
+// currentPolicy resolves CAD_POLICY > ./.agent/policy.json (if present) > built-in default,
+// re-reading the file when its mtime changes. A bad file is logged and the last good policy kept.
+func currentPolicy() Policy {
+	polMu.Lock()
+	defer polMu.Unlock()
 	path := os.Getenv("CAD_POLICY")
 	if path == "" {
 		path = ".agent/policy.json"
+		if _, err := os.Stat(path); err != nil {
+			pol, polPath = defaultPolicy(), ""
+			return pol
+		}
 	}
-	polMu.Lock()
-	defer polMu.Unlock()
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
 	st, err := os.Stat(path)
-	if err != nil {
-		return pol, err
-	}
-	if !st.ModTime().Equal(polMod) {
-		b, err := os.ReadFile(path)
-		if err != nil {
-			return pol, err
-		}
+	if err == nil && (path != polPath || !st.ModTime().Equal(polMod)) {
+		var b []byte
 		var p Policy
-		if err := json.Unmarshal(b, &p); err != nil {
-			return pol, err
+		if b, err = os.ReadFile(path); err == nil {
+			if err = json.Unmarshal(b, &p); err == nil {
+				p.Source = path
+				pol, polPath, polMod = p, path, st.ModTime()
+			}
 		}
-		pol, polMod = p, st.ModTime()
 	}
-	return pol, nil
+	if err != nil {
+		log.Printf("cad: policy %s: %v (serving %s)", path, err, pol.Source)
+	}
+	return pol
 }
 
 func init() {
-	register("policy", func() (interface{}, error) { return currentPolicy() })
+	register("policy", func() (interface{}, error) { return currentPolicy(), nil })
 }

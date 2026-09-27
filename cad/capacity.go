@@ -66,7 +66,7 @@ func collectCapacity() (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	p, _ := currentPolicy() // error already reported by the policy collector
+	p := currentPolicy()
 	host, _ := os.Hostname()
 	cpus := runtime.NumCPU()
 	return Capacity{host, time.Now().UTC(), total, free, cpus, load, slots(free, cpus, p.Gate)}, nil

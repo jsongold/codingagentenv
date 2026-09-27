@@ -144,6 +144,9 @@ func TestCapacityChangeKey(t *testing.T) {
 	if h.rev != rev {
 		t.Fatalf("jitter published an event")
 	}
+	if !strings.Contains(string(h.cur["capacity"].Data), `"memFreeMB":3150`) {
+		t.Fatalf("GET value stale: %s", h.cur["capacity"].Data)
+	}
 	c.Slots = 2
 	h.publish("capacity", c)
 	if h.rev != rev+1 {
@@ -151,5 +154,29 @@ func TestCapacityChangeKey(t *testing.T) {
 	}
 	if !strings.Contains(string(h.cur["capacity"].Data), `"memFreeMB":3150`) {
 		t.Errorf("served payload not exact: %s", h.cur["capacity"].Data)
+	}
+}
+
+func TestDefaultPolicyWithoutFile(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("CAD_POLICY", "")
+	p := currentPolicy()
+	if p.Source != "builtin" || p.Gate.MemoryMB != 1500 || p.Gate.ReserveMB != 2048 {
+		t.Fatalf("policy: %+v", p)
+	}
+	t.Setenv("CAD_SLOTS", "")
+	if n := slots(2048+3000, 8, p.Gate); n != 2 {
+		t.Fatalf("slots=%d want 2", n)
+	}
+}
+
+func TestSnapshotRevOrder(t *testing.T) {
+	h := newHub() // publishes workers then quota
+	h.publish("capacity", Capacity{Host: "h"})
+	s := h.current()
+	for i := 1; i < len(s); i++ {
+		if s[i].Rev < s[i-1].Rev {
+			t.Fatalf("snapshot not rev-ordered: %v", s)
+		}
 	}
 }
