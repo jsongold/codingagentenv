@@ -22,6 +22,9 @@ type Worker struct {
 	StartedAt  time.Time         `json:"startedAt"`
 	LastSeenAt time.Time         `json:"lastSeenAt"`
 	Labels     map[string]string `json:"labels,omitempty"`
+	// ExitCode is set by a provider once a worker has finished (ADR-0009);
+	// omitted for still-running workers.
+	ExitCode *int `json:"exitCode,omitempty"`
 }
 
 // WorkerList is published on the "workers" topic. lastSeenAt is excluded from
@@ -34,10 +37,11 @@ func (l WorkerList) changeKey() interface{} {
 		ID, Provider, State string
 		StartedAt           time.Time
 		Labels              map[string]string
+		ExitCode            *int
 	}
 	ks := make([]k, len(l))
 	for i, w := range l {
-		ks[i] = k{w.ID, w.Provider, w.State, w.StartedAt, w.Labels}
+		ks[i] = k{w.ID, w.Provider, w.State, w.StartedAt, w.Labels, w.ExitCode}
 	}
 	return ks
 }
@@ -54,6 +58,7 @@ type rawWorker struct {
 	State     string            `json:"state"`
 	StartedAt time.Time         `json:"startedAt"`
 	Labels    map[string]string `json:"labels"`
+	ExitCode  *int              `json:"exitCode"`
 }
 
 var workerStore = struct {
@@ -122,7 +127,7 @@ func pollWorkers() {
 		now := time.Now().UTC()
 		workers := make([]Worker, len(list))
 		for i, rw := range list {
-			workers[i] = Worker{ID: rw.ID, Provider: provider, State: rw.State, StartedAt: rw.StartedAt, LastSeenAt: now, Labels: rw.Labels}
+			workers[i] = Worker{ID: rw.ID, Provider: provider, State: rw.State, StartedAt: rw.StartedAt, LastSeenAt: now, Labels: rw.Labels, ExitCode: rw.ExitCode}
 		}
 		workerStore.byProvider[provider] = workers
 		workerStore.mu.Unlock()

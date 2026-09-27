@@ -49,7 +49,8 @@ const fakeScript = `#!/bin/sh
 cat <<'JSON'
 [
   {"id": "fake-1", "state": "running", "startedAt": "2026-01-01T00:00:00Z", "labels": {"role": "test"}},
-  {"id": "fake-2", "state": "starting", "startedAt": "2026-01-01T00:05:00Z", "labels": {}}
+  {"id": "fake-2", "state": "starting", "startedAt": "2026-01-01T00:05:00Z", "labels": {}},
+  {"id": "fake-3", "state": "stopped", "startedAt": "2026-01-01T00:10:00Z", "exitCode": 0, "labels": {"result": "ok"}}
 ]
 JSON
 `
@@ -70,8 +71,8 @@ func TestPollWorkersFakeProvider(t *testing.T) {
 	if err := json.NewDecoder(get(t, srv.URL+"/v1/workers", "").Body).Decode(&ws); err != nil {
 		t.Fatal(err)
 	}
-	if len(ws) != 2 {
-		t.Fatalf("want 2 workers, got %d: %+v", len(ws), ws)
+	if len(ws) != 3 {
+		t.Fatalf("want 3 workers, got %d: %+v", len(ws), ws)
 	}
 	for _, w := range ws {
 		if w.Provider != "fake" {
@@ -80,6 +81,10 @@ func TestPollWorkersFakeProvider(t *testing.T) {
 		if w.LastSeenAt.IsZero() {
 			t.Errorf("lastSeenAt not set: %+v", w)
 		}
+	}
+	finished := ws[2] // fake-3, sorted after fake-1/fake-2 by id
+	if finished.ID != "fake-3" || finished.ExitCode == nil || *finished.ExitCode != 0 || finished.Labels["result"] != "ok" {
+		t.Errorf("finished worker: %+v", finished)
 	}
 
 	// lastSeenAt-only changes must not republish (changeKey ignores it).
@@ -108,8 +113,8 @@ func TestPollWorkersFailingKeepsThenUnknown(t *testing.T) {
 
 	pollWorkers()
 	before := currentWorkers()
-	if len(before) != 2 || before[0].State != "running" {
-		t.Fatalf("setup: want 2 running workers, got %+v", before)
+	if len(before) != 3 || before[0].State != "running" {
+		t.Fatalf("setup: want 3 workers, first running, got %+v", before)
 	}
 
 	// Break the script: subsequent polls fail.
@@ -119,14 +124,14 @@ func TestPollWorkersFailingKeepsThenUnknown(t *testing.T) {
 
 	for i := 0; i < workerFailThreshold-1; i++ {
 		pollWorkers()
-		if ws := currentWorkers(); len(ws) != 2 || ws[0].State != "running" {
+		if ws := currentWorkers(); len(ws) != 3 || ws[0].State != "running" {
 			t.Fatalf("poll %d: want previous list kept with state running, got %+v", i, ws)
 		}
 	}
 
 	pollWorkers() // reaches workerFailThreshold
 	after := currentWorkers()
-	if len(after) != 2 {
+	if len(after) != 3 {
 		t.Fatalf("want previous list still present, got %+v", after)
 	}
 	for _, w := range after {
