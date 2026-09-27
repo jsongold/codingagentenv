@@ -83,7 +83,8 @@ func TestPlace(t *testing.T) {
 func TestPlaceTieBreakAndDeterminism(t *testing.T) {
 	pol := seedPolicy(t)
 	pol.Agents = []string{"claude/b", "codex/x", "claude/a"}
-	pol.Computers["twin"] = pol.Computers["e2b"] // same key as e2b; "e2b" < "twin"
+	pol.ClassAgents["light-edit"] = []string{"*/*"} // generic tie-break/priority test, not a real classAgents policy
+	pol.Computers["twin"] = pol.Computers["e2b"]    // same key as e2b; "e2b" < "twin"
 	s := spec("light-edit", "safe", 1024, 30, 0, "twin", "e2b")
 	first, st, _ := place(pol, nil, s, 0)
 	if st != http.StatusOK || first.Agent != "claude/a" || first.Computer != "e2b" {
@@ -100,7 +101,6 @@ func TestPlaceTieBreakAndDeterminism(t *testing.T) {
 		t.Fatalf("agentPriority: %+v", got)
 	}
 	pol.AgentPriority, pol.Agents = []string{"codex"}, []string{"claude/a", "aaa/z", "codex/x"}
-	pol.ClassAgents["light-edit"] = []string{"*/*"}
 	if got, _, _ := place(pol, nil, s, 0); got.Agent != "codex/x" {
 		t.Fatalf("listed first: %+v", got)
 	}
@@ -174,8 +174,9 @@ func TestPlaceWindow(t *testing.T) {
 		t.Fatalf("5h drop: %d %+v", st, got)
 	}
 
-	// Agents are sorted, so claude/* < codex/* < opencode/*: light-edit reaches codex only
-	// once every claude agent is filtered, and opencode only once codex is too.
+	// Agents are sorted, so claude/* < opencode/*: light-edit reaches opencode once every
+	// claude agent is filtered. codex is in policy.agents (usage still collected for review
+	// quota) but is in no class's classAgents, so it is never a placement candidate.
 	u := map[string]AgentUsage{}
 	for k, v := range seed {
 		u[k] = v
@@ -183,32 +184,24 @@ func TestPlaceWindow(t *testing.T) {
 	for _, a := range []string{"claude/a12e00a7", "claude/b1c8ef41"} {
 		u[a] = full(90, 0, "2026-09-27T15:00:00Z", "2026-10-03T00:00:00Z")
 	}
-	if got, _, _ = place(pol, u, s, 5); got.Agent != "codex/2e33b72a" {
-		t.Errorf("claude filtered: %+v", got)
+	delete(u, "opencode/996c87ae") // usage unknown
+	if got, _, _ = place(pol, u, s, 5); got.Agent != "opencode/996c87ae" || !has(got.Reason, "opencode/996c87ae: usage unknown") {
+		t.Errorf("claude filtered -> opencode: %+v", got)
 	}
-	u["codex/2e33b72a"] = full(0, 85, "2026-09-27T15:00:00Z", "2026-10-03T00:00:00Z") // 7d 85+1 > 85
-	if got, _, _ = place(pol, u, s, 5); got.Agent != "opencode/996c87ae" || !has(got.Reason, "codex/2e33b72a: 7d window") {
-		t.Errorf("codex 7d filtered: %+v", got)
-	}
-
-	// A nil (null) window is not filtered and adds no reason: codex with no 5h window, 7d low.
-	u["codex/2e33b72a"] = AgentUsage{SevenDay: &UsageWindow{10, at("2026-10-03T00:00:00Z")}}
-	if got, _, _ = place(pol, u, s, 5); got.Agent != "codex/2e33b72a" || has(got.Reason, "codex/2e33b72a: 5h window") {
-		t.Errorf("null window: %+v", got)
-	}
-	u["codex/2e33b72a"] = full(0, 85, "2026-09-27T15:00:00Z", "2026-10-03T00:00:00Z")
-
-	// Unknown usage is kept (with a reason) and wins over nothing.
-	delete(u, "opencode/996c87ae")
-	if got, st, _ = place(pol, u, s, 5); st != 200 || got.Agent != "opencode/996c87ae" || !has(got.Reason, "opencode/996c87ae: usage unknown") {
-		t.Errorf("unknown kept: %d %+v", st, got)
+	for _, c := range []string{"light-edit", "gate-heavy", "needs-db", "long-running", "urgent", "retry"} {
+		spc := s
+		spc.Class = c
+		if got, _, _ := place(pol, u, spc, 5); got.Agent == "codex/2e33b72a" {
+			t.Errorf("%s: codex must never be placed: %+v", c, got)
+		}
 	}
 
-	// needs-db is claude-only: all claude over -> 409, defer_until = earliest agent-free time.
-	// b1c8ef41 exceeds both windows so it is free only at its later reset (10-03);
+	// needs-db: all matching agents (claude + opencode) over -> 409, defer_until = earliest agent-free time.
+	// b1c8ef41 and opencode exceed both windows so they are free only at their later reset (10-03);
 	// a12e00a7 frees at its own 5h reset (09-27T13), the earliest. A null window is skipped.
 	u["claude/a12e00a7"] = AgentUsage{FiveHour: &UsageWindow{90, at("2026-09-27T13:00:00Z")}}
 	u["claude/b1c8ef41"] = full(90, 90, "2026-09-27T12:00:00Z", "2026-10-03T00:00:00Z")
+	u["opencode/996c87ae"] = full(90, 90, "2026-09-27T14:00:00Z", "2026-10-03T00:00:00Z")
 	_, st, until := place(pol, u, spec("needs-db", "cheap", 1024, 30, 0), 5)
 	if st != http.StatusConflict || !until.Equal(at("2026-09-27T13:00:00Z")) {
 		t.Errorf("409: %d %v", st, until)

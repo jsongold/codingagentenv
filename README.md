@@ -78,7 +78,7 @@ task spec
    │   ├─ 7d 窓: 均等ペース超過                                → defer(resetsAt)
    │   └─ 稼働 Worker ≥ maxWorkers                            → defer(5 分後)
    │      defer = 非 0 で返すだけ。キューは持たない（Task は pending のまま）
-   ├─ Agent = サービス × アカウント（アカウントは aienv の store id。未決）
+   ├─ Agent = サービス × アカウント（アカウントは aienv の store id。未決）。claude を使い切ったら opencode にフォールバック（モデルは可変・現在 DeepSeek）。codex はレビュー専用で配置されない
    ├─ provider 明示指定あり → feasible なら採用 / 不可なら exit 2
    └─ 候補 = spec.allow ∩ policy.providers.allowed
        ├─ feasible で絞る: memory・cpu・timeout・needs-db なら caps.db・maxCostUSD・safe なら非 preemptible
