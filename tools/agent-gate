@@ -46,30 +46,40 @@ get_slots() {
     n=$(parse_slots "$body")
     [ -n "$n" ] && { printf '%s' "$n"; return; }
   fi
-  if command -v cad >/dev/null 2>&1 && body=$(cad capacity 2>/dev/null); then
+  if command -v cad >/dev/null 2>&1 && body=$(cd "${WT:-.}" && cad capacity 2>/dev/null); then
     n=$(parse_slots "$body")
     [ -n "$n" ] && { printf '%s' "$n"; return; }
   fi
   printf '1'
 }
 
-# count_alive — reclaims any slot file whose holder PID is confirmed dead,
-# echoes how many slots (of any index) are still held by a live PID. A slot
-# file is only ever created already containing its pid (see acquire_slot), so
+# count_alive — reclaims any slot whose holder PID is confirmed dead, echoes
+# how many slots (of any index) are still held by a live PID. A slot is
+# normally a plain file that already contains its pid (see acquire_slot), so
 # an empty/unreadable file here means something else is mid-acquisition, not
-# dead — leave it alone rather than reclaim it out from under that process.
+# dead — leave it alone rather than reclaim it out from under that process. A
+# slot.N/ directory with a slot.N/pid file inside is the legacy (pre-link)
+# lock format from an older agent-gate; it's read and reclaimed the same way
+# so a holder still running under the old version still counts against
+# capacity (and acquire_slot's existence check already refuses to `ln` onto
+# either shape).
 count_alive() {
   local d pid alive=0
   for d in "$base"/slot.*; do
-    [ -f "$d" ] || continue
-    pid=$(cat "$d" 2>/dev/null)
+    if [ -f "$d" ]; then
+      pid=$(cat "$d" 2>/dev/null)
+    elif [ -d "$d" ]; then
+      pid=$(cat "$d/pid" 2>/dev/null)
+    else
+      continue
+    fi
     if [ -z "$pid" ]; then
       alive=$((alive + 1)) # mid-acquisition (or unreadable): assume live, don't reclaim
     elif kill -0 "$pid" 2>/dev/null; then
       alive=$((alive + 1))
     else
-      # ponytail: stale check races if two waiters reap the same file at once; worst case one extra gate runs briefly
-      rm -f "$d"
+      # ponytail: stale check races if two waiters reap the same entry at once; worst case one extra gate runs briefly
+      rm -rf "$d"
     fi
   done
   printf '%s' "$alive"

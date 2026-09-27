@@ -74,6 +74,28 @@ AGENT_GATE_SLOTS=1 CAD_URL=$UNREACHABLE timeout 3 bash "$ROOT/tools/agent-gate" 
 check "shrink to 1 blocks while a higher-numbered slot is held" 124 $?
 rm -rf "${AGENT_GATE_LOCK_DIR:?}"/slot.*
 
+# Legacy (pre-link) slot lock format: a slot.N/ directory with slot.N/pid inside,
+# from an older agent-gate still running. A live one occupies the slot...
+mkdir -p "$AGENT_GATE_LOCK_DIR/slot.1"
+echo $$ >"$AGENT_GATE_LOCK_DIR/slot.1/pid"
+AGENT_GATE_SLOTS=1 CAD_URL=$UNREACHABLE timeout 3 bash "$ROOT/tools/agent-gate" "$TMP/wt" >/dev/null 2>&1
+check "a live legacy directory-style slot occupies it" 124 $?
+# ...but one left behind by a dead process is reclaimed.
+echo 999999 >"$AGENT_GATE_LOCK_DIR/slot.1/pid"
+AGENT_GATE_SLOTS=1 timeout 20 bash "$ROOT/tools/agent-gate" "$TMP/wt" >/dev/null 2>&1
+check "a dead legacy directory-style slot is reclaimed" 0 $?
+rm -rf "${AGENT_GATE_LOCK_DIR:?}"/slot.*
+
+# The `cad capacity` one-shot fallback must read the target worktree's own
+# .agent/policy.json, not whatever directory agent-gate happened to start in.
+mkdir -p "$TMP/wt/.agent"
+printf '{"version":1,"gate":{"memoryMB":1,"cpus":0.1,"reserveMB":0,"maxSlots":3}}' >"$TMP/wt/.agent/policy.json"
+echo $$ >"$AGENT_GATE_LOCK_DIR/slot.1"
+echo $$ >"$AGENT_GATE_LOCK_DIR/slot.2"
+CAD_URL=$UNREACHABLE timeout 10 bash "$ROOT/tools/agent-gate" "$TMP/wt" >/dev/null 2>&1
+check "cad capacity one-shot reads the worktree's own policy" 0 $?
+rm -rf "${AGENT_GATE_LOCK_DIR:?}"/slot.* "$TMP/wt/.agent"
+
 # Concurrent acquisition against a single slot must never let two gates run their
 # steps at once (a marker file per running gate; a watcher samples how many exist).
 CTMP="$TMP/concurrent"
