@@ -57,6 +57,8 @@ NS ごとに `claude code (orchestrator) → orchd pick → orchd place → orch
 4. `sudo docker run -d --rm --name opencode-worker-<n> -v /var/lib/cad:/data -e ISSUE -e REPO -e MODEL <image>`（worker が Issue を読み、PR `Closes #n` を出す）。失敗時に VM が `RUNNING` でなくなっていれば（preempt・自己停止）exit 5、そうでなければ exit 1
 5. `{started, instance, container, booted（start したか）, startSec（dispatch 開始から docker run まで、実測）}` を出す
 
+orchd を動かす環境（Orchestrator の Mac）に `gcloud` と、VM への IAP SSH と start の権限が要る（cad の container 内の orchd には gcloud が無いので vm は使えず、exit 5 で置き直しになる）。
+
 完了は `orchd status --issue <n>`（PR）で待つ。VM が `TERMINATED` なのに PR が無ければ、preempt か worker の失敗（`skills/orchestrate`）。`gce-std` は cad の `config.json` の computers（費用の記録）には未登録（価格を確認してから足す）。
 
 ## MODE
