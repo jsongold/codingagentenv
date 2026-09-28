@@ -6,3 +6,4 @@
 !orchd/go.mod
 !orchd/policy.json
 !deploy/entrypoint.sh
+!deploy/fetch-auth.sh
