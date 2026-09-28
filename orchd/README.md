@@ -49,12 +49,12 @@ NS ごとに `claude code (orchestrator) → orchd pick → orchd place → orch
 
 ## vm runner（opencode の cloud worker）
 
-`runners["opencode@gce-spot"]` / `["opencode@gce-std"]` = `{mode: vm, instance, zone, project, image, model}`。VM と image は `deploy/gcp/README.md` の「opencode worker VM」（#53。owner が `create-worker.sh` で作るまでは describe が失敗して exit 5 → `--exclude` で local に落ちる）。VM は普段 `TERMINATED`（停止）で、task が終わると自分で止まる。`dispatch` は：
+`runners["opencode@gce-spot"]` / `["opencode@gce-std"]` = `{mode: vm, instance, zone, project, image, model}`。`instance` は 1 台の名前、または同じ種類（Spot/standard）の VM をカンマ区切りで並べたもの（1〜3 台、`deploy/gcp/create-worker.sh`）。VM と image は `deploy/gcp/README.md` の「opencode worker VM」（#53。owner が `create-worker.sh` で作るまでは describe が失敗して exit 5 → `--exclude` で local に落ちる）。VM は普段 `TERMINATED`（停止）で、task が終わると自分で止まる。`dispatch` は：
 
 Compute Engine REST API v1 を直接呼ぶ（gcloud・ssh は使わない。Go の標準ライブラリだけ）：
 
-1. `instances.get` で状態と metadata を見る。`STOPPING` / `PENDING_STOP`（自己停止の途中）なら `TERMINATED` まで待つ
-2. `TERMINATED` 以外（`RUNNING` / `PROVISIONING` / `STAGING` など＝別 task が使用中）は exit 5。VM 1 台で task は 1 つ。`TERMINATED` でも、5 分以内の `worker-task`（別の dispatch が setMetadata から start までの途中）がある、または `startup-script` が `worker-task` を読まない旧版なら exit 5
+1. `instance` の各 VM を順に `instances.get` で見て、最初に `TERMINATED` のものを選ぶ。どれも `TERMINATED` でなければ、最初に `STOPPING` / `PENDING_STOP`（自己停止の途中）だったものを `TERMINATED` になるまで待つ
+2. 選んだ VM が `TERMINATED` 以外（全台 `RUNNING` / `PROVISIONING` / `STAGING` など＝別 task が使用中）なら exit 5。VM 1 台で task は 1 つ。`TERMINATED` でも、5 分以内の `worker-task`（別の dispatch が setMetadata から start までの途中）がある、または `startup-script` が `worker-task` を読まない旧版なら exit 5
 3. `instances.setMetadata` で metadata `worker-task` = `<id> <n> <repo> <model> <image>` を置く（他の item はそのまま。fingerprint 付きなので同時の dispatch は片方が 412 → exit 5）
 4. `instances.start`、operation が `DONE` になるまで 5 秒おきに見る。失敗（Spot の容量不足など）したら instance を見直し、起動中（`PROVISIONING` / `STAGING` / `RUNNING`）なら成功扱い、`TERMINATED` なら `worker-task` を消して（best effort）exit 5
 5. `{started, instance, container（opencode-worker-<n>）, task, startSec（dispatch 開始から start の完了まで、実測）}` を出す

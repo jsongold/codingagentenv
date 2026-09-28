@@ -1,7 +1,8 @@
 package main
 
-// dispatch for runner mode "vm": hand the task to a stopped worker VM (deploy/gcp/create-worker.sh) through the
-// Compute Engine REST API: put it in the instance metadata (key worker-task), then start the VM. The VM's startup
+// dispatch for runner mode "vm": hand the task to a stopped worker VM (deploy/gcp/create-worker.sh; runner.instance
+// is a comma-separated list, one to three VMs of the same kind) through the Compute Engine REST API: pick the
+// first TERMINATED one, put the task in its instance metadata (key worker-task), then start it. The VM's startup
 // script (deploy/gcp/worker-startup.sh) reads the task on boot and runs the worker container; the VM powers itself
 // off after the container exits. No gcloud and no ssh, so it also runs inside the cad image on cad-2.
 // References (Compute Engine API v1):
@@ -125,12 +126,18 @@ func gceCall(tok string, rn Runner, method, path string, body, out any) error {
 // safeArg: values of the task line (space separated in metadata, read by the VM's startup script).
 var safeArg = regexp.MustCompile(`^[A-Za-z0-9._/:@-]+$`)
 
-// dispatchVM returns exit 5 ("computer unavailable") when the VM is busy (not stopped) or cannot be started in
-// time, so the Orchestrator re-places with `orchd place --exclude <computer>`.
+// dispatchVM returns exit 5 ("computer unavailable") when every candidate VM is busy (not stopped) or none can be
+// started in time, so the Orchestrator re-places with `orchd place --exclude <computer>`.
 func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
-	for k, v := range map[string]string{"instance": rn.Instance, "zone": rn.Zone, "project": rn.Project, "image": rn.Image, "model": rn.Model, "repo": repo} {
+	instances := strings.Split(rn.Instance, ",") // one kind (deploy/gcp/create-worker.sh), up to 3 VMs
+	for k, v := range map[string]string{"zone": rn.Zone, "project": rn.Project, "image": rn.Image, "model": rn.Model, "repo": repo} {
 		if !safeArg.MatchString(v) {
 			return 2, fmt.Errorf("--placement: runner.%s %q: want %s", k, v, safeArg)
+		}
+	}
+	for _, inst := range instances {
+		if !safeArg.MatchString(inst) {
+			return 2, fmt.Errorf("--placement: runner.instance %q: want %s", rn.Instance, safeArg)
 		}
 	}
 	t0 := time.Now()
@@ -142,38 +149,80 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 	if err != nil {
 		return unavailable("%v", err)
 	}
-	ipath := "instances/" + rn.Instance
-	var in gceInstance
-	for {
-		if err := gceCall(tok, rn, "GET", ipath, nil, &in); err != nil {
-			return unavailable("%v", err) // e.g. the VM does not exist yet
-		}
-		if in.Status != "STOPPING" && in.Status != "PENDING_STOP" { // self-stop in progress: wait it out
-			break
-		}
-		if time.Now().After(deadline) {
-			return unavailable("%s still %s after %s", rn.Instance, in.Status, vmBudget)
-		}
-		sleep(vmPoll)
-	}
-	if in.Status != "TERMINATED" { // RUNNING / PROVISIONING / STAGING: another task has it
-		return unavailable("%s is %s (busy)", rn.Instance, in.Status)
-	}
-	upgraded := false
-	for _, it := range in.Metadata.Items {
-		switch it.Key {
-		case "startup-script": // an old script (IAP ssh era) never reads worker-task: the task would not run
-			upgraded = strings.Contains(it.Value, "worker-task")
-		case "worker-task": // "<n>-<unix> ...": a fresh one is another dispatch between its setMetadata and start
-			// ponytail: time-based reservation; a task that finished within vmReserve also reads as busy (exit 5).
-			id, _, _ := strings.Cut(it.Value, " ")
-			if ts, err := strconv.ParseInt(id[strings.LastIndex(id, "-")+1:], 10, 64); err == nil && time.Since(time.Unix(ts, 0)) < vmReserve {
-				return unavailable("%s is reserved by task %s (busy)", rn.Instance, id)
+	// usable: a TERMINATED instance is still not free if its startup-script predates worker-task, or a
+	// worker-task younger than vmReserve means another dispatch is between its setMetadata and start.
+	usable := func(cur gceInstance) (bool, string) {
+		upgraded := false
+		for _, it := range cur.Metadata.Items {
+			switch it.Key {
+			case "startup-script": // an old script (IAP ssh era) never reads worker-task: the task would not run
+				upgraded = strings.Contains(it.Value, "worker-task")
+			case "worker-task": // "<n>-<unix> ...": a fresh one is another dispatch between its setMetadata and start
+				// ponytail: time-based reservation; a task that finished within vmReserve also reads as busy.
+				id, _, _ := strings.Cut(it.Value, " ")
+				if ts, err := strconv.ParseInt(id[strings.LastIndex(id, "-")+1:], 10, 64); err == nil && time.Since(time.Unix(ts, 0)) < vmReserve {
+					return false, fmt.Sprintf("reserved by task %s", id)
+				}
 			}
 		}
+		if !upgraded {
+			return false, "its startup-script does not read worker-task; update it (deploy/gcp/README.md)"
+		}
+		return true, ""
 	}
-	if !upgraded {
-		return unavailable("%s: its startup-script does not read worker-task; update it (deploy/gcp/README.md)", rn.Instance)
+	// selectCandidate returns the next TERMINATED-and-usable instance not in exclude (a later one may still be
+	// free even if an earlier one is reserved or on an old script). If none, it waits out the first self-stopping
+	// (STOPPING/PENDING_STOP) instance and re-checks it once TERMINATED -- another actor may have started it
+	// meanwhile, which is still busy, not usable. name=="" with err==nil means no candidate remains right now.
+	busy := []string{}
+	selectCandidate := func(exclude map[string]bool) (name string, in gceInstance, err error) {
+		var stopping string
+		var stoppingIn gceInstance
+		for _, inst := range instances {
+			if exclude[inst] {
+				continue
+			}
+			var cur gceInstance
+			if err := gceCall(tok, rn, "GET", "instances/"+inst, nil, &cur); err != nil {
+				return "", gceInstance{}, err // e.g. the VM does not exist yet
+			}
+			switch {
+			case cur.Status == "TERMINATED":
+				if ok, reason := usable(cur); ok {
+					return inst, cur, nil
+				} else {
+					busy = append(busy, inst+": "+reason)
+				}
+			case cur.Status == "STOPPING" || cur.Status == "PENDING_STOP":
+				if stopping == "" {
+					stopping, stoppingIn = inst, cur
+				}
+			default:
+				busy = append(busy, inst+" "+cur.Status)
+			}
+		}
+		if stopping == "" {
+			return "", gceInstance{}, nil
+		}
+		name, in = stopping, stoppingIn
+		for in.Status == "STOPPING" || in.Status == "PENDING_STOP" {
+			if time.Now().After(deadline) {
+				return "", gceInstance{}, fmt.Errorf("%s still %s after %s", name, in.Status, vmBudget)
+			}
+			sleep(vmPoll)
+			if err := gceCall(tok, rn, "GET", "instances/"+name, nil, &in); err != nil {
+				return "", gceInstance{}, err
+			}
+		}
+		if in.Status != "TERMINATED" { // e.g. another actor started it while we waited
+			busy = append(busy, name+": became "+in.Status+" while waiting")
+			return "", gceInstance{}, nil
+		}
+		if ok, reason := usable(in); !ok {
+			busy = append(busy, name+": "+reason)
+			return "", gceInstance{}, nil
+		}
+		return name, in, nil
 	}
 	// wait polls an operation until DONE; an operation error (e.g. ZONE_RESOURCE_POOL_EXHAUSTED) is returned.
 	wait := func(op gceOperation) error {
@@ -191,22 +240,47 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 		}
 		return nil
 	}
-	// The task: "<id> <issue> <repo> <model> <image>". The id lets the VM skip a task it already ran (reboot).
-	task := fmt.Sprintf("%d-%d %d %s %s %s", n, t0.Unix(), n, repo, rn.Model, rn.Image)
-	items := []metaItem{{"worker-task", task}}
-	for _, it := range in.Metadata.Items {
-		if it.Key != "worker-task" {
-			items = append(items, it)
-		}
-	}
+	// Pick a candidate and reserve it via setMetadata; the fingerprint makes a concurrent dispatch racing for the
+	// same VM fail here (412) instead of overwriting the task. Retry with another candidate rather than giving up
+	// the whole dispatch, so simultaneous tasks can use the added capacity.
+	var name string
+	var in gceInstance
+	var task string
+	var items []metaItem
 	var op gceOperation
-	// The fingerprint makes a concurrent dispatch to the same VM fail here (412) instead of overwriting the task.
-	if err := gceCall(tok, rn, "POST", ipath+"/setMetadata", map[string]any{"fingerprint": in.Metadata.Fingerprint, "items": items}, &op); err != nil {
-		return unavailable("setMetadata %s: %v", rn.Instance, err)
+	exclude := map[string]bool{}
+	for {
+		var serr error
+		name, in, serr = selectCandidate(exclude)
+		if serr != nil {
+			return unavailable("%v", serr)
+		}
+		if name == "" { // every instance of the kind is busy, reserved or on an old script
+			return unavailable("all of %s busy: %s", rn.Instance, strings.Join(busy, ", "))
+		}
+		// The task: "<id> <issue> <repo> <model> <image>". The id lets the VM skip a task it already ran (reboot).
+		task = fmt.Sprintf("%d-%d %d %s %s %s", n, t0.Unix(), n, repo, rn.Model, rn.Image)
+		items = []metaItem{{"worker-task", task}}
+		for _, it := range in.Metadata.Items {
+			if it.Key != "worker-task" {
+				items = append(items, it)
+			}
+		}
+		op = gceOperation{}
+		if err := gceCall(tok, rn, "POST", "instances/"+name+"/setMetadata", map[string]any{"fingerprint": in.Metadata.Fingerprint, "items": items}, &op); err != nil {
+			if time.Now().After(deadline) {
+				return unavailable("setMetadata %s: %v", name, err)
+			}
+			busy = append(busy, name+": setMetadata: "+err.Error())
+			exclude[name] = true
+			continue
+		}
+		if err := wait(op); err != nil {
+			return unavailable("setMetadata %s: %v", name, err)
+		}
+		break
 	}
-	if err := wait(op); err != nil {
-		return unavailable("setMetadata %s: %v", rn.Instance, err)
-	}
+	ipath := "instances/" + name
 	op = gceOperation{}
 	err = gceCall(tok, rn, "POST", ipath+"/start", nil, &op)
 	if err == nil {
@@ -230,9 +304,9 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 			gceCall(tok, rn, "POST", ipath+"/setMetadata", map[string]any{"fingerprint": now.Metadata.Fingerprint, "items": items}, &cop)
 		}
 		if err != nil {
-			return unavailable("start %s: %v", rn.Instance, err)
+			return unavailable("start %s: %v", name, err)
 		}
 	}
-	return 0, printJSON(w, map[string]any{"started": true, "instance": rn.Instance, "container": "opencode-worker-" + strconv.Itoa(n),
+	return 0, printJSON(w, map[string]any{"started": true, "instance": name, "container": "opencode-worker-" + strconv.Itoa(n),
 		"task": task, "startSec": math.Round(time.Since(t0).Seconds()*10) / 10})
 }

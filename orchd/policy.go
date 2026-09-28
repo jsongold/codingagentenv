@@ -41,7 +41,7 @@ type Runner struct {
 	Mode     string `json:"mode"`
 	Cmd      string `json:"cmd,omitempty"`
 	Model    string `json:"model,omitempty"`
-	Instance string `json:"instance,omitempty"`
+	Instance string `json:"instance,omitempty"` // mode vm: one instance name, or a comma-separated list (1-3, same kind; vm.go picks a stopped one)
 	Zone     string `json:"zone,omitempty"`
 	Project  string `json:"project,omitempty"`
 	Image    string `json:"image,omitempty"`
