@@ -24,20 +24,22 @@ F=/data/cad/config/namespaces.json   # timer の orchd が読む登録（contain
      || { rm -f /tmp/igosleep-cur.json; echo 'STOP: cad-2 の namespaces.json を読めない'; }
    ```
 
-   `/tmp/igosleep-cur.json` の `<ns>.cloudWorkerSession` を見る。
-   - 空・キーが無い：owner に「claude.ai/code で新しいセッションを作り、GitHub repo `<repo>` を選んで開始し、URL 末尾の `session_…` を教えて」と頼み、返るまで待つ。CLI の `claude --cloud` では作らない（bundle になり push できない）。`<repo>` は timer が使う cad-2 の登録を優先する：`/tmp/igosleep-cur.json` の `<ns>.repo`、無ければ手元の `cad/config/namespaces.json`（無ければ `.example.json`）の `<ns>.repo`、無ければ `gh repo view --json nameWithOwner -q .nameWithOwner`。
+   `<repo>` は timer が使う cad-2 の登録を優先して決める（step 4 でも使う）：`/tmp/igosleep-cur.json` の `<ns>.repo`、無ければ手元の `cad/config/namespaces.json`（無ければ `.example.json`）の `<ns>.repo`、無ければ `gh repo view --json nameWithOwner -q .nameWithOwner`。
+   `/tmp/igosleep-cur.json` の `<ns>.cloudWorkerSession` を見る。`session_` か `cse_` で始まる値だけを有効とする（既存の値も新しい値と同じ基準で判定する）。
+   - 有効な値がある：そのまま step 2 へ。
+   - 空・キーが無い・`session_` / `cse_` で始まらない：不正な既存値なら「登録済みの `<値>` はセッション ID ではない」と owner に伝える。そのうえで owner に「claude.ai/code で新しいセッションを作り、GitHub repo `<repo>` を選んで開始し、URL 末尾の `session_…` を教えて」と頼み、返るまで待つ。CLI の `claude --cloud` では作らない（bundle になり push できない）。
    - 受け取ったら、読んだ登録に書き足して書き戻す（他のキー・他の ns は残す。上の読み取りが STOP なら書かない）→ もう一度読んで確認する：
 
      ```bash
      jq --arg n <ns> --arg r <repo> --arg s <session> '.[$n].repo //= $r | .[$n].cloudWorkerSession = $s' \
        /tmp/igosleep-cur.json >/tmp/igosleep-ns.json \
-       && jq -e --arg n <ns> '.[$n].cloudWorkerSession | startswith("session_")' /tmp/igosleep-ns.json >/dev/null \
+       && jq -e --arg n <ns> '.[$n].cloudWorkerSession | startswith("session_") or startswith("cse_")' /tmp/igosleep-ns.json >/dev/null \
        && $S "$X sh -c 'cat >$F.tmp && mv $F.tmp $F'" </tmp/igosleep-ns.json
      ```
 2. `$S "$X orchd mode set sleep --ns <ns> --by owner"` → `{"mode":"sleep",…}` を確認する。exit 2（mode 不明）なら cad-2 の image に `sleep` mode（PR #69）が未反映。ここで止めて owner に伝える。
 3. `/handoff` の手順（`skills/handoff/SKILL.md`）で handoff を書き出してコミットする。
 4. 表示して終わる（3 行）：
-   - 流れる予定：手元で `orchd issue list --ns <ns>` の `state == "pending"` の件数と番号（`wip`・`ai-failed`・milestone 付きは流れない）。`class:` ラベルの無いものは既定の class で動く
+   - 流れる予定：手元で `orchd issue list --ns <ns> --repo <repo>`（`<repo>` は step 1 で cad-2 の登録から決めたもの。timer が dispatch する repo と件数を合わせる）の `state == "pending"` の件数と番号（`wip`・`ai-failed`・milestone 付きは流れない）。`class:` ラベルの無いものは既定の class で動く
    - CC 残り枠：`$S "$X cad show usage"` の `claude/*` の行。5H・7D の残り（100 − 使用率）と RESETS
    - timer：`$S systemctl is-active orchd-sleep.timer`（`active` でなければ sleep 中に何も流れないと警告する）
 
