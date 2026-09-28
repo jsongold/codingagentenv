@@ -13,6 +13,7 @@
 | [0010](./0010-placement.md) | 配置は (Agent, Computer) の組を選ぶ。判断は Orchestrator の class 分類だけ、選択は `orchd place`（旧 `cad` の `POST /v1/place`、ADR-0011）が決定的に返す | 提案 | 2026-09-27 |
 | [0011](./0011-orchd-hatchet.md) | `cad` は事実（usage）だけにし、判断は `orchd` に分ける。task の状態・キュー・実行管理は Hatchet | 提案 | 2026-09-28 |
 | [0012](./0012-singleton-handover.md) | 状態を持つ singleton の引き継ぎは性質で決める。cad は stop-first + usage 保存 + ready 待ち、二重に振り分けてはいけないものは durable execution に載せる | 採用 | 2026-09-28 |
+| [0013](./0013-opencode-worker-vm.md) | opencode の cloud worker は停止した GCE VM 2 台（Spot / standard）を on demand で start し、終わったら VM が自分で止まる。選択は orchd の rule 順、起動できなければ exit 5 で置き直す | 採用 | 2026-09-28 |
 
 新しい ADR を追加するには、0000-template.md をコピーして次の番号のファイルを作り、上の表に1行追加する。
 

@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -23,7 +24,12 @@ import (
 
 // shell runs name in dir (""= CWD) and returns stdout; the error carries stderr.
 var shell = func(dir, name string, args ...string) (string, error) {
-	c := exec.Command(name, args...)
+	return shellCtx(context.Background(), dir, name, args...)
+}
+
+// shellCtx is shell that is killed when ctx ends.
+func shellCtx(ctx context.Context, dir, name string, args ...string) (string, error) {
+	c := exec.CommandContext(ctx, name, args...)
 	c.Dir = dir
 	var out, errb bytes.Buffer
 	c.Stdout, c.Stderr = &out, &errb
@@ -209,12 +215,15 @@ func dispatchCmd(args []string, stdin io.Reader, w io.Writer) (int, error) {
 		return 2, fmt.Errorf("--placement: %v (want the JSON orchd place printed)", err)
 	}
 	rn := pl.Runner
-	if rn.Mode != "subagent" && rn.Mode != "process" && rn.Mode != "cloud" {
-		return 2, fmt.Errorf("--placement: runner.mode %q: want subagent, process or cloud", rn.Mode)
+	if rn.Mode != "subagent" && rn.Mode != "process" && rn.Mode != "cloud" && rn.Mode != "vm" {
+		return 2, fmt.Errorf("--placement: runner.mode %q: want subagent, process, cloud or vm", rn.Mode)
 	}
 	ns, err := resolveNS(*f["ns"], *f["repo"], *f["path"])
 	if err != nil {
 		return 1, err
+	}
+	if rn.Mode == "vm" { // the worker image reads the issue itself (deploy/worker-run.sh)
+		return dispatchVM(rn, ns.Repo, n, w)
 	}
 	session := os.Getenv("CLAUDE_CLOUD_SESSION")
 	if session == "" {

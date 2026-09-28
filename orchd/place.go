@@ -12,8 +12,9 @@ import (
 
 // PlaceSpec is what `orchd place` was asked for (ADR-0010, 0011).
 type PlaceSpec struct {
-	Class string `json:"class"`
-	Self  string `json:"self,omitempty"` // the Orchestrator's own agent, matched by rule agent "self"
+	Class   string   `json:"class"`
+	Self    string   `json:"self,omitempty"`    // the Orchestrator's own agent, matched by rule agent "self"
+	Exclude []string `json:"exclude,omitempty"` // computers to skip (dispatch said "computer unavailable", exit 5)
 }
 
 type Placement struct {
@@ -39,6 +40,10 @@ func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int)
 	for i, r := range pol.Rules {
 		if len(r.Class) > 0 && !slices.Contains(r.Class, s.Class) {
 			drop("rule %d: class", i)
+			continue
+		}
+		if slices.Contains(s.Exclude, r.Computer) {
+			drop("rule %d: computer %s excluded", i, r.Computer)
 			continue
 		}
 		if !slices.Contains(pol.Computers, r.Computer) && r.Computer != "local" {
