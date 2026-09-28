@@ -218,6 +218,45 @@ func TestDispatchVMPicksAnyStoppedInstance(t *testing.T) {
 	}
 }
 
+// TestDispatchVMSkipsReservedInstance: the first instance is TERMINATED but reserved by a fresh worker-task
+// (another dispatch mid-flight); the second is TERMINATED and free. Regression for a bug where a reserved (or
+// old-startup-script) first candidate reported the whole computer unavailable instead of trying the next one.
+func TestDispatchVMSkipsReservedInstance(t *testing.T) {
+	taskEnv(t, reg)
+	fakeShell(t, nil)
+	oldTok, oldSleep, oldBudget, oldPoll := accessToken, sleep, vmBudget, vmPoll
+	t.Cleanup(func() { accessToken, sleep, vmBudget, vmPoll = oldTok, oldSleep, oldBudget, oldPoll })
+	vmBudget, vmPoll, sleep = 50*time.Millisecond, time.Millisecond, time.Sleep
+	accessToken = func() (string, error) { return "tok", nil }
+	reserved := map[string]any{"fingerprint": "fp1", "items": []metaItem{
+		{"startup-script", "worker-task"},
+		{"worker-task", fmt.Sprintf("8-%d 8 o/r m i", time.Now().Unix()-10)},
+	}}
+	free := map[string]any{"fingerprint": "fp1", "items": []metaItem{{"startup-script", "worker-task"}}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, _ := strings.CutPrefix(r.URL.Path, "/projects/p1/zones/z1/")
+		switch {
+		case r.Method == "GET" && p == "instances/worker-spot":
+			json.NewEncoder(w).Encode(map[string]any{"status": "TERMINATED", "metadata": reserved})
+		case r.Method == "GET" && p == "instances/worker-spot-2":
+			json.NewEncoder(w).Encode(map[string]any{"status": "TERMINATED", "metadata": free})
+		case r.Method == "POST" && p == "instances/worker-spot-2/setMetadata":
+			io.WriteString(w, `{"name":"op-md","status":"DONE"}`)
+		case r.Method == "POST" && p == "instances/worker-spot-2/start":
+			io.WriteString(w, `{"name":"op-start","status":"DONE"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("ORCHD_COMPUTE_URL", srv.URL)
+	pl := `{"runner":{"mode":"vm","instance":"worker-spot,worker-spot-2","zone":"z1","project":"p1","image":"ghcr.io/o/w:main","model":"prov/m-1"}}`
+	code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", pl)
+	if code != 0 || m["instance"] != "worker-spot-2" {
+		t.Fatalf("code %d %v %s", code, m, errs)
+	}
+}
+
 // TestDispatchVMAllInstancesBusy: every VM of the kind is running another task.
 func TestDispatchVMAllInstancesBusy(t *testing.T) {
 	taskEnv(t, reg)

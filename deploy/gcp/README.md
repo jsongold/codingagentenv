@@ -171,8 +171,10 @@ COS に Ops Agent は使えない（[Ops Agent の対応 OS 一覧](https://clou
 ```bash
 gcloud compute instances add-metadata cad-2 --project suggestorder-dev --zone us-central1-a \
   --metadata google-logging-enabled=true
-gcloud compute instances add-metadata worker-spot worker-std --project suggestorder-dev --zone us-central1-a \
-  --metadata google-logging-enabled=true
+for vm in worker-spot worker-std; do   # 3 台目があれば worker-spot-2 も足す
+  gcloud compute instances add-metadata "$vm" --project suggestorder-dev --zone us-central1-a \
+    --metadata google-logging-enabled=true
+done
 ```
 
 反映は次回 boot から（起動中の VM は再起動が要る。`gcloud compute instances reset <vm> --project suggestorder-dev --zone us-central1-a`）。
@@ -201,7 +203,7 @@ gcloud projects add-iam-policy-binding $P \
   --member serviceAccount:cad-vm@$P.iam.gserviceaccount.com --role roles/logging.logWriter
 ```
 
-Compute 側は project 全体の `roles/compute.instanceAdmin.v1` は権限が広すぎる（全 VM の作成・削除まで含む）。worker VM だけに絞るなら instance レベルの IAM（[IAM condition でリソースを絞る](https://cloud.google.com/iam/docs/conditions-overview)）か、次のカスタムロールを作って worker VM 3 台（`worker-spot` `worker-std` `worker-spot-2`）にだけ付ける：
+Compute 側は project 全体の `roles/compute.instanceAdmin.v1` は権限が広すぎる（全 VM の作成・削除まで含む）。worker VM だけに絞るなら instance レベルの IAM（[IAM condition でリソースを絞る](https://cloud.google.com/iam/docs/conditions-overview)）で `compute.instances.get` / `setMetadata` / `start` を worker VM 3 台（`worker-spot` `worker-std` `worker-spot-2`）にだけ付け、`compute.zoneOperations.get`（`orchd/vm.go` の `wait` が operation を poll する）は zone operation が instance の子リソースではなく instance 単位の IAM binding が効かないため、project レベルで別に付ける（2 つに分ける分、project レベルの方は zoneOperations.get だけの最小ロールにする）：
 
 ```bash
 cat >/tmp/orchd-vm-role.yaml <<'YAML'
@@ -212,13 +214,23 @@ includedPermissions:
 - compute.instances.get
 - compute.instances.setMetadata
 - compute.instances.start
-- compute.zoneOperations.get
 YAML
 gcloud iam roles create orchdVmDispatch --project $P --file /tmp/orchd-vm-role.yaml
 for vm in worker-spot worker-std worker-spot-2; do
   gcloud compute instances add-iam-policy-binding "$vm" --project $P --zone us-central1-a \
     --member serviceAccount:cad-vm@$P.iam.gserviceaccount.com --role "projects/$P/roles/orchdVmDispatch"
 done
+
+cat >/tmp/orchd-zoneops-role.yaml <<'YAML'
+title: orchdZoneOperations
+description: orchd dispatch (vm runner): poll the setMetadata/start operation it started
+stage: GA
+includedPermissions:
+- compute.zoneOperations.get
+YAML
+gcloud iam roles create orchdZoneOperations --project $P --file /tmp/orchd-zoneops-role.yaml
+gcloud projects add-iam-policy-binding $P \
+  --member serviceAccount:cad-vm@$P.iam.gserviceaccount.com --role "projects/$P/roles/orchdZoneOperations"
 ```
 
 `cad-vm@` は自分自身にも `--service-account` として使われる（`create-vm.sh` / `create-worker.sh` の VM 作成時）ため、それらの VM 作成コマンドを実行する側（owner の gcloud、または CI）に `roles/iam.serviceAccountUser`（`cad-vm@` に対して）が要る場合がある。cad-2 上で `cad-vm@` が REST API から worker VM を操作するだけなら（VM を新たに作らない限り）`serviceAccountUser` は不要（**未検証**）。

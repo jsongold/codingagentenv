@@ -149,7 +149,29 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 	if err != nil {
 		return unavailable("%v", err)
 	}
-	// Pick the first TERMINATED instance of the kind. One that is self-stopping (STOPPING/PENDING_STOP) is the
+	// usable: a TERMINATED instance is still not free if its startup-script predates worker-task, or a
+	// worker-task younger than vmReserve means another dispatch is between its setMetadata and start.
+	usable := func(cur gceInstance) (bool, string) {
+		upgraded := false
+		for _, it := range cur.Metadata.Items {
+			switch it.Key {
+			case "startup-script": // an old script (IAP ssh era) never reads worker-task: the task would not run
+				upgraded = strings.Contains(it.Value, "worker-task")
+			case "worker-task": // "<n>-<unix> ...": a fresh one is another dispatch between its setMetadata and start
+				// ponytail: time-based reservation; a task that finished within vmReserve also reads as busy.
+				id, _, _ := strings.Cut(it.Value, " ")
+				if ts, err := strconv.ParseInt(id[strings.LastIndex(id, "-")+1:], 10, 64); err == nil && time.Since(time.Unix(ts, 0)) < vmReserve {
+					return false, fmt.Sprintf("reserved by task %s", id)
+				}
+			}
+		}
+		if !upgraded {
+			return false, "its startup-script does not read worker-task; update it (deploy/gcp/README.md)"
+		}
+		return true, ""
+	}
+	// Pick the first TERMINATED-and-usable instance of the kind (a later one may still be free even if an
+	// earlier one is reserved or on an old script). One that is self-stopping (STOPPING/PENDING_STOP) is the
 	// next best (wait it out); one that is RUNNING/STAGING/PROVISIONING is busy with another task.
 	var name string
 	var in gceInstance
@@ -160,10 +182,14 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 		if err := gceCall(tok, rn, "GET", "instances/"+inst, nil, &cur); err != nil {
 			return unavailable("%v", err) // e.g. the VM does not exist yet
 		}
-		switch cur.Status {
-		case "TERMINATED":
-			name, in = inst, cur
-		case "STOPPING", "PENDING_STOP":
+		switch {
+		case cur.Status == "TERMINATED":
+			if ok, reason := usable(cur); ok {
+				name, in = inst, cur
+			} else {
+				busy = append(busy, inst+": "+reason)
+			}
+		case cur.Status == "STOPPING" || cur.Status == "PENDING_STOP":
 			if stopping == "" {
 				stopping, stoppingIn = inst, cur
 			}
@@ -185,27 +211,15 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 				return unavailable("%v", err)
 			}
 		}
+		if ok, reason := usable(in); !ok {
+			busy = append(busy, name+": "+reason)
+			name = ""
+		}
 	}
-	if name == "" || in.Status != "TERMINATED" { // every instance of the kind is busy
+	if name == "" { // every instance of the kind is busy, reserved or on an old script
 		return unavailable("all of %s busy: %s", rn.Instance, strings.Join(busy, ", "))
 	}
 	ipath := "instances/" + name
-	upgraded := false
-	for _, it := range in.Metadata.Items {
-		switch it.Key {
-		case "startup-script": // an old script (IAP ssh era) never reads worker-task: the task would not run
-			upgraded = strings.Contains(it.Value, "worker-task")
-		case "worker-task": // "<n>-<unix> ...": a fresh one is another dispatch between its setMetadata and start
-			// ponytail: time-based reservation; a task that finished within vmReserve also reads as busy (exit 5).
-			id, _, _ := strings.Cut(it.Value, " ")
-			if ts, err := strconv.ParseInt(id[strings.LastIndex(id, "-")+1:], 10, 64); err == nil && time.Since(time.Unix(ts, 0)) < vmReserve {
-				return unavailable("%s is reserved by task %s (busy)", name, id)
-			}
-		}
-	}
-	if !upgraded {
-		return unavailable("%s: its startup-script does not read worker-task; update it (deploy/gcp/README.md)", name)
-	}
 	// wait polls an operation until DONE; an operation error (e.g. ZONE_RESOURCE_POOL_EXHAUSTED) is returned.
 	wait := func(op gceOperation) error {
 		for op.Status != "DONE" {
