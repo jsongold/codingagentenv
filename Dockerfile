@@ -10,8 +10,16 @@ RUN cd cad && CGO_ENABLED=0 go build -trimpath -o /out/cad . \
  && cd ../orchd && CGO_ENABLED=0 go build -trimpath -o /out/orchd .
 
 FROM debian:bookworm-slim
+# gh: orchd's pick/status/issue list/dispatch shell out to it (ADR-0014); official apt repo, same as
+# Dockerfile.worker and .devcontainer/Dockerfile.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates coreutils curl git jq \
+ && install -d -m 0755 /etc/apt/keyrings \
+ && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+ && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      >/etc/apt/sources.list.d/github-cli.list \
+ && apt-get update && apt-get install -y --no-install-recommends gh \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --uid 10001 --create-home --home-dir /home/cad --shell /bin/bash cad \
  && mkdir -p /data && chown cad:cad /data

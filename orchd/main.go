@@ -29,6 +29,17 @@ const usageText = `usage:
   orchd pick [--ns default] [--repo o/r] [--path dir]
       claim the oldest open issue labeled ai without wip/ai-failed (adds wip); print {issue:{n,title,body}, classes:[{name,criteria}]}
       or {none, reason}. repo/path: flags > namespace registry > git toplevel of the CWD + gh repo view
+  orchd issue list [--ns default] [--repo o/r] [--path dir]
+      read-only: every open issue labeled ai without a milestone, with {number, title, state
+      (pending|wip|ai-failed), pr, prState}
+  orchd dispatch --pending [--ns default] [--repo o/r] [--path dir]
+      cron entry point (ADR-0014): a no-op (exit 0) unless the mode is "sleep". Looks at every
+      unstarted ai issue (no wip/ai-failed, no milestone): cad's Claude Code usage has headroom for the
+      whole batch -> wip on all of them, one message to the cloud worker session (--cloud
+      <CLAUDE_CLOUD_SESSION | registry cloudWorkerSession>); no headroom -> one at a time to a stopped
+      worker VM (the vm runner; exit 5 excludes that computer and retries), leaving the rest without
+      wip once VMs run out. Either way an issue gets a "orchd: dispatched to <computer> at <RFC3339>"
+      comment; a wip issue whose comment is over 60m old is reaped to ai-failed
   orchd dispatch --issue <n> --placement <json|-> [--ns default] [--repo o/r] [--path dir]
       hand issue n to the place output's runner.mode: subagent = create worktree <path>-task-<n> (branch
       task/<n> off origin/main), print {runner, worktree, prompt}; process = same worktree, start runner.cmd
@@ -91,6 +102,11 @@ func cmd(args []string, w io.Writer) (int, error) {
 		return modeCmd(args[1:], w)
 	case "pick":
 		return pickCmd(args[1:], w)
+	case "issue":
+		if len(args) < 2 || args[1] != "list" {
+			return 2, fmt.Errorf("issue: want list")
+		}
+		return issueListCmd(args[2:], w)
 	case "dispatch":
 		return dispatchCmd(args[1:], os.Stdin, w)
 	case "status":

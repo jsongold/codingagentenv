@@ -112,6 +112,9 @@ type ghIssue struct {
 	Body      string  `json:"body"`
 	CreatedAt string  `json:"createdAt"`
 	Labels    []label `json:"labels"`
+	Milestone *struct {
+		Title string `json:"title"`
+	} `json:"milestone"` // set = out of scope for issue list / dispatch --pending (ADR-0014/#63)
 }
 
 type label struct {
@@ -192,12 +195,27 @@ func taskPrompt(repo string, n int, title, body, branch string) string {
 `, repo, n, title, strings.TrimSpace(body), branch, n)
 }
 
-// dispatchCmd hands issue n to the placement's runner (the JSON place printed; "-" = stdin).
+// dispatchCmd hands issue n to the placement's runner (the JSON place printed; "-" = stdin), or, with
+// --pending, scans for unstarted ai issues instead (ADR-0014, orchd/issue.go).
 func dispatchCmd(args []string, stdin io.Reader, w io.Writer) (int, error) {
-	f, err := taskFlags("dispatch", args, "issue", "placement")
-	if err != nil {
-		return 2, err
+	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	nsFlag, repoFlag, pathFlag := fs.String("ns", "default", ""), fs.String("repo", "", ""), fs.String("path", "", "")
+	issueFlag, placementFlag := fs.String("issue", "", ""), fs.String("placement", "", "")
+	pending := fs.Bool("pending", false, "")
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
+		return 2, fmt.Errorf("dispatch: bad args %q", args)
 	}
+	if !nsRe.MatchString(*nsFlag) {
+		return 2, fmt.Errorf("--ns %q: want %s", *nsFlag, nsRe)
+	}
+	if *pending {
+		if *issueFlag != "" || *placementFlag != "" {
+			return 2, fmt.Errorf("dispatch --pending takes no --issue or --placement")
+		}
+		return dispatchPendingCmd(*nsFlag, *repoFlag, *pathFlag, w)
+	}
+	f := map[string]*string{"ns": nsFlag, "repo": repoFlag, "path": pathFlag, "issue": issueFlag, "placement": placementFlag}
 	n, err := strconv.Atoi(*f["issue"])
 	if err != nil || n <= 0 {
 		return 2, fmt.Errorf("--issue %q: want an issue number", *f["issue"])

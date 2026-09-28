@@ -12,6 +12,9 @@
 # re-queued, see skills/orchestrate); periodic WIP pushes if runs get long.
 # Exit: 0 = PR open; opencode's code when it failed (branch pushed, no PR); 2 = bad env; 3 = auth files missing;
 #   1 = anything else (no changes, clone/push/gh failed).
+# ADR-0014 (#63): success removes the wip label the dispatcher added; a failure (opencode failed, or
+# nothing to commit) adds ai-failed and leaves a comment, so the sleep loop's dispatch --pending can
+# tell an issue is done without needing the worker VM up.
 # Never prints the token: no `set -x`, and git errors are masked.
 set -euo pipefail
 : "${ISSUE:?}" "${REPO:?}" "${MODEL:?}"
@@ -37,6 +40,15 @@ gh auth setup-git --hostname github.com --force >/dev/null
 git config --global user.name "${GIT_NAME:-opencode-worker}"
 git config --global user.email "${GIT_EMAIL:-opencode-worker@users.noreply.github.com}"
 mask() { sed "s/$GH_TOKEN/***/g" >&2; }
+
+# fail: mark the issue ai-failed with a reason comment (best effort: a labeling failure must not mask
+# the real exit code), then exit with the code the caller gave it.
+fail() {
+  rc=$1; shift
+  gh issue edit "$ISSUE" --repo "$REPO" --add-label ai-failed >&2 || true
+  gh issue comment "$ISSUE" --repo "$REPO" --body "orchd: opencode worker failed: $*" >&2 || true
+  exit "$rc"
+}
 
 branch=task/$ISSUE
 dir=$(mktemp -d)
@@ -70,12 +82,12 @@ git add -A
 git diff --cached --quiet || git commit --quiet -m "task #$ISSUE: $title" -m "opencode run --model $MODEL"
 if [ "$(git rev-list --count origin/main..HEAD)" -eq 0 ]; then
   echo "worker: no changes against main; no PR" >&2
-  exit 1
+  fail 1 "no changes against main (Issue #$ISSUE)"
 fi
 git push --quiet -u origin "$branch" 2> >(mask)
 if [ "$rc" -ne 0 ]; then # keep the work on the branch for a retry (reused above), but no PR
   echo "worker: opencode failed; pushed $branch without a PR" >&2
-  exit "$rc"
+  fail "$rc" "opencode exit $rc; pushed $branch without a PR"
 fi
 if [ "$(gh pr list --repo "$REPO" --head "$branch" --state open --json number -q length)" -eq 0 ]; then
   gh pr create --repo "$REPO" --base main --head "$branch" --title "$title" \
@@ -85,4 +97,5 @@ opencode worker（model \`$MODEL\`、opencode exit $rc）"
 else
   echo "worker: PR for $branch already open; pushed"
 fi
+gh issue edit "$ISSUE" --repo "$REPO" --remove-label wip || true
 exit 0
