@@ -15,55 +15,22 @@ IMAGE=ghcr.io/jsongold/codingagentenv/cad:main # pin: change to :sha-<7 hex> her
 UID_CAD=${CAD_UID:-10001} # the image's `cad` user
 VOL=${CAD_VOL:-/var/lib/cad}
 MD=${CAD_MD:-http://metadata.google.internal/computeMetadata/v1}
-SM=${CAD_SM:-https://secretmanager.googleapis.com/v1}
 
 # Bounded (--max-time) so a stalled endpoint cannot block boot or the update timer.
 md() { curl -fsS --max-time 10 -H 'Metadata-Flavor: Google' "$MD/$1"; }
 
-# Secrets from Secret Manager -> files on the volume. The list is the instance metadata key `cad-secrets`
-# (= deploy/gcp/secrets.list, set by create-vm.sh): lines "<service> <id>" -> secret cad-<service>-<id>.
-# Never prints a secret or the token; on any failure it logs and keeps the existing file.
-# - token: metadata server, attached service account (cad-vm@) with the cloud-platform scope
-#   https://cloud.google.com/compute/docs/access/authenticate-workloads
-# - GET v1/projects/*/secrets/*/versions/*:access needs secretmanager.versions.access (roles/secretmanager.secretAccessor)
-#   and returns {"name":..., "payload": {"data": "<base64>", "dataCrc32c": ...}}
-#   https://cloud.google.com/secret-manager/docs/reference/rest/v1/projects.secrets.versions/access
-#   https://cloud.google.com/secret-manager/docs/reference/rest/v1/SecretPayload
-# Parsing: COS has no package manager (https://cloud.google.com/container-optimized-os/docs/concepts/features-and-benefits),
-# so no jq. sed is enough here because both values have fixed alphabets that cannot contain `"` or escapes:
-# the OAuth token and base64 ([A-Za-z0-9+/=]); anything else fails the match and the file is kept.
-fetch_secrets() {
-  local list project token service id name dir file body data tmp
-  list=$(md instance/attributes/cad-secrets 2>/dev/null) || { echo "secrets: no metadata key cad-secrets; skipping"; return 0; }
-  project=$(md project/project-id) || { echo "secrets: project-id lookup failed; keeping files"; return 0; }
-  token=$(md instance/service-accounts/default/token | sed -n 's/.*"access_token" *: *"\([^"]*\)".*/\1/p') || true
-  [ -n "$token" ] || { echo "secrets: no access token; keeping files"; return 0; }
-  while read -r service id _; do
-    case $service in '' | '#'*) continue ;; esac
-    name=cad-$service-$id
-    case $id in '' | *[!A-Za-z0-9_-]*) echo "$name: bad id; skipping"; continue ;; esac
-    case $service in
-      opencode) dir=$VOL/.aienv/.store/$id/opencode file=auth.json ;; # cad/opencode_usage.go: $HOME/.aienv/.store/<id>/opencode/auth.json
-      *) echo "$name: unknown service; skipping"; continue ;;
-    esac
-    # Token via stdin (curl -H @-), not argv, so it does not show up in ps.
-    body=$(printf 'Authorization: Bearer %s\n' "$token" |
-      curl -fsS --max-time 30 -H @- "$SM/projects/$project/secrets/$name/versions/latest:access") ||
-      { echo "$name: access failed; keeping existing file"; continue; }
-    data=$(printf %s "$body" | tr -d '\n' | sed -n 's|.*"data" *: *"\([A-Za-z0-9+/=]*\)".*|\1|p')
-    [ -n "$data" ] || { echo "$name: no payload.data; keeping existing file"; continue; }
-    { mkdir -p "$dir" && chown "$UID_CAD:$UID_CAD" "$VOL/.aienv" "$VOL/.aienv/.store" "$dir/.." "$dir"; } || continue
-    # Same-dir temp (mktemp is 0600) + rename = atomic replace; readers never see a partial file.
-    tmp=$(mktemp "$dir/.$file.XXXXXX") || continue
-    if printf %s "$data" | base64 -d >"$tmp" 2>/dev/null && [ -s "$tmp" ] &&
-      chmod 600 "$tmp" && chown "$UID_CAD:$UID_CAD" "$tmp" && mv -f "$tmp" "$dir/$file"; then
-      echo "$name: wrote $dir/$file"
-    else
-      rm -f "$tmp"
-      echo "$name: decode/write failed; keeping existing file"
-    fi
-  done <<<"$list"
-}
+# Secrets from Secret Manager -> files on the volume. The fetch runs in the cad image (deploy/fetch-auth.sh ->
+# /app/bin/fetch-auth), which has jq/curl/base64; COS has no package manager, so no jq
+# (https://cloud.google.com/container-optimized-os/docs/concepts/features-and-benefits).
+# --network host: the container shares the VM's network namespace
+# (https://docs.docker.com/engine/network/drivers/host/), so it reaches the metadata server (token, cad-secrets,
+# project-id) like a process on the VM; GKE documents the same for host-network Pods ("GKE automatically routes
+# requests from these Pods to the Compute Engine metadata server",
+# https://cloud.google.com/kubernetes-engine/docs/concepts/workload-identity).
+# --pull always: the local :main tag is not what the service tracks (the service pins a digest), so pull it here to
+# run the current fetch-auth; if the registry is unreachable the fetch is skipped and the files are kept.
+# The container runs as uid 10001 (the image's `cad` user), which owns $VOL, so written files are cad's.
+FETCH=(docker run --rm --pull always --network host -v "$VOL:/data" --entrypoint /app/bin/fetch-auth "$IMAGE")
 
 # Swarm refuses to init while live-restore is on ("--live-restore daemon configuration is incompatible with swarm
 # mode"), and COS ships /etc/docker/daemon.json with "live-restore": true. /etc is tmpfs; COS's docker.service has
@@ -80,7 +47,7 @@ live_restore_off() { # <src daemon.json> <dst>
 
 mkdir -p "$VOL"
 chown "$UID_CAD:$UID_CAD" "$VOL"
-fetch_secrets || echo "secrets: fetch failed; continuing"
+"${FETCH[@]}" || echo "secrets: fetch failed; continuing"
 
 if [ "$(docker info --format '{{.LiveRestoreEnabled}}')" = true ]; then
   live_restore_off /etc/docker/daemon.json /var/lib/docker/daemon.json
@@ -113,14 +80,6 @@ if ! docker service inspect cad >/dev/null 2>&1; then
 fi
 
 # The timer re-fetches secrets on each run, so a new secret version reaches the volume within 5 minutes.
-# The script is regenerated from the functions above on every boot (/etc is tmpfs).
-{
-  echo '#!/bin/bash'
-  declare -p UID_CAD VOL MD SM
-  declare -f md fetch_secrets
-  echo fetch_secrets
-} >/etc/cad-fetch-secrets.sh
-chmod 700 /etc/cad-fetch-secrets.sh
 
 # Follow the tag: on `service update --image <tag>` the manager re-resolves the tag to its current digest
 # ("updates the service tasks to use that digest"), so an unchanged digest is a no-op and a new one rolls out.
@@ -134,7 +93,7 @@ After=docker.service
 
 [Service]
 Type=oneshot
-ExecStartPre=-/bin/bash /etc/cad-fetch-secrets.sh
+ExecStartPre=-/usr/bin/${FETCH[*]}
 ExecStart=/usr/bin/docker service update --quiet --image $IMAGE cad
 ExecStartPost=/usr/bin/docker service inspect cad --format 'cad image={{.Spec.TaskTemplate.ContainerSpec.Image}} update={{if .UpdateStatus}}{{.UpdateStatus.State}}: {{.UpdateStatus.Message}}{{end}}'
 ExecStartPost=-/usr/bin/docker image prune -f

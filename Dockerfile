@@ -11,7 +11,7 @@ RUN cd cad && CGO_ENABLED=0 go build -trimpath -o /out/cad . \
 
 FROM debian:bookworm-slim
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git jq \
+ && apt-get install -y --no-install-recommends ca-certificates coreutils curl git jq \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --uid 10001 --create-home --home-dir /home/cad --shell /bin/bash cad \
  && mkdir -p /data && chown cad:cad /data
@@ -24,6 +24,8 @@ COPY --from=build /out/orchd /app/orchd/bin/orchd
 COPY cad/config.json /app/cad/config.json
 COPY orchd/policy.json /app/orchd/policy.json
 COPY deploy/entrypoint.sh /app/entrypoint.sh
+# Secret Manager -> /data (deploy/gcp/startup.sh runs it with --entrypoint; needs jq/curl/base64 above).
+COPY deploy/fetch-auth.sh /app/bin/fetch-auth
 # namespaces.json lives on the volume: <app>/config -> /data/cad/config.
 RUN ln -s /data/cad/config /app/cad/config
 USER cad
