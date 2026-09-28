@@ -23,6 +23,9 @@ const cliUsage = `usage:
   cad show cost --computer [<name>] (--hour|--day|--month) [--cpus N] [--mem GiB]
                                      one machine's price for the period (month=730h); default shape is
                                      2 cpu/8GiB (e2-standard-2); no <name> = every computer, "local" is always 0
+  cad show usage [--json] [--local]  subscription usage per agent (table, or --json); fetches the
+                                     running cad's usage topic, falling back to collecting it locally
+                                     if cad is not running (--local always collects locally)
   cad add agent <service/account>
   cad add computer <name> [--replace] [--file f.json | -]  (JSON body; piped stdin also works)
   cad rm agent <agent> | computer <name>
@@ -63,7 +66,7 @@ func runCLI(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if errors.Is(err, errUsage) {
 			fmt.Fprint(stderr, cliUsage)
 		}
-		if errors.Is(err, errNS) || errors.Is(err, errCostArgs) {
+		if errors.Is(err, errNS) || errors.Is(err, errCostArgs) || errors.Is(err, errShowUsageArgs) {
 			return 2
 		}
 		return 1
@@ -186,6 +189,9 @@ func printJSON(w io.Writer, v interface{}) error {
 func show(kind string, args []string, w io.Writer) error {
 	if kind == "cost" {
 		return showCost(args, w)
+	}
+	if kind == "usage" {
+		return showUsageCmd(args, w)
 	}
 	p, err := loadPolicy()
 	if err != nil {
