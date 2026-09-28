@@ -1,0 +1,80 @@
+# Mac 睡眠時に `ai` ラベルの Issue を opencode が PR にする（ADR-0010）
+name: opencode-sleep
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  opencode:
+    if: github.event.label.name == 'ai' && !contains(github.event.issue.labels.*.name, 'wip')
+    # queue: max = pending を最大 100 件保持する（既定の single だと新しい run が古い pending を取り消す）
+    concurrency:
+      group: opencode-${{ github.repository }}
+      cancel-in-progress: false
+      queue: max
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ISSUE: ${{ github.event.issue.number }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: lock
+        run: |
+          gh label create wip --force
+          gh issue edit "$ISSUE" --add-label wip
+
+      # use_github_token: true だと action は git の認証も user も設定しない（github.handler.ts の configureGit は OIDC 時だけ）。
+      # push できるよう checkout に token を残し、commit 用の user を設定する。
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.OPENCODE_GH_PAT || github.token }}
+      - run: git config --global user.name opencode-agent && git config --global user.email opencode-agent@users.noreply.github.com
+
+      # v1.18.32。action 自体は実行時に最新の opencode を curl で入れる（ADR-0010）
+      - uses: anomalyco/opencode/github@545f51d26cc39a907d2867492d498d9607ea5fa4
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # action は use_github_token 時に GITHUB_TOKEN を読む。GITHUB_TOKEN で作った PR は CI を起動しないので PAT を優先する
+          GITHUB_TOKEN: ${{ secrets.OPENCODE_GH_PAT || github.token }}
+        with:
+          model: opencode-go/deepseek-v4-pro
+          use_github_token: true
+          # public repo では未指定だと session が opencode.ai に公開される
+          share: false
+          # Issue の title / body / comments は action が prompt の後ろに付ける
+          prompt: |
+            Implement GitHub issue #${{ github.event.issue.number }}.
+            Rules:
+            - You are already on a fresh branch. Do not switch or create branches, do not push, do not open a PR:
+              the action commits, pushes and opens the PR from your final answer.
+            - Keep the change minimal. Run the repo's tests: `bash test/hooks.test.sh`, `bash test/harness.test.sh`,
+              and `cd cad && go test ./...` when Go files change. Fix failures before finishing.
+            - End your final answer with a "Verified" list of each command you ran and its result.
+
+      # action は変更が無いと PR を作らず comment だけで exit 0 する。PR の branch は opencode/issue<N>-<timestamp>
+      - name: no changes
+        env:
+          PREFIX: opencode/issue${{ github.event.issue.number }}-
+        run: |
+          pr=$(gh pr list --state open --json number,headRefName --jq '[.[]|select(.headRefName|startswith(env.PREFIX))][0].number // empty')
+          if [ -z "$pr" ]; then
+            gh issue edit "$ISSUE" --remove-label ai
+            gh issue comment "$ISSUE" --body "opencode made no changes (no PR): $RUN_URL"
+          fi
+
+      - name: comment on failure
+        if: failure() || cancelled()
+        run: |
+          gh issue comment "$ISSUE" --body "opencode run failed: $RUN_URL"
+
+      - name: unlock
+        if: always()
+        run: gh issue edit "$ISSUE" --remove-label wip

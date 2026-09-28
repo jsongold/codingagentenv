@@ -57,7 +57,22 @@ ADR-0008 / 0009 は「provider の固定一覧（`policy.providers.allowed`）�
 ## 戦略（owner 決定・2026-09-27）
 - **通常運用**：Claude を local で使い切るまで使い、使用枠が尽きたら opencode にフォールバックする（opencode のモデルは可変。現在は DeepSeek）。`rules` を `[{self, local}, {opencode/*, local}]` にする（順序が優先度）。
 - **codex はレビュー専用**：実装 Agent としては使わない。`policy.agents` には残す（レビュー枠の usage 収集のため）が、どの rule にも一致させない＝`place` が codex を選ぶことはない。
-- **Mac がスリープしたら** GitHub Actions が opencode を起動して PR を作る。これは `cad` の外で扱い、rules には書かない（今は設計のみ・実装は未着手の future work）。
+- **Mac がスリープしたら** GitHub Actions が opencode を起動して PR を作る。これは `cad` の外で扱い、rules には書かない（下記）。
+
+## Mac 睡眠時（GitHub Actions）
+`.github/workflows/opencode-sleep.yml`。
+- owner が寝る前に Issue に `ai` ラベルを手で付ける（1 晩最大 3 件程度）
+- Actions は起動時に `wip` ラベルを付けてロックにする。`wip` は成功・失敗・取消のどれでも最後に外す（`if: always()`）。失敗・取消時は run の URL を Issue にコメントする
+- action は変更が無いと PR を作らずコメントだけで成功終了する。その場合（`opencode/issue<N>-` の branch の open PR が無い）は `ai` を外し、「no changes」と run の URL をコメントする
+- Orchestrator は `ai` または `wip` の付いた Issue を拾わない。**これは運用ルールで、コードでは未強制**
+- 直列実行：concurrency group（`cancel-in-progress: false`、`queue: max`）。既定の `queue: single` では pending は 1 件だけで、新しい run が古い pending を取り消す（取り消された Issue は `wip` も付かず放置される）ため `queue: max`（pending 最大 100 件）にする。actionlint v1.7.12 は `queue` を知らないので `.github/actionlint.yaml` でその 1 件だけ無視する。timeout 60 分。モデルは `opencode-go/deepseek-v4-pro`
+- セキュリティ：
+  - repo は public。action は `share` 未指定だと session を opencode.ai に公開するので `share: false`
+  - `anomalyco/opencode/github` は release tag の commit SHA に固定する。ただし action 自体が実行時に最新の opencode を `curl | bash` で入れるので、供給網リスクは減るが無くならない
+  - action は Issue の title / body / comments を prompt に付ける。public repo では第三者のコメントで prompt injection され得るので、owner は Issue とコメントを読んでから `ai` を付ける
+  - main には強制される保護が無い（ruleset「protect main」は無効で、PR 必須も含まない）。owner 決定待ち
+- GitHub の token は PAT（`OPENCODE_GH_PAT`）。`GITHUB_TOKEN` で作った PR は CI を起動しないため。未設定なら `github.token` で動くが CI は走らない
+- KPI = PR が出た夜の数 / `ai` を付けた夜の数
 
 ## MODE（owner 決定・2026-09-28）
 - **MODE** で rule の優先順位を切り替える。`auto`（既定）= top-level `rules`：設計どおり local を最後の手段にする。今は `[{self, claude-cloud}, {opencode/*, gha}, {self, local}, {opencode/*, local}]`（`gha` は `computers` に無いので `computer "gha" unknown` で飛ばされる）。上記「戦略」の通常運用（local 優先）はこれで置き換える
