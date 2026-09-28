@@ -121,11 +121,13 @@ opencode の task を 1 件ずつ container で実行する VM を 2 台持つ�
 - 起動（毎 boot、`worker-startup.sh`）：`fetch-auth` で secret を `/var/lib/cad` へ → `/run/worker-ready` を作る（orchd はこれを ssh で待ってから `docker run`）→ image を pull。image が cache 済みなら pull は ready の後（dispatch は cache の image で即起動し、pull は変わった layer だけ取って次回に効く）。cache が無い初回だけ ready の前に pull する
 - 停止（自動）：`worker-stop.service` が `docker events`（container の die）を見て、`opencode-worker-*` が終わり `stop-grace-seconds`（metadata、既定 60）後に 1 つも動いていなければ `shutdown -h now`。保険として `worker-idle.timer` が `idle-minutes`（metadata、既定 30）の間 worker container が無ければ止める（container が起動しなかった dispatch・作成直後の初回 boot）。guest OS からの shutdown は stop 扱いで instance は `TERMINATED` になり、`TERMINATED` の間は vCPU・メモリは課金されない（disk と外部 IP は課金）：[stop-start](https://cloud.google.com/compute/docs/instances/stop-start-instance)、[instance life cycle](https://cloud.google.com/compute/docs/instances/instance-life-cycle)
 - grace のトレードオフ：短いほど idle の費用が減り、長いほど続けて来た dispatch が起動待ち（stop→start の数十秒〜）なしで同じ VM を使える。0 にすると毎 task で boot する。Spot の preempt 時の shutdown 猶予は best effort で最大 30 秒（[Spot VMs](https://cloud.google.com/compute/docs/instances/spot)）
+- image の更新：cache 済みなら pull は ready の後なので、main の新しい image はその次の起動から使われる（1 回遅れ）
+- image には git・gh・opencode しか無い。Go / Node などのテストが要る repo は、その toolchain を image に足すまで opencode がテストを実行できない
 - 速度の選択：停止した VM の `start` を使う（suspend/resume はメモリの復元が再起動より遅いことがある、と MIG の standby pool の doc にある）。`--skip-guest-os-shutdown` は API からの stop/delete にだけ効くので、自分で shutdown するこの VM には使わない。並列度を上げたくなったら MIG の standby pool が次の候補（未実装）
 
 ### 作成（owner が 1 度だけ、この順に）
 
-1. GitHub の fine-grained PAT を作る：Repository access = 対象 repo、Permissions = Contents: Read and write、Pull requests: Read and write（Issues: Read は `gh issue view` 用）、Metadata: Read
+1. GitHub の fine-grained PAT を作る：Repository access = 対象 repo、Permissions = Contents: Read and write、Pull requests: Read and write、Workflows: Read and write（`.github/workflows/` を変える Issue の push に必要）、Issues: Read（`gh issue view`）、Metadata: Read
 2. Secret Manager に入れ、SA に読ませる（`worker-auth.list` の `github worker` → secret `cad-github-worker`。値は stdin から、表示しない。opencode の `cad-opencode-996c87ae` は `secrets.sh` で作成・付与済み）：
 
 ```bash
