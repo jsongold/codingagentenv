@@ -4,5 +4,5 @@
 if [ -z "${CAD_CONFIG:-}" ] && [ -f /data/cad-config.json ]; then
   export CAD_CONFIG=/data/cad-config.json
 fi
-mkdir -p /data/cad/config /data/orchd/state 2>/dev/null || true
+mkdir -p /data/cad/config /data/cad/state /data/orchd/state 2>/dev/null || true
 exec "$@"
