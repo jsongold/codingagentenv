@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // cliEnv points CAD_POLICY at a temp dir and returns its path.
@@ -38,7 +37,7 @@ const localJSON = `{"vcpuHourUSD":0,"gibHourUSD":0,"minBillSec":0,"coldStartSec"
 
 func TestCLIAddShowRoundtrip(t *testing.T) {
 	p := cliEnv(t)
-	os.WriteFile(p, []byte(`{"gate":{"memoryMB":1500},"classes":{"x":{"estPct":1}}}`), 0o644) // the daemon requires classes; the CLI keeps them
+	os.WriteFile(p, []byte(`{"gate":{"memoryMB":1500}}`), 0o644)
 	for _, a := range [][]string{
 		{"add", "agent", "claude/test"},
 		{"add", "computer", "local", "-"},
@@ -135,7 +134,7 @@ func TestIsCLI(t *testing.T) {
 
 func TestCLIShowSections(t *testing.T) {
 	t.Setenv("CAD_POLICY", filepath.Join("..", ".agent", "policy.json"))
-	for sec, want := range map[string]string{"classes": `"light-edit"`, "runners": `"subagent"`, "collect": `"60s"`, "rules": `"self"`} {
+	for sec, want := range map[string]string{"collect": `"60s"`, "agents": `"claude/a12e00a7"`} {
 		if out, code := run(t, "", "show", sec); code != 0 || !strings.Contains(out, want) {
 			t.Errorf("show %s: %d %s", sec, code, out)
 		}
@@ -219,28 +218,17 @@ func TestCLIShowCost(t *testing.T) {
 	}
 }
 
-func TestCLIRejectsBadRunner(t *testing.T) {
+// rules/classes/runners belong to orchd: cad neither validates nor requires them, but keeps them on add.
+func TestPolicyKeepsOrchdSections(t *testing.T) {
 	p := cliEnv(t)
-	os.WriteFile(p, []byte(`{"runners":{"opencode":{"mode":"process"}}}`), 0o644)
-	if out, code := run(t, "", "show", "runners"); code != 1 || !strings.Contains(out, "process needs cmd") {
+	os.WriteFile(p, []byte(`{"runners":{"opencode":{"mode":"process"}},"rules":[{"agent":"self"}]}`), 0o644)
+	if out, code := run(t, "", "add", "agent", "claude/x"); code != 0 {
 		t.Fatalf("%d %s", code, out)
 	}
-}
-
-// The daemon rejects a policy without classes (naming the old placement.estPct) and keeps the last good one.
-func TestPolicyRequiresClasses(t *testing.T) {
-	p := cliEnv(t)
-	os.WriteFile(p, []byte(`{"classes":{"x":{"estPct":1}}}`), 0o644)
-	if _, ok := currentPolicy().Classes["x"]; !ok {
-		t.Fatal("good policy not loaded")
+	if got := currentPolicy(); len(got.Agents) != 1 || !strings.Contains(string(got.Runners), `"process"`) {
+		t.Fatalf("%+v", got)
 	}
-	old := []byte(`{"placement":{"reservePct":15,"estPct":{"gate-heavy":4}}}`)
-	os.WriteFile(p, old, 0o644)
-	os.Chtimes(p, time.Now(), time.Now().Add(time.Minute))
-	if _, ok := currentPolicy().Classes["x"]; !ok {
-		t.Fatal("last good policy not kept")
-	}
-	if err := requireClasses(old, Policy{}); err == nil || !strings.Contains(err.Error(), "placement.estPct was replaced") {
-		t.Fatalf("%v", err)
+	if out, code := run(t, "", "show", "rules"); code == 0 {
+		t.Fatalf("show rules still in cad: %s", out)
 	}
 }

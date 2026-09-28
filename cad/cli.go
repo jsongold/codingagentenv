@@ -19,7 +19,7 @@ import (
 const cliUsage = `usage:
   cad                                   run the server (env: CAD_ADDR, CAD_TOKEN, CAD_POLICY, CAD_SLOTS, CAD_USAGE_EVERY, CAD_CLAUDE_BIN, ...)
   cad get meta|<topic> -ns <namespace>  print the running cad's metadata as JSON (GET /v1/meta, /v1/<topic>; env: CAD_ADDR, CAD_TOKEN)
-  cad show [classes|rules|runners|collect|agents|computers|policy]  print records (no arg = the policy)
+  cad show [collect|agents|computers|policy]  print records (no arg = the policy; rules/classes/runners: see orchd)
   cad show cost --computer [<name>] (--hour|--day|--month) [--cpus N] [--mem GiB]
                                      one machine's price for the period (month=730h); default shape is
                                      2 cpu/8GiB (e2-standard-2); no <name> = every computer, "local" is always 0
@@ -28,6 +28,16 @@ const cliUsage = `usage:
   cad rm agent <agent> | computer <name>
 files: CAD_POLICY > .agent/policy.json. A running cad re-reads it on mtime change. Usage is collected by cad (topic "usage").
 `
+
+func without(xs []string, x string) []string {
+	var out []string
+	for _, v := range xs {
+		if v != x {
+			out = append(out, v)
+		}
+	}
+	return out
+}
 
 var agentRe = regexp.MustCompile(`^[a-z0-9-]+/[a-z0-9-]+$`)
 
@@ -109,9 +119,6 @@ func loadPolicy() (Policy, error) {
 	if err := json.Unmarshal(b, &p); err != nil {
 		return Policy{}, fmt.Errorf("%s: %v", policyFile(), err)
 	}
-	if err := p.check(); err != nil {
-		return Policy{}, fmt.Errorf("%s: %v", policyFile(), err)
-	}
 	p.Source = policyFile()
 	return p, nil
 }
@@ -189,12 +196,6 @@ func show(kind string, args []string, w io.Writer) error {
 		return printJSON(w, p.Agents)
 	case "computers":
 		return printJSON(w, p.Computers)
-	case "rules":
-		return printJSON(w, p.Rules)
-	case "classes":
-		return printJSON(w, p.Classes)
-	case "runners":
-		return printJSON(w, p.Runners)
 	case "collect":
 		return printJSON(w, p.Collect)
 	case "", "policy":

@@ -101,53 +101,92 @@ func TestPlace(t *testing.T) {
 	}
 }
 
-func TestPostPlace(t *testing.T) {
-	t.Setenv("CAD_POLICY", filepath.Join("..", ".agent", "policy.json"))
-	h := newHub()
-	h.publish("capacity", Capacity{Slots: 2})
-	h.publish("usage", UsageMap(seedUsage()))
-	srv := httptest.NewServer(newServer(h, "tok"))
-	defer srv.Close()
-	post := func(q, body, token string) *http.Response {
-		req, _ := http.NewRequest("POST", srv.URL+"/v1/place"+q, strings.NewReader(body))
-		req.Header.Set("Authorization", "Bearer "+token)
-		res, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
+// fakeCad serves /v1/usage and /v1/capacity like cad does (token + ns required); usage nil = 404.
+func fakeCad(t *testing.T, usage map[string]AgentUsage, slots int) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok" || r.URL.Query().Get("ns") != "default" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
 		}
-		return res
-	}
-	ok := `{"class":"light-edit","self":"claude/a12e00a7","placement":{"strategy":"ignored"}}`
-	for _, c := range []struct {
-		q, body, token string
-		want           int
-	}{
-		{"?ns=a", ok, "tok", 200},
-		{"", ok, "tok", 400},
-		{"?ns=a", ok, "bad", 401},
-		{"?ns=a", `{"class":"nope"}`, "tok", 400},
-		{"?ns=a", `{}`, "tok", 400},
-		{"?ns=a", `{"class":"light-edit","self":"Claude"}`, "tok", 400},
-	} {
-		res := post(c.q, c.body, c.token)
-		if res.StatusCode != c.want {
-			t.Errorf("%s %s: %d want %d", c.q, c.body, res.StatusCode, c.want)
-		}
-		if c.want == 200 {
-			var p Placement
-			json.NewDecoder(res.Body).Decode(&p)
-			if p.Computer != "local" || p.Agent != "claude/a12e00a7" || p.Rule != 0 {
-				t.Errorf("200 body: %+v", p)
+		switch r.URL.Path {
+		case "/v1/usage":
+			if usage == nil {
+				http.NotFound(w, r)
+				return
 			}
+			json.NewEncoder(w).Encode(usage)
+		case "/v1/capacity":
+			json.NewEncoder(w).Encode(map[string]int{"slots": slots})
+		default:
+			http.NotFound(w, r)
 		}
-		res.Body.Close()
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("CAD_ADDR", strings.TrimPrefix(srv.URL, "http://"))
+	t.Setenv("CAD_TOKEN", "tok")
+}
+
+func runCmd(args ...string) (string, int) {
+	var out, errb strings.Builder
+	code := run(args, &out, &errb)
+	return out.String() + errb.String(), code
+}
+
+func TestPlaceCmd(t *testing.T) {
+	t.Setenv("ORCHD_POLICY", filepath.Join("..", ".agent", "policy.json"))
+	fakeCad(t, seedUsage(), 2)
+	out, code := runCmd("place", "--class", "light-edit", "--self", "claude/a12e00a7")
+	var p Placement
+	json.Unmarshal([]byte(out), &p)
+	if code != 0 || p.Computer != "local" || p.Agent != "claude/a12e00a7" || p.Rule != 0 || p.Runner.Mode != "subagent" {
+		t.Fatalf("%d %s", code, out)
+	}
+	for _, c := range []struct {
+		args []string
+		want int
+	}{
+		{[]string{"place", "--class", "nope"}, 2},
+		{[]string{"place"}, 2},
+		{[]string{"place", "--class", "light-edit", "--self", "Claude"}, 2},
+		{[]string{"place", "--class", "light-edit", "--ns", "Bad!"}, 2},
+		{[]string{"place", "--class", "light-edit", "--ns", "other"}, 1}, // cad answers 400
+		{[]string{"show", "nope"}, 2},
+		{[]string{"frob"}, 2},
+		{[]string{"show", "rules"}, 0},
+	} {
+		if out, code := runCmd(c.args...); code != c.want {
+			t.Errorf("%v: %d want %d: %s", c.args, code, c.want, out)
+		}
+	}
+
+	u := seedUsage()
+	soon := &UsageWindow{90, time.Now().Add(time.Hour)} // the fixed seed resets are in the past
+	for a := range u {
+		u[a] = AgentUsage{FiveHour: soon}
+	}
+	fakeCad(t, u, 2)
+	if out, code := runCmd("place", "--class", "light-edit", "--self", "claude/a12e00a7"); code != 3 || !strings.Contains(out, `"defer_until"`) {
+		t.Errorf("defer: %d %s", code, out)
+	}
+	fakeCad(t, seedUsage(), 0)
+	if out, code := runCmd("place", "--class", "light-edit"); code != 4 || !strings.Contains(out, "no local slot") {
+		t.Errorf("no slot: %d %s", code, out)
+	}
+	fakeCad(t, nil, 2) // usage not collected yet: agents are "usage unknown" and still placed
+	if out, code := runCmd("place", "--class", "light-edit", "--self", "claude/a12e00a7"); code != 0 || !strings.Contains(out, "usage unknown") {
+		t.Errorf("no usage: %d %s", code, out)
+	}
+	t.Setenv("CAD_ADDR", "127.0.0.1:1")
+	if out, code := runCmd("place", "--class", "light-edit"); code != 1 || !strings.Contains(out, "cad unreachable") {
+		t.Errorf("unreachable: %d %s", code, out)
 	}
 }
 
-func TestPlaceHubUsage(t *testing.T) {
+func TestUsableUsage(t *testing.T) {
 	now := time.Now()
 	past := &UsageWindow{95, now.Add(-time.Minute)}
-	u := UsageMap{
+	u := map[string]AgentUsage{
 		"claude/b1c8ef41": {FiveHour: past, SevenDay: past},
 		"claude/default":  {Error: "claude -p /usage: exit status 1"},
 	}
@@ -156,35 +195,34 @@ func TestPlaceHubUsage(t *testing.T) {
 		t.Fatalf("past reset not 0%%: %+v", b)
 	}
 	if past.UsedPct != 95 {
-		t.Fatal("usableUsage mutated the published window")
+		t.Fatal("usableUsage mutated the input window")
 	}
 	if _, ok := got["claude/default"]; ok {
 		t.Fatal("error agent kept as known")
 	}
 }
 
-// A class added to the policy file is accepted without a code change.
-func TestPostPlacePolicyClass(t *testing.T) {
+// A class added to the policy file is accepted without a code change; a policy without classes
+// or with a bad runner is refused.
+func TestPolicyFile(t *testing.T) {
 	pol := seedPolicy(t)
 	pol.Classes["docs-only"] = Class{Criteria: "x", EstPct: 1}
 	b, _ := json.Marshal(pol)
 	f := filepath.Join(t.TempDir(), "p.json")
 	os.WriteFile(f, b, 0o644)
-	t.Setenv("CAD_POLICY", f)
-	h := newHub()
-	h.publish("capacity", Capacity{Slots: 1})
-	h.publish("usage", UsageMap(seedUsage()))
-	srv := httptest.NewServer(newServer(h, ""))
-	defer srv.Close()
-	res, err := http.Post(srv.URL+"/v1/place?ns=a", "", strings.NewReader(`{"class":"docs-only","self":"claude/a12e00a7"}`))
-	if err != nil {
-		t.Fatal(err)
+	t.Setenv("ORCHD_POLICY", f)
+	fakeCad(t, seedUsage(), 1)
+	if out, code := runCmd("place", "--class", "docs-only", "--self", "claude/a12e00a7"); code != 0 || !strings.Contains(out, `"subagent"`) {
+		t.Fatalf("%d %s", code, out)
 	}
-	defer res.Body.Close()
-	var p Placement
-	json.NewDecoder(res.Body).Decode(&p)
-	if res.StatusCode != 200 || p.Agent != "claude/a12e00a7" || p.Runner == nil || p.Runner.Mode != "subagent" {
-		t.Fatalf("%d %+v", res.StatusCode, p)
+	for body, want := range map[string]string{
+		`{"agents":[]}`: `no "classes"`,
+		`{"classes":{"x":{}},"runners":{"opencode":{"mode":"process"}}}`: "process needs cmd",
+	} {
+		os.WriteFile(f, []byte(body), 0o644)
+		if out, code := runCmd("show"); code != 1 || !strings.Contains(out, want) {
+			t.Errorf("%s: %d %s", body, code, out)
+		}
 	}
 }
 

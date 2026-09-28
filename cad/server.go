@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -26,8 +27,6 @@ func newServer(h *hub, token string) http.Handler {
 			http.NotFound(w, r)
 		case strings.HasPrefix(p, "quota/") && r.Method == http.MethodPost:
 			h.postQuota(w, r, strings.TrimPrefix(p, "quota/"))
-		case p == "place" && r.Method == http.MethodPost:
-			h.postPlace(w, r)
 		case r.Method != http.MethodGet:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		case p == "events":
@@ -49,6 +48,18 @@ func newServer(h *hub, token string) http.Handler {
 			http.NotFound(w, r)
 		}
 	})
+}
+
+// nsRe validates the required ns query parameter (ADR-0010; one namespace per cad for now).
+var nsRe = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+// requireNS answers 400 and returns false when ?ns= is missing or malformed.
+func requireNS(w http.ResponseWriter, r *http.Request) bool {
+	if !nsRe.MatchString(r.URL.Query().Get("ns")) {
+		http.Error(w, "ns query parameter required (^[a-z0-9-]+$)", http.StatusBadRequest)
+		return false
+	}
+	return true
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {
