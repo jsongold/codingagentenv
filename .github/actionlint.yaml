@@ -1,5 +1,0 @@
-# actionlint v1.7.12 は concurrency.queue を知らない（rhysd/actionlint#657）。GitHub docs では正式な key
-paths:
-  .github/workflows/opencode-sleep.yml:
-    ignore:
-      - 'unexpected key "queue" for "concurrency" section'

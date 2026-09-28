@@ -30,7 +30,7 @@ tools/orchd show [rules|classes|runners]                     # 引数なし = 3 
 
 MODE は place が使う rule の一覧を切り替える（[ADR-0010](../docs/decisions/0010-placement.md)）。
 
-- `auto`（既定）：top-level `rules`。local は最後の手段（今は Claude cloud → opencode on gha（未実装なので飛ばす）→ local）
+- `auto`（既定）：top-level `rules`。local は最後の手段（今は self: Claude cloud → local、opencode: local）
 - `urgent`：`modes.urgent.rules`。local の rule を先に、その後に auto の rule。`modes.<name>.rules` を足せば mode を増やせる
 - `rule` の番号はその mode の一覧での位置。place の出力に `mode` と `modeSource`（`flag` / `file:ns` / `file:global` / `env` / `default`＝何も指定なし）が付く
 - 優先順位：`--mode` > `$ORCHD_STATE_DIR/mode/<ns>.json` > `$ORCHD_STATE_DIR/mode/_global.json` > `ORCHD_MODE` > `auto`。不明な mode 名は exit 2

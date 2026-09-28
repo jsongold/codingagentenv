@@ -130,7 +130,7 @@ func TestUrgentFallsBack(t *testing.T) {
 
 func TestRunnerLookup(t *testing.T) {
 	pol := Policy{Runners: map[string]Runner{"claude": {Mode: "subagent"}, "claude@claude-cloud": {Mode: "cloud", Cmd: "c"}}}
-	for computer, want := range map[string]string{"claude-cloud": "cloud", "local": "subagent", "gha": "subagent"} {
+	for computer, want := range map[string]string{"claude-cloud": "cloud", "local": "subagent", "gce-spot": "subagent"} {
 		if rn, ok := pol.runner("claude", computer); !ok || rn.Mode != want {
 			t.Errorf("%s: %+v %v", computer, rn, ok)
 		}

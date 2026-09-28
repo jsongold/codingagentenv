@@ -12,13 +12,13 @@
   },
   "agents": ["claude/a12e00a7", "claude/b1c8ef41", "codex/2e33b72a", "opencode/996c87ae"],
   "rules": [
-    { "agent": "self", "computer": "claude-cloud" }, { "agent": "opencode/*", "computer": "gha" },
+    { "agent": "self", "computer": "claude-cloud" },
     { "agent": "self", "computer": "local" }, { "agent": "opencode/*", "computer": "local" }
   ],
   "modes": {
     "urgent": { "rules": [
       { "agent": "self", "computer": "local" }, { "agent": "opencode/*", "computer": "local" },
-      { "agent": "self", "computer": "claude-cloud" }, { "agent": "opencode/*", "computer": "gha" }
+      { "agent": "self", "computer": "claude-cloud" }
     ] }
   },
   "placement": { "reservePct": 15 },
