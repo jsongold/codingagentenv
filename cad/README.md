@@ -34,7 +34,8 @@ cad get meta -ns default              # 動作確認
 
 | メソッド・パス | 内容 |
 |---|---|
-| `GET /healthz` | 死活確認 |
+| `GET /healthz` | 死活確認（liveness。応答できれば 200） |
+| `GET /healthz?ready` | readiness。usage を持っていれば 200 `{"ready":true,"usage":"snapshot"\|"collected"}`、まだなら 503 `{"ready":false,"reason":...}`。token 不要 |
 | `GET /v1/meta?ns=<ns>` | 全 topic |
 | `GET /v1/<topic>?ns=<ns>` | 1 topic（`policy` / `capacity` / `workers` / `usage` など） |
 | `GET /v1/events?topics=a,b` | SSE。値が変わった topic だけ push |
@@ -91,3 +92,7 @@ cad get meta -ns default              # 動作確認
 ```bash
 cd cad && go vet ./... && go test -count=1 ./...
 ```
+
+## 再起動・入れ替え時の引き継ぎ（ADR-0011 追記）
+
+usage を集めるたびに `<state>/usage-snapshot.json`（state = `CAD_STATE_DIR` > `<app>/state`。`CAD_HOME` があれば `<CAD_HOME>/state`。gitignore）へ一時ファイル → rename で書く。起動時に 24 時間以内の snapshot があれば、全 agent を `stale: true`（`fetchedAt` は元のまま）にしてすぐ `usage` topic に出し、ready になる。最初の本物の収集で上書きされる。

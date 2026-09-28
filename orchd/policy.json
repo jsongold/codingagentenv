@@ -12,7 +12,7 @@
       { "agent": "self", "computer": "claude-cloud" }
     ] }
   },
-  "placement": { "reservePct": 15 },
+  "placement": { "reservePct": 15, "staleUsage": "pass" },
   "classes": {
     "light-edit":   { "criteria": "docs/config/コメントのみ。テストの追加・変更なし", "estPct": 1 },
     "gate-heavy":   { "criteria": "コード変更があり、テスト・型チェック・lint の通過が必要", "estPct": 4 },
