@@ -36,8 +36,8 @@ func TestWakeSendsFixedPromptWhenSleep(t *testing.T) {
 		if got != "claude -p --cloud sess-1 --output-format json" {
 			t.Errorf("claude call shape: %v", c)
 		}
-		if !strings.Contains(c[3], "sleep 中の定期 wake") {
-			t.Errorf("prompt: %s", c[3])
+		if c[3] != wakePrompt {
+			t.Errorf("prompt: got %q want %q", c[3], wakePrompt)
 		}
 	}
 	if claudeCalls != 1 {

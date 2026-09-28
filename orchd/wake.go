@@ -4,12 +4,14 @@ package main
 // picks the next step itself. Outside sleep it is a no-op (print skipped, exit 0).
 
 import (
+	_ "embed"
 	"flag"
 	"fmt"
 	"io"
 )
 
-const wakePrompt = "sleep 中の定期 wake。プロジェクトの文脈（docs/mission.md、docs/decisions/ の ADR、マイルストーン無しの open Issue、open PR）から次にやることを判断して進めよ。マイルストーン付き Issue は対象外。merge 条件は ADR-0015 に従う。owner 判断が要るものは Issue にコメントして残す。"
+//go:embed wake.md
+var wakePrompt string
 
 func wakeCmd(args []string, w io.Writer) (int, error) {
 	fs := flag.NewFlagSet("wake", flag.ContinueOnError)
