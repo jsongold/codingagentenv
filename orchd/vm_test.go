@@ -107,6 +107,9 @@ func TestDispatchVMStartsStoppedVM(t *testing.T) {
 	if code != 0 || m["started"] != true || m["instance"] != "worker-spot" || m["container"] != "opencode-worker-7" {
 		t.Fatalf("code %d %v %s", code, m, errs)
 	}
+	if m["zone"] != "z1" || m["project"] != "p1" { // what "orchd vm status" needs besides instance
+		t.Errorf("zone %v project %v", m["zone"], m["project"])
+	}
 	if _, ok := m["startSec"].(float64); !ok {
 		t.Errorf("startSec %v", m["startSec"])
 	}
@@ -210,7 +213,7 @@ func TestDispatchVMPicksAnyStoppedInstance(t *testing.T) {
 	t.Setenv("ORCHD_COMPUTE_URL", srv.URL)
 	pl := `{"runner":{"mode":"vm","instance":"worker-spot,worker-spot-2","zone":"z1","project":"p1","image":"ghcr.io/o/w:main","model":"prov/m-1"}}`
 	code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", pl)
-	if code != 0 || m["instance"] != "worker-spot-2" || m["container"] != "opencode-worker-7" {
+	if code != 0 || m["instance"] != "worker-spot-2" || m["zone"] != "z1" || m["project"] != "p1" || m["container"] != "opencode-worker-7" {
 		t.Fatalf("code %d %v %s", code, m, errs)
 	}
 	if len(calls) < 2 || calls[0] != "GET instances/worker-spot" || calls[1] != "GET instances/worker-spot-2" {
@@ -353,6 +356,62 @@ func TestDispatchVMBadRunner(t *testing.T) {
 	bad := strings.Replace(vmPl, "prov/m-1", "m; rm -rf /", 1)
 	if code, _, _ := runTask(t, "dispatch", "--issue", "7", "--placement", bad); code != 2 || len(f.calls) != 0 {
 		t.Errorf("unsafe model: code %d calls %v", code, f.calls)
+	}
+}
+
+// TestVMStatus: read-only status check for one instance (skills/orchestrate's monitor Subagent, issue #67).
+func TestVMStatus(t *testing.T) {
+	oldTok := accessToken
+	t.Cleanup(func() { accessToken = oldTok })
+	accessToken = func() (string, error) { return "tok", nil }
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			t.Errorf("bad auth header %v", r.Header)
+		}
+		if r.URL.Path != "/projects/p1/zones/z1/instances/worker-spot" {
+			http.NotFound(w, r)
+			return
+		}
+		io.WriteString(w, `{"status":"TERMINATED","metadata":{"fingerprint":"fp1","items":[]}}`)
+	}))
+	defer srv.Close()
+	t.Setenv("ORCHD_COMPUTE_URL", srv.URL)
+	code, m, errs := runTask(t, "vm", "status", "--instance", "worker-spot", "--zone", "z1", "--project", "p1")
+	if code != 0 || m["instance"] != "worker-spot" || m["status"] != "TERMINATED" {
+		t.Fatalf("code %d %v %s", code, m, errs)
+	}
+	if len(calls) != 1 || calls[0] != "GET /projects/p1/zones/z1/instances/worker-spot" {
+		t.Errorf("calls %v", calls)
+	}
+}
+
+func TestVMStatusErrors(t *testing.T) {
+	oldTok := accessToken
+	t.Cleanup(func() { accessToken = oldTok })
+	accessToken = func() (string, error) { return "tok", nil }
+
+	if code, _, errs := runTask(t, "vm"); code != 2 || !strings.Contains(errs, "want status") {
+		t.Errorf("no subcommand: code %d %s", code, errs)
+	}
+	if code, _, errs := runTask(t, "vm", "bogus"); code != 2 || !strings.Contains(errs, "want status") {
+		t.Errorf("bad subcommand: code %d %s", code, errs)
+	}
+	if code, _, errs := runTask(t, "vm", "status", "--instance", "w; rm -rf /", "--zone", "z1", "--project", "p1"); code != 2 || !strings.Contains(errs, "--instance") {
+		t.Errorf("unsafe instance: code %d %s", code, errs)
+	}
+	if code, _, errs := runTask(t, "vm", "status", "--instance", "worker-spot", "--zone", "z1"); code != 2 || !strings.Contains(errs, "--project") {
+		t.Errorf("missing project: code %d %s", code, errs)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "no", 404)
+	}))
+	defer srv.Close()
+	t.Setenv("ORCHD_COMPUTE_URL", srv.URL)
+	if code, _, errs := runTask(t, "vm", "status", "--instance", "worker-spot", "--zone", "z1", "--project", "p1"); code != 1 {
+		t.Errorf("API error: code %d %s", code, errs)
 	}
 }
 

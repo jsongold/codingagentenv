@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"math"
@@ -307,6 +308,41 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 			return unavailable("start %s: %v", name, err)
 		}
 	}
-	return 0, printJSON(w, map[string]any{"started": true, "instance": name, "container": "opencode-worker-" + strconv.Itoa(n),
-		"task": task, "startSec": math.Round(time.Since(t0).Seconds()*10) / 10})
+	// zone/project: every candidate shares the runner's, so a monitor can run "orchd vm status" from this output alone.
+	return 0, printJSON(w, map[string]any{"started": true, "instance": name, "zone": rn.Zone, "project": rn.Project,
+		"container": "opencode-worker-" + strconv.Itoa(n), "task": task, "startSec": math.Round(time.Since(t0).Seconds()*10) / 10})
+}
+
+// vmCmd: "orchd vm status --instance <i> --zone <z> --project <p>", the only vm subcommand so far.
+func vmCmd(args []string, w io.Writer) (int, error) {
+	if len(args) == 0 || args[0] != "status" {
+		return 2, fmt.Errorf("vm: want status")
+	}
+	fs := flag.NewFlagSet("vm status", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	instance, zone, project := fs.String("instance", "", ""), fs.String("zone", "", ""), fs.String("project", "", "")
+	if err := fs.Parse(args[1:]); err != nil || fs.NArg() > 0 {
+		return 2, fmt.Errorf("vm status: bad args %q", args[1:])
+	}
+	return vmStatus(Runner{Instance: *instance, Zone: *zone, Project: *project}, w)
+}
+
+// vmStatus prints one worker VM's current status (read-only: instances.get), replacing `gcloud compute instances
+// describe` in skills/orchestrate: the monitor Subagent for runner "vm" polls this to tell a preempted or finished
+// VM (TERMINATED, with no PR yet) from one still working (issue #67).
+func vmStatus(rn Runner, w io.Writer) (int, error) {
+	for k, v := range map[string]string{"instance": rn.Instance, "zone": rn.Zone, "project": rn.Project} {
+		if !safeArg.MatchString(v) {
+			return 2, fmt.Errorf("--%s %q: want %s", k, v, safeArg)
+		}
+	}
+	tok, err := accessToken()
+	if err != nil {
+		return 1, err
+	}
+	var in gceInstance
+	if err := gceCall(tok, rn, "GET", "instances/"+rn.Instance, nil, &in); err != nil {
+		return 1, fmt.Errorf("%s: %v", rn.Instance, err)
+	}
+	return 0, printJSON(w, map[string]any{"instance": rn.Instance, "status": in.Status})
 }
