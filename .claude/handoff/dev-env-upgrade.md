@@ -1,26 +1,22 @@
 # handoff: dev-env-upgrade
-最終更新: 2026-09-27 16:30 JST
-目的: ローカル = Control Plane (Orchestrator)、クラウド = Execution Plane (Worker) に分けた並列開発環境を作る。元アイデアは owner が貼った「dev dispatch + Worker image + クラウド Worker」構想 (GitHub 上で実行する前提)。
-完了条件: Issue #10 の設計が ADR で確定 → c8 (dev-dispatch) で Cloud Run Jobs 1 台に 1 task を通し、PR が出て Orchestrator が検証できる。
-決定事項:
-- 動的な値は cad / 環境 / spec から決定的に取る (毎回 Prompt で取ると揺れて検証できない)。ルール文は方針のみ。
-- cad = repo 内の Go 製メタデータアプリ (単一バイナリで Worker に配れる、常駐メモリが小さい)。マシンに 1 つ、リクエストで ns を指定、レコード最小単位は サービス×アカウント (同一マシンで複数アカウント運用)、capacity はマシン共有 (ns ごとに立てると二重に数える)。ADR-0008。
-- 配置 = 分類 (Claude) + 割り当て (制約で絞る→規則で点数、決定的、ML なし)。小さく速く説明できるため。初期配置は予測せず、各 Subagent / Orch がこまめに cad を見る (消費量は事前に見積もれない)。
-- merge 前チェックはアプリ依存 (対象 repo の CI が正、spec の done は事前確認)。ハーネスはリソースの関門だけ持ち、cad が担う (未実装)。
-- キュー = GitHub Issue。task spec は JSON (Orch が生成する形式なので人の書きやすさ不要)。Worker の Agent は Claude Code のみ。最初の e2e は簡単な Cloud Run Jobs、project は一旦 suggestorder-dev。
-- ロジックを含むものは擬似コードを owner に見せて承認後に実装 (シェルのロジックが読めなくなったため)。
-却下した案: agent-gate (アプリ依存のチェックをハーネスが持つのは筋違い、自作ロックで P1 が止まらず) / cad を ns ごとに起動 (容量の二重計上) / OSS 採用 (4 要件を満たすものなし) / クラウドキュー自作 (GH Issue で足りる) / 機械学習の配置 (データ無し、規則で十分) / TS で cad (単一バイナリで配れない)。
+最終更新: 2026-09-28 18:00 JST
+目的: Mission（docs/mission.md）= 数十の project で agent が 24/7 開発、コスト最小・資源と使用枠を使い切る。この repo はそのツールの詰め合わせ。全体 TODO は Issue #39（v0.2: #33 #34 #35 #36 #37 #38 #41 #52、v0.3: #26 #27、v0.4: #40）。
+完了条件（直近）: AUTO で Claude Code cloud の Orchestrator（CCO）が orchd を使って ai Issue を PR にできる。
+決定事項（詳細は ADR-0010/0011/0012、orchd/README.md、skills/orchestrate/SKILL.md）:
+- NS = project。Orchestrator は NS ごと（必須）、常駐、落ちたら owner が再開、Remote Control の URL ですぐ attach。MODE: AUTO=CCO（cloud）、URGENT=手元の local。
+- 役割: Issue 管理と class 分類 = Orchestrator（LLM）、容量・usage = cad、割り振り = orchd（pick / place / dispatch / status / mode、答えを JSON で返す）。流れ `orchestrator → orchd pick → place → dispatch → orchestrator`、完了は subagent の通知。Issue の状態は GitHub のラベルだけ（ルールは skill）。
+- 振り分け = policy の決定木（判断は分類だけ）。AUTO: claude-cloud → opencode×gce-spot → opencode×gce-std → local。cap はガードレール（lease はやらない）。NS ごとの予算は数値を持ち実績を後で追う（#52）。
+- 実行先: claude-cloud = NS の worker cloud セッションへ `claude -p --cloud`。opencode = 停止中の e2-medium Spot / 通常 VM を必要時に start → docker run → タスク後すぐ自動停止（#53 merged）。
+- デプロイ: GCP suggestorder-dev、cad-2（e2-micro COS、Swarm 1 台、GHCR :main を 5 分ごとに追従・ヘルス失敗で自動ロールバック、IAP SSH のみ、外部 IP あり）。秘密は Secret Manager（イメージ内 fetch-auth）。Claude は cad ユーザーで VM に /login 済み（a12e00a7）。main は ruleset で PR 必須。この repo は Claude が merge してよい。
+- 調査は opencode（`opencode run`、並列不可）、判断確認は Fable。
+却下: Hatchet（v0.4 で再検討）、GitHub Actions 経路（撤去）、lease、LLM による配置、cloud の VM を常時起動、Cloud Run（VM が安い）、suspend/resume（再起動より遅い）。
 現在の状態:
-- merge 済: PR #2-#8, #11, #12 (#9 close)。open PR なし。担当 Task ID: なし (#30-#41 はすべて completed で Task list から消えている)。
-- Issue #10 (設計見直し、未着手): Agent/Computer 登録、cad の ns・サービス×アカウント、cad の関門 (枠の貸し出し)、devcontainer 実行環境、キュー = GH Issue (ADR-0002 更新)、spec に acceptance / permissions / constraints.no_prod_write、将来 Dashboard / 分析。
-- 設計メモ: .claude/design/placement-strategy.md (Fable)。ChangeGraph: .claude/changegraph/dev-env-upgrade.yaml (残り c8, c9)。
-- follow-up (P2): bootstrap の結果未書き込み / SIGTERM 未転送 / stderr 溜め込み (c8 で対応)、cad の worker poll が同期、codex-local の quota に resetAt 無し。
+- main = 6bb15dd。open PR なし。担当 Task: #63（VM）#69（worker、merged 済みなら完了確認）#70（orchd serve、一時停止中。worktree ../codingagentenv-serve は未使用なので削除可）。
+- 未決の最大論点: **CCO → orchd の通信方式**。案 A = GitHub を伝言板（公開なし、推奨）/ B = 直接 HTTPS API（開放 443 か Cloudflare Tunnel+Access か Tailscale）/ C = MCP / D = Pub/Sub / E = VM がループ。Fable に全文脈（scratchpad の fable-brief-cco-orchd.md）で判断を依頼中（結果未受領）。
+- VM 共通の不足: cad/orchd イメージに gh 無し、VM に GitHub token 無し（#53 の worker 用 PAT の仕組みを流用予定）。
 次の一手:
-1. Issue #10 を読み、ADR-0010 (Agent/Computer 登録、ns、サービス×アカウント、関門) の草案と擬似コードを書いて owner に見せる。ADR-0002 / 0008 / 0009 の更新点も列挙する。
-2. 承認後、ChangeGraph を作り直して dispatch。その後 c8 (dev-dispatch + Cloud Run Jobs provider) で 1 task を通す。
-注意・未解決の質問:
-- global の install が一時 worktree ../codingagentenv-pr-6 を指している。消すと全プロジェクトの hook / skill が壊れる。main 相当の checkout (今は branch feature/ok = 8522968) で `bin/codingenv install` をやり直してから worktree を片付ける (owner 未実施)。
-- 片付け待ちの worktree: ../codingagentenv-{c1,c2,c3,c4,c5,c6,c7,c10,c11,rm-gate,pr-6}。
-- GitHub の既定ブランチが feat/task-queue のまま (PR は必ず --base main)。main に変えるか未回答。gh pr edit は失敗するので本文は gh api -X PATCH -F body=@file。
-- merge は今の head に独立レビューがあることが条件 (古い head だと auto mode が拒否)。
-- 未コミットの他変更あり (.claude/token-usage.jsonl、node_modules/、package-lock.json、.claude/changegraph/、.claude/design/)。
+1. Fable の結果（CCO→orchd の方式）を owner に提示し決めてもらう。未着なら同じ依頼を brief で再実行。
+2. 決まった方式で実装（共通: イメージに gh、GitHub PAT を Secret Manager → VM）。
+3. owner 作業待ち: `bash deploy/gcp/secrets.sh`（opencode + GitHub PAT）、cad-2 の SA 付け替えと `add-metadata startup-script=deploy/gcp/startup.sh`、`deploy/gcp/create-worker.sh`、NS の cloud worker セッション作成（`claude --cloud`）→ cad/config/namespaces.json の cloudWorkerSession、`bin/codingenv install`（skills/orchestrate の symlink）。
+4. 最初の実走: この repo で ai Issue を 1 件、`orchd mode set urgent --ns default` で local から通す。
+注意・未解決: cad-2 の startup ログに swarm join token が出る（2377 は非公開）。古い VM cad-1 は停止中、削除は owner 確認後。未コミットの他変更あり（.claude/token-usage.jsonl ほか untracked）。
