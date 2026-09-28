@@ -109,7 +109,7 @@ func usagePct(win *UsageWindow) string {
 // usageResets shows a relative time ("15:04 (in 2h03m)") for resets within 24h, else a local
 // date+time ("01-02 15:04").
 func usageResets(win *UsageWindow, now time.Time) string {
-	if win == nil {
+	if win == nil || win.ResetsAt.IsZero() {
 		return "-"
 	}
 	t := win.ResetsAt.Local()
