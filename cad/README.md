@@ -55,12 +55,12 @@ cad get meta -ns default              # 動作確認
 
 | topic | 取り方 | 間隔 |
 |---|---|---|
-| `usage` | claude: `CLAUDE_CONFIG_DIR=~/.aienv/.store/<id> claude -p "/usage"` → `<store>/.claude.json` の `cachedUsageUtilization`。codex: `CODEX_HOME=~/.aienv/.store/<id> codex app-server` の `account/rateLimits/read`。どちらもリクエストを消費しない | `collect.usage.every` |
+| `usage` | claude: `CLAUDE_CONFIG_DIR=~/.aienv/.store/<id> claude -p "/usage"` → `<store>/.claude.json` の `cachedUsageUtilization`。codex: `CODEX_HOME=~/.aienv/.store/<id> codex app-server` の `account/rateLimits/read`。どちらもリクエストを消費しない。opencode: `~/.aienv/.store/<id>/opencode/auth.json`（default は `$XDG_DATA_HOME/opencode/auth.json`）の key で `GET https://opencode.ai/zen/go/v1/usage`（非公開 endpoint）。rolling/weekly/monthly → `fiveHour`/`sevenDay`/`monthly`、status `rate-limited` の window は `rateLimited: true` | `collect.usage.every` |
 | `capacity` | 空きメモリ・CPU・slots（`CAD_SLOTS` で固定上限） | 2s |
 | `workers` | `agent/providers/<name>/list` の出力 | 2s |
 | `policy` | policy ファイル | 2s |
 
-opencode の usage はまだ収集しない（`usage unknown` として通す）。
+`monthly` は opencode 以外 null。orchd place は `monthly` も 5h/7d と同じ規則で見て、`rateLimited` の window は使用率によらず除外する。
 
 ## 環境変数
 

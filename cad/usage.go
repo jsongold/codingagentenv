@@ -17,8 +17,9 @@ import (
 )
 
 type UsageWindow struct {
-	UsedPct  float64   `json:"usedPct"`
-	ResetsAt time.Time `json:"resetsAt"`
+	UsedPct     float64   `json:"usedPct"`
+	ResetsAt    time.Time `json:"resetsAt"`
+	RateLimited bool      `json:"rateLimited,omitempty"` // the service says this window is exhausted (opencode)
 }
 
 // AgentUsage is one agent's subscription usage (ADR-0010 window filter). Error is set when the
@@ -26,6 +27,7 @@ type UsageWindow struct {
 type AgentUsage struct {
 	FiveHour  *UsageWindow `json:"fiveHour"` // nil (JSON null): the account has no such window
 	SevenDay  *UsageWindow `json:"sevenDay"`
+	Monthly   *UsageWindow `json:"monthly"` // opencode only; null for the others
 	FetchedAt time.Time    `json:"fetchedAt,omitzero"`
 	Stale     bool         `json:"stale,omitempty"`
 	Error     string       `json:"error,omitempty"`
@@ -184,7 +186,7 @@ func readUsage(file string) (AgentUsage, error) {
 		if w == nil {
 			return nil
 		}
-		return &UsageWindow{w.Utilization, w.ResetsAt}
+		return &UsageWindow{UsedPct: w.Utilization, ResetsAt: w.ResetsAt}
 	}
 	u := f.C.Utilization
 	return AgentUsage{
@@ -194,8 +196,8 @@ func readUsage(file string) (AgentUsage, error) {
 	}, nil
 }
 
-// collectUsage refreshes every claude/* and codex/* agent concurrently, so the total is one
-// command's time. Other services are left out (orchd place treats them as "usage unknown").
+// collectUsage refreshes every claude/*, codex/* and opencode/* agent concurrently, so the total
+// is one command's time. Other services are left out (orchd place treats them as "usage unknown").
 func collectUsage(agents []string, every time.Duration) UsageMap {
 	out := UsageMap{}
 	var mu sync.Mutex
@@ -206,6 +208,8 @@ func collectUsage(agents []string, every time.Duration) UsageMap {
 		case strings.HasPrefix(a, "claude/"):
 		case strings.HasPrefix(a, "codex/"):
 			f = codexUsageFor
+		case strings.HasPrefix(a, "opencode/"):
+			f = opencodeUsageFor
 		default:
 			continue
 		}

@@ -31,7 +31,7 @@ var (
 )
 
 func win(pct5, pct7 float64) AgentUsage {
-	return AgentUsage{FiveHour: &UsageWindow{pct5, r5}, SevenDay: &UsageWindow{pct7, r7}}
+	return AgentUsage{FiveHour: &UsageWindow{UsedPct: pct5, ResetsAt: r5}, SevenDay: &UsageWindow{UsedPct: pct7, ResetsAt: r7}}
 }
 
 // seedUsage: every agent fits (reservePct 15).
@@ -76,8 +76,8 @@ func TestPlace(t *testing.T) {
 
 	// All over -> 409, defer_until = earliest time any blocked agent fits again.
 	early := time.Date(2026, 9, 27, 13, 0, 0, 0, time.UTC)
-	u["claude/a12e00a7"] = AgentUsage{FiveHour: &UsageWindow{90, early}} // null 7d window is skipped
-	u["opencode/996c87ae"] = win(90, 90)                                 // frees only at r7
+	u["claude/a12e00a7"] = AgentUsage{FiveHour: &UsageWindow{UsedPct: 90, ResetsAt: early}} // null 7d window is skipped
+	u["opencode/996c87ae"] = win(90, 90)                                                    // frees only at r7
 	if _, st, until := place(pol, u, s, 5); st != http.StatusConflict || !until.Equal(early) {
 		t.Errorf("409: %d %v", st, until)
 	}
@@ -161,7 +161,7 @@ func TestPlaceCmd(t *testing.T) {
 	}
 
 	u := seedUsage()
-	soon := &UsageWindow{90, time.Now().Add(time.Hour)} // the fixed seed resets are in the past
+	soon := &UsageWindow{UsedPct: 90, ResetsAt: time.Now().Add(time.Hour)} // the fixed seed resets are in the past
 	for a := range u {
 		u[a] = AgentUsage{FiveHour: soon}
 	}
@@ -185,7 +185,7 @@ func TestPlaceCmd(t *testing.T) {
 
 func TestUsableUsage(t *testing.T) {
 	now := time.Now()
-	past := &UsageWindow{95, now.Add(-time.Minute)}
+	past := &UsageWindow{UsedPct: 95, ResetsAt: now.Add(-time.Minute)}
 	u := map[string]AgentUsage{
 		"claude/b1c8ef41": {FiveHour: past, SevenDay: past},
 		"claude/default":  {Error: "claude -p /usage: exit status 1"},
@@ -238,5 +238,28 @@ func TestPlaceRunnerChecks(t *testing.T) {
 	got, st, _ = place(pol, seedUsage(), PlaceSpec{Class: "light-edit"}, 5) // no self: claude/* matches nothing usable
 	if st != 200 || got.Agent != "opencode/996c87ae" || got.Rule != 3 {
 		t.Fatalf("%d %+v", st, got)
+	}
+}
+
+// opencode's monthly window and a rate-limited window block like 5h/7d; other services are unchanged.
+func TestPlaceMonthlyAndRateLimited(t *testing.T) {
+	pol, s := seedPolicy(t), PlaceSpec{Class: "light-edit", Self: "claude/a12e00a7"}
+	for name, oc := range map[string]AgentUsage{
+		"monthly window": {FiveHour: &UsageWindow{ResetsAt: r5}, Monthly: &UsageWindow{UsedPct: 90, ResetsAt: r7}},
+		"7d window":      {SevenDay: &UsageWindow{UsedPct: 1, ResetsAt: r7, RateLimited: true}},
+	} {
+		u := seedUsage()
+		u["claude/a12e00a7"], u["claude/b1c8ef41"] = win(90, 0), win(90, 0)
+		u["opencode/996c87ae"] = oc
+		got, _, _ := place(pol, u, s, 5)
+		if got.Agent == "opencode/996c87ae" || !strings.Contains(strings.Join(got.Reason, ","), "opencode/996c87ae: "+name) {
+			t.Errorf("%s: %+v", name, got)
+		}
+	}
+	u := seedUsage()
+	u["claude/a12e00a7"], u["claude/b1c8ef41"] = win(90, 0), win(90, 0)
+	u["opencode/996c87ae"] = AgentUsage{Monthly: &UsageWindow{UsedPct: 80, ResetsAt: r7}} // 80+est fits
+	if got, st, _ := place(pol, u, s, 5); st != 200 || got.Agent != "opencode/996c87ae" {
+		t.Errorf("monthly fits: %d %+v", st, got)
 	}
 }
