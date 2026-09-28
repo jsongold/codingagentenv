@@ -34,12 +34,17 @@ type Class struct {
 	EstPct   float64 `json:"estPct"`
 }
 
-// Runner: "subagent" (a Task subagent of the Orchestrator), "process" (run Cmd; {model} is Model)
-// or "cloud" (the Orchestrator starts a cloud session with Cmd, e.g. claude --cloud).
+// Runner: "subagent" (a Task subagent of the Orchestrator), "process" (run Cmd; {model} is Model),
+// "cloud" (the Orchestrator starts a cloud session with Cmd, e.g. claude --cloud) or "vm" (start the GCE
+// instance Instance and run Image there with Model, see vm.go).
 type Runner struct {
-	Mode  string `json:"mode"`
-	Cmd   string `json:"cmd,omitempty"`
-	Model string `json:"model,omitempty"`
+	Mode     string `json:"mode"`
+	Cmd      string `json:"cmd,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Instance string `json:"instance,omitempty"`
+	Zone     string `json:"zone,omitempty"`
+	Project  string `json:"project,omitempty"`
+	Image    string `json:"image,omitempty"`
 }
 
 // Rule: agents matching Agent (path.Match over Agents; "self" = the spec's self) run on Computer, for the listed classes (none = any).
@@ -65,10 +70,12 @@ func loadPolicy() (Policy, error) {
 	for s, r := range p.Runners {
 		switch {
 		case err != nil:
-		case r.Mode != "subagent" && r.Cmd == "":
+		case r.Mode == "vm" && (r.Instance == "" || r.Zone == "" || r.Project == "" || r.Image == "" || r.Model == ""):
+			err = fmt.Errorf("runners.%s: vm needs instance, zone, project, image and model", s)
+		case r.Mode != "subagent" && r.Mode != "vm" && r.Cmd == "":
 			err = fmt.Errorf("runners.%s: %s needs cmd", s, r.Mode)
-		case r.Mode != "subagent" && r.Mode != "process" && r.Mode != "cloud":
-			err = fmt.Errorf("runners.%s: mode must be subagent, process or cloud", s)
+		case r.Mode != "subagent" && r.Mode != "process" && r.Mode != "cloud" && r.Mode != "vm":
+			err = fmt.Errorf("runners.%s: mode must be subagent, process, cloud or vm", s)
 		}
 	}
 	if err != nil {

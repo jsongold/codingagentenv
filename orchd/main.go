@@ -13,13 +13,14 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 )
 
 const usageText = `usage:
-  orchd place --class <c> [--self <service/account>] [--ns default] [--mode <m>]
+  orchd place --class <c> [--self <service/account>] [--ns default] [--mode <m>] [--exclude <computer>[,...]]
       print {agent, computer, rule, reason, runner, mode, modeSource, cadAddr}: the first rule of the
-      mode's rule list with a usable agent (rule = index in that list)
+      mode's rule list with a usable agent (rule = index in that list); rules on --exclude computers are skipped
   orchd mode set <m> [--ns <ns>] [--by <who>]   persist a mode (no --ns = all namespaces)
   orchd mode clear [--ns <ns>]                  remove that mode file
   orchd mode show [--ns <ns>]                   print the effective mode and where it came from
@@ -32,7 +33,9 @@ const usageText = `usage:
       hand issue n to the place output's runner.mode: subagent = create worktree <path>-task-<n> (branch
       task/<n> off origin/main), print {runner, worktree, prompt}; process = same worktree, start runner.cmd
       + prompt in the background, print {started, worktree, pid, log}; cloud = claude -p <prompt> --cloud
-      <CLAUDE_CLOUD_SESSION | registry cloudWorkerSession> --output-format json, print its output
+      <CLAUDE_CLOUD_SESSION | registry cloudWorkerSession> --output-format json, print its output;
+      vm = start runner.instance if stopped (gcloud), wait for IAP ssh + /run/worker-ready, then
+      docker run -d runner.image as opencode-worker-<n>; print {started, instance, container, booted, startSec}
   orchd status --issue <n> [--pid <pid>] [--ns default] [--repo o/r] [--path dir]
       print {issue, pr, state, running?}: the PR whose body says "Closes #n" (OPEN wins), and with --pid
       whether the dispatched process still runs. One quick gh call; supervisors poll it
@@ -51,6 +54,8 @@ exit codes:
   3  deferred: every fitting agent is over a usage window, or cad is not ready
      (GET /healthz?ready = 503, e.g. just restarted; defer_until = now+2m); prints {defer_until, reason}
   4  no rule fits; prints {reason}
+  5  dispatch (vm): computer unavailable (start failed, e.g. no Spot capacity, or not reachable in time);
+     re-place with --exclude <that computer>
 `
 
 var (
@@ -113,7 +118,7 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 	fs := flag.NewFlagSet("place", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	class, self, ns := fs.String("class", "", ""), fs.String("self", "", ""), fs.String("ns", "default", "")
-	modeFlag := fs.String("mode", "", "")
+	modeFlag, exclude := fs.String("mode", "", ""), fs.String("exclude", "", "")
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
 		return 2, fmt.Errorf("place: bad args %q", args)
 	}
@@ -153,7 +158,7 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 	if err := cadGet(addr, "capacity", *ns, &capacity); err != nil {
 		return 1, err
 	}
-	p, status, until := place(pol, usableUsage(usage, time.Now()), PlaceSpec{Class: *class, Self: *self}, capacity.Slots)
+	p, status, until := place(pol, usableUsage(usage, time.Now()), PlaceSpec{Class: *class, Self: *self, Exclude: strings.Split(*exclude, ",")}, capacity.Slots)
 	switch status {
 	case http.StatusOK:
 		return 0, printJSON(w, struct {

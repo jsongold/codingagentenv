@@ -178,7 +178,13 @@ func TestPlaceCmd(t *testing.T) {
 		t.Errorf("defer: %d %s", code, out)
 	}
 	fakeCad(t, seedUsage(), 0)
-	if out, code := runCmd("place", "--class", "light-edit"); code != 4 || !strings.Contains(out, "no local slot") {
+	if out, code := runCmd("place", "--class", "light-edit"); code != 0 || !strings.Contains(out, `"computer": "gce-spot"`) || !strings.Contains(out, `"instance": "worker-spot"`) {
+		t.Errorf("opencode -> gce-spot first: %d %s", code, out)
+	}
+	if out, code := runCmd("place", "--class", "light-edit", "--exclude", "gce-spot"); code != 0 || !strings.Contains(out, `"computer": "gce-std"`) || !strings.Contains(out, "computer gce-spot excluded") {
+		t.Errorf("exclude gce-spot -> gce-std: %d %s", code, out)
+	}
+	if out, code := runCmd("place", "--class", "light-edit", "--exclude", "gce-spot,gce-std"); code != 4 || !strings.Contains(out, "no local slot") {
 		t.Errorf("no slot: %d %s", code, out)
 	}
 	fakeCad(t, nil, 2) // usage not collected yet: agents are "usage unknown" and still placed

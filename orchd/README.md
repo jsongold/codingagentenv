@@ -8,7 +8,7 @@ Orchestrator を支える小さな CLI（Go、標準ライブラリのみ）。I
 ## コマンド
 
 ```bash
-tools/orchd place --class gate-heavy --self claude/a12e00a7   # [--ns default] [--mode <m>]
+tools/orchd place --class gate-heavy --self claude/a12e00a7   # [--ns default] [--mode <m>] [--exclude gce-spot,...]
 # {"agent":"claude/a12e00a7","computer":"claude-cloud","rule":0,"reason":null,"runner":{"mode":"cloud","cmd":"claude --cloud"},"mode":"auto","modeSource":"default","cadAddr":"127.0.0.1:17878"}
 tools/orchd mode set urgent [--ns default] [--by owner]      # mode show / mode clear も同じ --ns
 tools/orchd show [rules|classes|runners]                     # 引数なし = 3 つとも
@@ -29,7 +29,7 @@ tools/orchd status --issue 7 [--pid 1234]                      # Closes #7 の P
 | 3 | 窓で全滅（旧 409）。`defer_until` = 最も早く空く時刻。または cad が未 ready（`GET /healthz?ready` が 503。再起動直後など）で reason `cad not ready`、`defer_until` = 今 + 2 分 | `{defer_until, reason}` |
 | 4 | 合う rule なし（旧 422。local の slot 無しなど） | `{reason}` |
 
-`pick` / `dispatch` / `status`：0 = 成功（pick は該当なしでも 0、`{none, reason}`）、1 = gh / git / claude の失敗、2 = 入力が不正（`--issue`・`--placement`、cloud の session が無い）。
+`pick` / `dispatch` / `status`：0 = 成功（pick は該当なしでも 0、`{none, reason}`）、1 = gh / git / claude / `docker run` の失敗、2 = 入力が不正（`--issue`・`--placement`、cloud の session が無い）、5 = computer unavailable（dispatch の vm：VM を start できない〈Spot の容量不足など〉・時間内に ready にならない）。5 のとき Orchestrator は `orchd place --exclude <その computer>` で置き直す（`--exclude` の computer の rule は reason `rule <i>: computer <c> excluded` で飛ばす。複数はカンマ区切り）。
 
 ## Orchestrator との関係
 
@@ -40,19 +40,31 @@ NS ごとに `claude code (orchestrator) → orchd pick → orchd place → orch
 | `pick` | `ai` ラベル付きで `wip`・`ai-failed` の無い open Issue のうち最古を取り、`wip` を付ける | `{issue:{n,title,body}, classes:[{name,criteria}]}` |
 | `place` | 下記。Orchestrator が選んだ class で資源を決める | placement（`runner` を含む） |
 | `status` | `Closes #n` の PR（open を優先）と、`--pid` があればその process が生きているか。gh を 1 回呼ぶだけ | `{issue, pr, state, running?}` |
-| `dispatch` | `runner.mode` ごとに渡す。`subagent`：worktree `<path>-task-<n>`（branch `task/<n>`、origin/main から。前回の worktree・branch が残っていれば再利用）を作る。`process`：同じ worktree で `runner.cmd`（`{model}` を置換）+ prompt をバックグラウンド起動（log は `<state>/task-<n>.log`）。`cloud`：`claude -p <prompt> --cloud <session> --output-format json` | subagent：`{runner, worktree, prompt}`（Orchestrator が Agent tool で起動）。process：`{started, worktree, pid, log}`。cloud：claude の JSON |
+| `dispatch` | `runner.mode` ごとに渡す。`subagent`：worktree `<path>-task-<n>`（branch `task/<n>`、origin/main から。前回の worktree・branch が残っていれば再利用）を作る。`process`：同じ worktree で `runner.cmd`（`{model}` を置換）+ prompt をバックグラウンド起動（log は `<state>/task-<n>.log`）。`cloud`：`claude -p <prompt> --cloud <session> --output-format json`。`vm`：下の「vm runner」 | subagent：`{runner, worktree, prompt}`（Orchestrator が Agent tool で起動）。process：`{started, worktree, pid, log}`。cloud：claude の JSON。vm：`{started, instance, container, booted, startSec}` |
 
 - worktree は NS の repo の隣に作る（親ディレクトリの aienv binding が効く）
 - repo・path は `--repo` / `--path` > namespace の登録（`ORCHD_NAMESPACES` > `cad/config/namespaces.json` > その `.example.json`。orchd は読むだけ）> CWD の git toplevel と `gh repo view`
 - cloud の session：`CLAUDE_CLOUD_SESSION` > 登録の `cloudWorkerSession`（owner が `claude --cloud` で 1 度作る）。無ければ exit 2
 - 未実装（後で）：完了処理（PR 確認・`wip` 解除・worktree の片付け）、実行記録、同時数の上限、cad の SSE による defer の再開
 
+## vm runner（opencode の cloud worker）
+
+`runners["opencode@gce-spot"]` / `["opencode@gce-std"]` = `{mode: vm, instance, zone, project, image, model}`。VM と image は `deploy/gcp/README.md` の「opencode worker VM」。VM は普段 `TERMINATED`（停止）で、task が終わると自分で止まる。`dispatch` は：
+
+1. `gcloud compute instances describe` で状態を見る。`STOPPING` / `PENDING_STOP`（自己停止の途中）なら `TERMINATED` まで待つ（最大 60 秒）
+2. `TERMINATED` なら `gcloud compute instances start`（最大 120 秒）。失敗（Spot の容量不足など）は exit 5
+3. `gcloud compute ssh --tunnel-through-iap -- test -e /run/worker-ready` が通るまで 5 秒おき（start 後 最大 90 秒）。通らなければ exit 5
+4. `sudo docker run -d --rm --name opencode-worker-<n> -v /var/lib/cad:/data -e ISSUE -e REPO -e MODEL <image>`（worker が Issue を読み、PR `Closes #n` を出す）
+5. `{started, instance, container, booted（start したか）, startSec（dispatch 開始から docker run まで、実測）}` を出す
+
+完了は `orchd status --issue <n>`（PR）で待つ。VM が `TERMINATED` なのに PR が無ければ、preempt か worker の失敗（`skills/orchestrate`）。`gce-std` は cad の `config.json` の computers（費用の記録）には未登録（価格を確認してから足す）。
+
 ## MODE
 
 MODE は place が使う rule の一覧を切り替える（[ADR-0010](../docs/decisions/0010-placement.md)）。
 
-- `auto`（既定）：top-level `rules`。local は最後の手段（今は self: Claude cloud → local、opencode: local）
-- `urgent`：`modes.urgent.rules`。local の rule を先に、その後に auto の rule。`modes.<name>.rules` を足せば mode を増やせる
+- `auto`（既定）：top-level `rules`。local は最後の手段（今は self: Claude cloud → opencode: gce-spot → gce-std → self: local → opencode: local）
+- `urgent`：`modes.urgent.rules`。local の rule を先に、その後に auto の rule（self: local → opencode: local → self: Claude cloud → opencode: gce-spot → gce-std）。`modes.<name>.rules` を足せば mode を増やせる
 - `rule` の番号はその mode の一覧での位置。place の出力に `mode` と `modeSource`（`flag` / `file:ns` / `file:global` / `env` / `default`＝何も指定なし）が付く
 - 優先順位：`--mode` > `$ORCHD_STATE_DIR/mode/<ns>.json` > `$ORCHD_STATE_DIR/mode/_global.json` > `ORCHD_MODE` > `auto`。不明な mode 名は exit 2
 - ファイルに残すので context の圧縮やセッションの再起動で消えない（中身 `{"mode","since","by"}`、temp + rename で書く）
