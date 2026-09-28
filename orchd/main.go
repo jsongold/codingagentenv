@@ -39,6 +39,9 @@ const usageText = `usage:
   orchd status --issue <n> [--pid <pid>] [--ns default] [--repo o/r] [--path dir]
       print {issue, pr, state, running?}: the PR whose body says "Closes #n" (OPEN wins), and with --pid
       whether the dispatched process still runs. One quick gh call; supervisors poll it
+  orchd vm status --instance <i> --zone <z> --project <p>
+      print {instance, status}: one instances.get (Compute API, no gcloud). For a monitor Subagent to tell a
+      preempted/finished vm runner (TERMINATED, no PR yet) from one still working (skills/orchestrate)
   orchd show [rules|classes|runners]    print policy sections (no arg = all three)
   stale usage (cad restarted from its snapshot): policy placement.staleUsage "pass" (default; placed
       as if unknown, reason "<agent>: usage stale") or "block" (skipped)
@@ -49,7 +52,8 @@ env: ORCHD_MODE; CAD_ADDR (> mode cadAddr > top-level cadAddr for auto > 127.0.0
   vm: ORCHD_COMPUTE_URL (Compute API base), GCE_METADATA_HOST (token; off GCE: gcloud auth print-access-token)
 exit codes:
   0  placed / picked (also when none) / dispatched (or shown)
-  1  cad unreachable (after 3 retries 2s apart) / cad error / bad policy file / gh, git, claude failed
+  1  cad unreachable (after 3 retries 2s apart) / cad error / bad policy file / gh, git, claude failed /
+     vm status: Compute API call failed (e.g. no access token, instance not found)
   2  bad input (unknown class or mode, bad --self or --ns, bad --issue or --placement, no cloud session,
      unknown command)
   3  deferred: every fitting agent is over a usage window, or cad is not ready
@@ -95,6 +99,8 @@ func cmd(args []string, w io.Writer) (int, error) {
 		return dispatchCmd(args[1:], os.Stdin, w)
 	case "status":
 		return statusCmd(args[1:], w)
+	case "vm":
+		return vmCmd(args[1:], w)
 	case "show":
 		if len(args) > 2 {
 			return 2, errors.New("show takes at most one section")
