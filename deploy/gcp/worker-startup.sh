@@ -1,16 +1,17 @@
 #!/bin/bash
 # COS startup script of the opencode worker VMs (create-worker.sh); runs as root on every boot
 # (https://cloud.google.com/compute/docs/instances/startup-scripts/linux). No swarm here (one-shot containers
-# started by `orchd dispatch` over IAP ssh), so COS's default live-restore stays as it is.
+# started on boot from the task in the metadata), so COS's default live-restore stays as it is.
 #   1. secrets -> /var/lib/cad via fetch-auth in the worker image (list = metadata cad-secrets = worker-auth.list)
-#   2. touch /run/worker-ready: `orchd dispatch` waits for it over ssh before `docker run`
+#   2. the task: `orchd dispatch` sets metadata worker-task via the Compute API, then starts the VM; this script
+#      reads it and `docker run`s the worker once (no ssh). A RUNNING VM is busy for orchd (exit 5).
 #   3. docker pull the worker image, cached on the boot disk (/var persists,
 #      https://cloud.google.com/container-optimized-os/docs/concepts/disks-and-filesystem). With a cached image the
-#      pull runs after the ready marker: dispatch starts the cached image at once and the pull (only changed layers)
-#      serves the next start. Only the first boot (no cached image) pulls before ready.
+#      pull runs after the task started: the task runs the cached image at once and the pull (only changed layers)
+#      serves the next start. Only the first boot (no cached image) pulls before.
 #   4. self-stop, event driven: worker-stop.service follows `docker events` (container die); when an
-#      opencode-worker-* container dies and, after stop-grace-seconds (metadata, default 60: a dispatch queued right
-#      behind can reuse the running VM), none is running, it powers the VM off. Safety net: worker-idle.timer powers
+#      opencode-worker-* container dies and, after stop-grace-seconds (metadata, default 60), none is running,
+#      it powers the VM off. Safety net: worker-idle.timer powers
 #      it off when no opencode-worker container has run for idle-minutes (metadata, default 30), e.g. a dispatch
 #      that never started its container, or the first boot after create-worker.sh.
 #      A shutdown from the guest OS is a stop: the instance becomes TERMINATED
@@ -107,11 +108,23 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now worker-idle.timer
 systemctl start worker-stop.service
-# Ready only with a runnable image (a first boot whose pull failed stays unready; orchd then gets exit 5).
-if docker image inspect "$IMAGE" >/dev/null 2>&1; then
-  touch /run/worker-ready
+# The task `orchd dispatch` put in the metadata before starting the VM: "<id> <issue> <repo> <model> <image>".
+# The metadata server is read-only for the VM, so the task is marked consumed on the disk (its id), not cleared:
+# a reboot (manual start, reset) does not run it again.
+task=$(md instance/attributes/worker-task 2>/dev/null) || task=
+if [ -z "$task" ]; then
+  echo "worker: no task"
 else
-  echo "worker: no image $IMAGE; not ready"
+  read -r id issue repo model image <<<"$task"
+  if [ "$id" = "$(cat "$VOL/task-done" 2>/dev/null)" ]; then
+    echo "worker: task $id already ran; skipping"
+  else
+    echo "$id" >"$VOL/task-done"
+    echo "worker: task $id: issue $issue repo $repo model $model"
+    docker run -d --rm --name "opencode-worker-$issue" -v "$VOL:/data" \
+      -e ISSUE="$issue" -e REPO="$repo" -e MODEL="$model" "${image:-$IMAGE}" ||
+      echo "worker: docker run failed (the idle net stops the VM)"
+  fi
 fi
 echo "worker: ready (stop-grace-seconds=$grace, idle-minutes=$idle)"
 [ "$cached" = 0 ] || pull

@@ -25,3 +25,9 @@ opencode の task は local でしか動かせず、local の slot が埋まる�
 - 良い影響：local の slot に関係なく opencode の task を並べられる。停止中は disk だけの費用
 - 受け入れたトレードオフ：dispatch に start + boot の数十秒〜（`startSec` で実測）。push は opencode の終了後 1 回なので、その前の preempt は作業を失う。grace 中の VM に来た dispatch と自己停止が競合すると exit 5 → 置き直し
 - 再検討する条件：並列度が 2 台で足りない（MIG の standby pool）、`startSec` が遅すぎる、preempt が頻発する（周期的な WIP push か std を先に）
+
+## Update 2026-09-28: gcloud の代わりに REST
+- `orchd/vm.go` は gcloud・IAP ssh をやめ、Compute Engine REST API v1（`instances.get` / `setMetadata` / `start`、zone operation の poll）を標準ライブラリだけで呼ぶ。token は GCE の metadata server、無ければ `gcloud auth print-access-token`（Mac）。cad-2（cad image に gcloud が無い）からも dispatch できる
+- task は metadata `worker-task` で渡す。VM の `worker-startup.sh` が boot 時に読んで `docker run` し、id を disk に記録して再 boot で再実行しない。ready marker と ssh は廃止
+- `TERMINATED` 以外の VM は使用中として exit 5（VM 1 台に task 1 つ）。grace 中の VM の再利用は無くなった。setMetadata の fingerprint で同時 dispatch の上書きを防ぐ
+- トレードオフ：container が起動できたかは orchd から見えない（PR の有無で判断）。cad-2 の SA に worker VM への compute 権限が要る
