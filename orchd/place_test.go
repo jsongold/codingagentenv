@@ -22,6 +22,9 @@ func seedPolicy(t *testing.T) Policy {
 	if err := json.Unmarshal(b, &p); err != nil {
 		t.Fatal(err)
 	}
+	// The place() logic tests below were written against the local-only rule list; the seeded
+	// auto/urgent lists are covered in mode_test.go.
+	p.Rules = []Rule{{Agent: "self", Computer: "local"}, {Agent: "opencode/*", Computer: "local"}}
 	return p
 }
 
@@ -134,12 +137,14 @@ func runCmd(args ...string) (string, int) {
 }
 
 func TestPlaceCmd(t *testing.T) {
+	t.Setenv("ORCHD_STATE_DIR", t.TempDir())
+	t.Setenv("ORCHD_MODE", "")
 	t.Setenv("ORCHD_POLICY", filepath.Join("..", ".agent", "policy.json"))
 	fakeCad(t, seedUsage(), 2)
 	out, code := runCmd("place", "--class", "light-edit", "--self", "claude/a12e00a7")
 	var p Placement
 	json.Unmarshal([]byte(out), &p)
-	if code != 0 || p.Computer != "local" || p.Agent != "claude/a12e00a7" || p.Rule != 0 || p.Runner.Mode != "subagent" {
+	if code != 0 || p.Computer != "claude-cloud" || p.Agent != "claude/a12e00a7" || p.Rule != 0 || p.Runner.Mode != "cloud" { // auto mode
 		t.Fatalf("%d %s", code, out)
 	}
 	for _, c := range []struct {
@@ -205,6 +210,7 @@ func TestUsableUsage(t *testing.T) {
 // A class added to the policy file is accepted without a code change; a policy without classes
 // or with a bad runner is refused.
 func TestPolicyFile(t *testing.T) {
+	t.Setenv("ORCHD_STATE_DIR", t.TempDir())
 	pol := seedPolicy(t)
 	pol.Classes["docs-only"] = Class{Criteria: "x", EstPct: 1}
 	b, _ := json.Marshal(pol)

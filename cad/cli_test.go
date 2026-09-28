@@ -218,14 +218,14 @@ func TestCLIShowCost(t *testing.T) {
 	}
 }
 
-// rules/classes/runners belong to orchd: cad neither validates nor requires them, but keeps them on add.
+// rules/classes/runners/modes belong to orchd: cad neither validates nor requires them, but keeps them on add.
 func TestPolicyKeepsOrchdSections(t *testing.T) {
 	p := cliEnv(t)
-	os.WriteFile(p, []byte(`{"runners":{"opencode":{"mode":"process"}},"rules":[{"agent":"self"}]}`), 0o644)
+	os.WriteFile(p, []byte(`{"runners":{"opencode":{"mode":"process"}},"rules":[{"agent":"self"}],"modes":{"urgent":{"rules":[]}}}`), 0o644)
 	if out, code := run(t, "", "add", "agent", "claude/x"); code != 0 {
 		t.Fatalf("%d %s", code, out)
 	}
-	if got := currentPolicy(); len(got.Agents) != 1 || !strings.Contains(string(got.Runners), `"process"`) {
+	if got := currentPolicy(); len(got.Agents) != 1 || !strings.Contains(string(got.Runners), `"process"`) || !strings.Contains(string(got.Modes), `"urgent"`) {
 		t.Fatalf("%+v", got)
 	}
 	if out, code := run(t, "", "show", "rules"); code == 0 {

@@ -17,14 +17,20 @@ import (
 )
 
 const usageText = `usage:
-  orchd place --class <c> [--self <service/account>] [--ns default]
-      print {agent, computer, rule, reason, runner}: the first policy rule with a usable agent
+  orchd place --class <c> [--self <service/account>] [--ns default] [--mode <m>]
+      print {agent, computer, rule, reason, runner, mode, modeSource}: the first rule of the
+      mode's rule list with a usable agent (rule = index in that list)
+  orchd mode set <m> [--ns <ns>] [--by <who>]   persist a mode (no --ns = all namespaces)
+  orchd mode clear [--ns <ns>]                  remove that mode file
+  orchd mode show [--ns <ns>]                   print the effective mode and where it came from
+      mode precedence: --mode > <state>/mode/<ns>.json > <state>/mode/_global.json > ORCHD_MODE > auto
+      "auto" = policy.rules (local is the last resort); others = policy.modes.<m>.rules (urgent = local-first)
   orchd show [rules|classes|runners]    print policy sections (no arg = all three)
-env: ORCHD_POLICY > CAD_POLICY > ./.agent/policy.json; CAD_ADDR (default 127.0.0.1:7878), CAD_TOKEN
+env: ORCHD_STATE_DIR (default ~/.config/codingagentenv), ORCHD_MODE, ORCHD_POLICY > CAD_POLICY > ./.agent/policy.json; CAD_ADDR (default 127.0.0.1:7878), CAD_TOKEN
 exit codes:
   0  placed (or shown)
   1  cad unreachable / cad error / bad policy file
-  2  bad input (unknown class, bad --self or --ns, unknown command)
+  2  bad input (unknown class or mode, bad --self or --ns, unknown command)
   3  deferred: every fitting agent is over a usage window; prints {defer_until, reason}
   4  no rule fits; prints {reason}
 `
@@ -57,6 +63,8 @@ func cmd(args []string, w io.Writer) (int, error) {
 		return 0, nil
 	case "place":
 		return placeCmd(args[1:], w)
+	case "mode":
+		return modeCmd(args[1:], w)
 	case "show":
 		if len(args) > 2 {
 			return 2, errors.New("show takes at most one section")
@@ -81,6 +89,7 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 	fs := flag.NewFlagSet("place", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	class, self, ns := fs.String("class", "", ""), fs.String("self", "", ""), fs.String("ns", "default", "")
+	modeFlag := fs.String("mode", "", "")
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
 		return 2, fmt.Errorf("place: bad args %q", args)
 	}
@@ -96,6 +105,13 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 	case !nsRe.MatchString(*ns):
 		return 2, fmt.Errorf("--ns %q: want %s", *ns, nsRe)
 	}
+	mode, modeSource, err := resolveMode(*modeFlag, *ns)
+	if err != nil {
+		return 1, err
+	}
+	if pol.Rules, err = modeRules(pol, mode); err != nil {
+		return 2, err
+	}
 	var usage map[string]AgentUsage
 	var capacity struct {
 		Slots int `json:"slots"`
@@ -109,7 +125,11 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 	p, status, until := place(pol, usableUsage(usage, time.Now()), PlaceSpec{Class: *class, Self: *self}, capacity.Slots)
 	switch status {
 	case http.StatusOK:
-		return 0, printJSON(w, p)
+		return 0, printJSON(w, struct {
+			Placement
+			Mode       string `json:"mode"`
+			ModeSource string `json:"modeSource"`
+		}{p, mode, modeSource})
 	case http.StatusConflict:
 		return 3, printJSON(w, map[string]interface{}{"defer_until": until, "reason": p.Reason})
 	}
