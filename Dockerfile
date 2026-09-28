@@ -34,6 +34,7 @@ ENV HOME=/data \
     CAD_HOME=/app/cad \
     ORCHD_HOME=/app/orchd \
     ORCHD_STATE_DIR=/data/orchd/state \
+    CAD_STATE_DIR=/data/cad/state \
     CAD_CLAUDE_BIN=/home/cad/.local/bin/claude \
     DISABLE_AUTOUPDATER=1
 WORKDIR /data
