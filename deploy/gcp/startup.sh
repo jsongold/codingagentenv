@@ -120,35 +120,35 @@ OnUnitActiveSec=5min
 WantedBy=timers.target
 UNIT
 
-# Sleep loop (ADR-0014): every 2 minutes run `orchd dispatch --pending` inside the cad container. orchd decides
-# whether to act: a no-op (exit 0, {"skipped":true,...}) unless `orchd mode set sleep`; exit 3 = deferred (cad not
-# ready), retried on the next run, so SuccessExitStatus=3 keeps the unit from being marked failed. The task's
-# container is cad.1.<task id>, so it is looked up by the swarm service label (as in the README); no running task
-# (mid update/rollback) is also a defer (exit 3). docker exec runs as the image's user (cad) with its env
-# (HOME=/data, ORCHD_STATE_DIR, ...). ExecCondition skips the run (exit 1 = condition not met, not a failure;
-# systemd.service "ExecCondition=") while cad-update.service is running, since that replaces the container; see
-# cad-update.service for the other half. The timer starts at boot+3min so the first runs do not coincide with
-# cad-update.timer's boot+2min. In the unit, $$ is systemd's literal $ (systemd.service "Command lines");
-# \$ keeps this heredoc from expanding it.
+# Sleep loop (ADR-0015): every 15 minutes run `orchd wake` inside the cad container to wake the cloud worker
+# session. orchd decides whether to act: a no-op (exit 0, {"skipped":true,...}) unless `orchd mode set sleep`;
+# exit 3 = deferred (cad not ready), retried on the next run, so SuccessExitStatus=3 keeps the unit from being
+# marked failed. The task's container is cad.1.<task id>, so it is looked up by the swarm service label (as in
+# the README); no running task (mid update/rollback) is also a defer (exit 3). docker exec runs as the image's
+# user (cad) with its env (HOME=/data, ORCHD_STATE_DIR, ...). ExecCondition skips the run (exit 1 = condition not
+# met, not a failure; systemd.service "ExecCondition=") while cad-update.service is running, since that replaces
+# the container; see cad-update.service for the other half. The timer starts at boot+3min so the first runs do
+# not coincide with cad-update.timer's boot+2min. In the unit, $$ is systemd's literal $ (systemd.service
+# "Command lines"); \$ keeps this heredoc from expanding it.
 cat >/etc/systemd/system/orchd-sleep.service <<UNIT
 [Unit]
-Description=Sleep loop: orchd dispatch --pending in the cad container (no-op unless the orchd mode is sleep)
+Description=Sleep loop: orchd wake in the cad container (no-op unless the orchd mode is sleep)
 After=docker.service
 
 [Service]
 Type=oneshot
 SuccessExitStatus=3
 ExecCondition=/bin/sh -c 'case "\$\$(systemctl is-active cad-update.service)" in activating|deactivating) echo "orchd-sleep: cad-update running; skipped"; exit 1;; esac'
-ExecStart=/bin/sh -c 'c=\$\$(/usr/bin/docker ps -q -f label=com.docker.swarm.service.name=cad -f status=running | head -n 1); [ -n "\$\$c" ] || { echo "orchd-sleep: no running cad container; deferred"; exit 3; }; exec /usr/bin/docker exec "\$\$c" /app/orchd/bin/orchd dispatch --pending'
+ExecStart=/bin/sh -c 'c=\$\$(/usr/bin/docker ps -q -f label=com.docker.swarm.service.name=cad -f status=running | head -n 1); [ -n "\$\$c" ] || { echo "orchd-sleep: no running cad container; deferred"; exit 3; }; exec /usr/bin/docker exec "\$\$c" /app/orchd/bin/orchd wake'
 UNIT
 
 cat >/etc/systemd/system/orchd-sleep.timer <<UNIT
 [Unit]
-Description=Run orchd dispatch --pending every 2 minutes (sleep loop, ADR-0014)
+Description=Run orchd wake every 15 minutes (sleep loop, ADR-0015)
 
 [Timer]
 OnBootSec=3min
-OnUnitActiveSec=2min
+OnUnitActiveSec=15min
 
 [Install]
 WantedBy=timers.target
