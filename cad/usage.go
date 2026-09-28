@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -45,15 +46,41 @@ func (m UsageMap) changeKey() interface{} {
 
 const usageTimeout = 30 * time.Second
 
+var (
+	lastUsageEvery atomic.Int64 // last good policy interval (ns); 0 = none yet (1m)
+	badUsageEvery  atomic.Value // last invalid "src=value" logged, so a tick-rate caller logs it once
+)
+
+// usageEvery: CAD_USAGE_EVERY (if valid) > policy collect.usage.every > 1m when absent; an invalid
+// policy value keeps the last good one. Read on every scheduling tick, so a policy edit applies
+// without a restart.
 func usageEvery() time.Duration {
-	if v := os.Getenv("CAD_USAGE_EVERY"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err == nil && d > 0 {
-			return d
+	warn := func(src, v string, using interface{}) {
+		if k := src + "=" + v; badUsageEvery.Swap(k) != k {
+			log.Printf("cad: ignoring invalid %s=%q (using %v)", src, v, using)
 		}
-		log.Printf("cad: ignoring invalid CAD_USAGE_EVERY=%q", v)
 	}
-	return time.Minute
+	if v := os.Getenv("CAD_USAGE_EVERY"); v != "" {
+		if n, err := time.ParseDuration(v); err == nil && n > 0 {
+			return n
+		}
+		warn("CAD_USAGE_EVERY", v, "collect.usage.every")
+	}
+	v := currentPolicy().Collect.Usage.Every
+	if v == "" {
+		lastUsageEvery.Store(int64(time.Minute))
+		return time.Minute
+	}
+	if n, err := time.ParseDuration(v); err == nil && n > 0 {
+		lastUsageEvery.Store(int64(n))
+		return n
+	}
+	d := time.Duration(lastUsageEvery.Load())
+	if d == 0 {
+		d = time.Minute
+	}
+	warn("collect.usage.every", v, d)
+	return d
 }
 
 // usageStore maps a claude agent to its config dir ("" = default, no CLAUDE_CONFIG_DIR) and .claude.json.
@@ -233,6 +260,7 @@ func usableUsage(m UsageMap, now time.Time) map[string]AgentUsage {
 }
 
 func init() {
-	every := usageEvery()
-	register("usage", every, func() (interface{}, error) { return collectUsage(currentPolicy().Agents, every), nil })
+	collectors = append(collectors, collector{"usage", usageEvery, func() (interface{}, error) {
+		return collectUsage(currentPolicy().Agents, usageEvery()), nil
+	}})
 }

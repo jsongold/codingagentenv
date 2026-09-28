@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // cliEnv points CAD_POLICY at a temp dir and returns its path.
@@ -36,9 +37,9 @@ const localJSON = `{"vcpuHourUSD":0,"gibHourUSD":0,"minBillSec":0,"coldStartSec"
 
 func TestCLIAddShowRoundtrip(t *testing.T) {
 	p := cliEnv(t)
+	os.WriteFile(p, []byte(`{"gate":{"memoryMB":1500},"classes":{"x":{"estPct":1}}}`), 0o644) // the daemon requires classes; the CLI keeps them
 	for _, a := range [][]string{
 		{"add", "agent", "claude/test"},
-		{"add", "classagent", "needs-db", "claude/*"},
 		{"add", "computer", "local", "-"},
 	} {
 		if out, code := run(t, localJSON, a...); code != 0 {
@@ -54,7 +55,7 @@ func TestCLIAddShowRoundtrip(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &all); err != nil {
 		t.Fatal(err, out)
 	}
-	if all.Computers["local"].MaxMemMB != 16384 || all.ClassAgents["needs-db"][0] != "claude/*" || all.Gate.MemoryMB != 1500 {
+	if all.Computers["local"].MaxMemMB != 16384 || all.Gate.MemoryMB != 1500 {
 		t.Fatalf("show: %+v", all)
 	}
 	// The daemon reads the same file.
@@ -76,8 +77,6 @@ func TestCLIRejects(t *testing.T) {
 	}{
 		{"", []string{"add", "agent", "claude/test"}},              // duplicate
 		{"", []string{"add", "agent", "Claude/x"}},                 // bad name
-		{"", []string{"add", "classagent", "nope", "claude/*"}},    // unknown class
-		{"", []string{"add", "classagent", "retry", "claude/["}},   // bad pattern
 		{"{not json", []string{"add", "computer", "x", "-"}},       // invalid JSON
 		{`{"vcpuHourUSD":1}`, []string{"add", "computer", "x"}},    // missing fields
 		{"", []string{"rm", "agent", "claude/none"}},               // not found
@@ -112,12 +111,9 @@ func TestCLIRm(t *testing.T) {
 	cliEnv(t)
 	run(t, "", "add", "agent", "claude/a")
 	run(t, "", "add", "agent", "claude/b")
-	run(t, "", "add", "classagent", "retry", "claude/*")
-	run(t, "", "add", "classagent", "retry", "codex/*")
 	run(t, localJSON, "add", "computer", "local")
 	for _, a := range [][]string{
 		{"rm", "agent", "claude/a"},
-		{"rm", "classagent", "retry", "codex/*"},
 		{"rm", "computer", "local"},
 	} {
 		if out, code := run(t, "", a...); code != 0 {
@@ -125,16 +121,48 @@ func TestCLIRm(t *testing.T) {
 		}
 	}
 	pol, _ := loadPolicy()
-	if len(pol.Agents) != 1 || pol.Agents[0] != "claude/b" || len(pol.ClassAgents["retry"]) != 1 || len(pol.Computers) != 0 {
+	if len(pol.Agents) != 1 || pol.Agents[0] != "claude/b" || len(pol.Computers) != 0 {
 		t.Fatalf("after rm: %+v", pol)
-	}
-	if _, code := run(t, "", "rm", "classagent", "retry"); code != 0 {
-		t.Fatal("rm whole class failed")
 	}
 }
 
 func TestIsCLI(t *testing.T) {
 	if isCLI(nil) || isCLI([]string{"-addr"}) || !isCLI([]string{"show"}) || !isCLI([]string{"-h"}) {
 		t.Fatal("isCLI")
+	}
+}
+
+func TestCLIShowSections(t *testing.T) {
+	t.Setenv("CAD_POLICY", filepath.Join("..", ".agent", "policy.json"))
+	for sec, want := range map[string]string{"classes": `"light-edit"`, "runners": `"subagent"`, "collect": `"60s"`, "rules": `"self"`} {
+		if out, code := run(t, "", "show", sec); code != 0 || !strings.Contains(out, want) {
+			t.Errorf("show %s: %d %s", sec, code, out)
+		}
+	}
+}
+
+func TestCLIRejectsBadRunner(t *testing.T) {
+	p := cliEnv(t)
+	os.WriteFile(p, []byte(`{"runners":{"opencode":{"mode":"process"}}}`), 0o644)
+	if out, code := run(t, "", "show", "runners"); code != 1 || !strings.Contains(out, "process needs cmd") {
+		t.Fatalf("%d %s", code, out)
+	}
+}
+
+// The daemon rejects a policy without classes (naming the old placement.estPct) and keeps the last good one.
+func TestPolicyRequiresClasses(t *testing.T) {
+	p := cliEnv(t)
+	os.WriteFile(p, []byte(`{"classes":{"x":{"estPct":1}}}`), 0o644)
+	if _, ok := currentPolicy().Classes["x"]; !ok {
+		t.Fatal("good policy not loaded")
+	}
+	old := []byte(`{"placement":{"reservePct":15,"estPct":{"gate-heavy":4}}}`)
+	os.WriteFile(p, old, 0o644)
+	os.Chtimes(p, time.Now(), time.Now().Add(time.Minute))
+	if _, ok := currentPolicy().Classes["x"]; !ok {
+		t.Fatal("last good policy not kept")
+	}
+	if err := requireClasses(old, Policy{}); err == nil || !strings.Contains(err.Error(), "placement.estPct was replaced") {
+		t.Fatalf("%v", err)
 	}
 }

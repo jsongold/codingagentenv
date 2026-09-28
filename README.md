@@ -65,43 +65,30 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 
 `CLAUDE_CODE_TASK_LIST_ID` は `/pickup` がディレクトリ名で設定する。同じ ID の project があると Task list が混ざる。
 
-## 配置ロジック（設計中・未実装。ADR-0010 で確定）
-分類だけ Claude が行い、配置は `dev-dispatch` が cad の値から決定的に選ぶ（同じ入力なら同じ出力）。詳細は `.claude/design/placement-strategy.md`。
+## 配置ロジック（ADR-0010）
+調整するもの（`classes`・`rules`・`runners`・`collect`）はすべて `.agent/policy.json` に置く。分類だけ Orchestrator（Claude）が行い、配置は `cad` の `POST /v1/place` が policy の `rules`（順序付きの決定リスト、先勝ち）を上から評価して決定的に返す（同じ入力なら同じ出力）。
 
 ```
 task spec
 ├─ 0. 分類（Orchestrator = Claude が spec に class を書く）
-│     light-edit / gate-heavy / needs-db / long-running / urgent / retry
-└─ 1. 配置（dev-dispatch。判断しない）
-   ├─ admission（サブスク窓。cad の usage topic、サービス × アカウント単位）
-   │   ├─ 5h 窓: 使用% + 稼働数 × est + est > 100 − reservePct → defer(resetsAt)
-   │   ├─ 7d 窓: 均等ペース超過                                → defer(resetsAt)
-   │   └─ 稼働 Worker ≥ maxWorkers                            → defer(5 分後)
-   │      defer = 非 0 で返すだけ。キューは持たない（Task は pending のまま）
-   ├─ Agent = サービス × アカウント（アカウントは aienv の store id。未決）。claude を使い切ったら opencode にフォールバック（モデルは可変・現在 DeepSeek）。codex はレビュー専用で配置されない
-   ├─ provider 明示指定あり → feasible なら採用 / 不可なら exit 2
-   └─ 候補 = spec.allow ∩ policy.providers.allowed
-       ├─ feasible で絞る: memory・cpu・timeout・needs-db なら caps.db・maxCostUSD・safe なら非 preemptible
-       ├─ local が feasible → local（最優先。slots は CAD_SLOTS=5 の固定上限、稼働数は数えず macOS に任せる）
-       ├─ それ以外は strategy で並べる
-       │   cheap（既定）: cost → preemptible → cold start
-       │   fast        : cold start → cost
-       │   safe        : cost → cold start（preemptible は除外済み）
-       │   ranked      : spec の order 順
-       ├─ 同点は provider 名の辞書順
-       └─ 候補なし → exit 2（起動しない）
+│     policy の classes から選ぶ（seed: light-edit / gate-heavy / needs-db / long-running / urgent / retry）
+└─ 1. 配置
+   ├─ Mac がスリープ中 → GitHub Actions で opencode（cad の外。未実装）
+   ├─ rule 0: self（Orchestrator 自身の claude、subagent で実行）の窓が空いている → self × local
+   ├─ rule 1: opencode の窓が空いている   → opencode × local
+   └─ どれも窓で塞がっている → 409 defer（最も早い reset まで。キューは持たない）
+      窓以外（local の slot 無しなど）で塞がっている → 422
 ```
 
-配置の記録（policy）は `cad` の CLI で編集する。ファイルは daemon と同じ（`CAD_POLICY` > `.agent/policy.json`）。書き込みは atomic で、稼働中の `cad` は mtime で再読込する（再起動不要）。usage は daemon が定期収集する（claude は `claude -p /usage`、codex は `codex app-server` の `account/rateLimits/read`）（`CAD_USAGE_EVERY`、既定 60s）。メタデータは `cad get` で読む（`CAD_ADDR`・`CAD_TOKEN`、`-ns` 必須）。
+配置の記録（policy）は `cad` の CLI で編集する。ファイルは daemon と同じ（`CAD_POLICY` > `.agent/policy.json`）。書き込みは atomic で、稼働中の `cad` は mtime で再読込する（再起動不要）。usage は daemon が定期収集する（claude は `claude -p /usage`、codex は `codex app-server` の `account/rateLimits/read`）（`CAD_USAGE_EVERY` > policy `collect.usage.every`、既定 60s）。メタデータは `cad get` で読む（`CAD_ADDR`・`CAD_TOKEN`、`-ns` 必須）。
 
 ```
 tools/cad get meta -ns dev                                   # 実行中の cad から全 topic（JSON）
 tools/cad get usage -ns dev                                  # 1 topic（usage / capacity / policy / workers / quota）
-tools/cad show [agents|computers|classAgents|policy]         # 引数なし = policy
+tools/cad show [classes|rules|runners|collect|agents|computers|policy]  # 引数なし = policy 全体
 tools/cad add agent claude/3f9a1c0e
 tools/cad add computer gce-spot --file gce.json [--replace]  # または stdin / -
-tools/cad add classagent needs-db 'claude/*'
-tools/cad rm agent|computer|classagent <key> [pattern]
+tools/cad rm agent|computer <key>
 ```
 
 ## トラブルシュート

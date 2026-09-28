@@ -25,88 +25,79 @@ func seedPolicy(t *testing.T) Policy {
 	return p
 }
 
-// seedUsage is fixed test usage (the old provisional .agent/usage.json).
-func seedUsage(t *testing.T) map[string]AgentUsage {
-	at := func(s string) time.Time { v, _ := time.Parse(time.RFC3339, s); return v }
-	w := func(pct5, pct7 float64) AgentUsage {
-		return AgentUsage{FiveHour: &UsageWindow{pct5, at("2026-09-27T15:00:00Z")}, SevenDay: &UsageWindow{pct7, at("2026-10-03T00:00:00Z")}}
-	}
-	return map[string]AgentUsage{"claude/a12e00a7": w(30, 40), "claude/b1c8ef41": w(90, 50), "claude/default": w(10, 20), "codex/2e33b72a": w(20, 30), "opencode/996c87ae": w(0, 0)}
+var (
+	r5 = time.Date(2026, 9, 27, 15, 0, 0, 0, time.UTC)
+	r7 = time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)
+)
+
+func win(pct5, pct7 float64) AgentUsage {
+	return AgentUsage{FiveHour: &UsageWindow{pct5, r5}, SevenDay: &UsageWindow{pct7, r7}}
 }
 
-func spec(class, strategy string, mem, min int, maxCost float64, allow ...string) PlaceSpec {
-	var s PlaceSpec
-	s.Class, s.Placement.Strategy, s.Placement.Allow, s.Placement.MaxCostUSD = class, strategy, allow, maxCost
-	s.Resources.MemoryMB, s.Resources.CPUs, s.Resources.TimeoutMin = mem, 1, min
-	return s
+// seedUsage: every agent fits (reservePct 15).
+func seedUsage() map[string]AgentUsage {
+	return map[string]AgentUsage{"claude/a12e00a7": win(30, 40), "claude/b1c8ef41": win(10, 50), "codex/2e33b72a": win(20, 30), "opencode/996c87ae": win(0, 0)}
 }
 
 func TestPlace(t *testing.T) {
-	pol, use := seedPolicy(t), seedUsage(t)
-	explicit := spec("light-edit", "cheap", 1024, 30, 0)
-	explicit.Placement.Provider = "e2b"
-	explicit.Resources.TimeoutMin = 120 // e2b maxMin 60
-	ranked := spec("light-edit", "ranked", 1024, 30, 0, "e2b", "cloud-run-jobs", "gce-spot")
-	ranked.Placement.Order = []string{"cloud-run-jobs", "e2b"}
-	cases := []struct {
-		name  string
-		s     PlaceSpec
-		slots int
-		want  string // computer, "" = 422
-	}{
-		{"local-first", spec("light-edit", "cheap", 1024, 30, 0), 5, "local"},
-		{"local no slots -> cheapest free non-preemptible", spec("light-edit", "cheap", 1024, 30, 0), 0, "claude-cloud"},
-		{"needs-db excludes cloud-run", spec("needs-db", "cheap", 1024, 30, 0, "cloud-run-jobs", "e2b"), 0, "e2b"},
-		{"needs-db only cloud-run -> 422", spec("needs-db", "cheap", 1024, 30, 0, "cloud-run-jobs"), 0, ""},
-		{"maxCostUSD filters e2b", spec("light-edit", "cheap", 1024, 30, 0.02, "e2b", "gce-spot"), 0, "gce-spot"},
-		{"maxCostUSD filters all -> 422", spec("light-edit", "cheap", 1024, 30, 0.0001, "e2b", "gce-spot"), 0, ""},
-		{"cheap picks preemptible when cheaper", spec("light-edit", "cheap", 1024, 30, 0, "e2b", "gce-spot"), 0, "gce-spot"},
-		{"safe excludes preemptible", spec("light-edit", "safe", 1024, 30, 0, "e2b", "gce-spot"), 0, "e2b"},
-		{"fast by coldStart", spec("light-edit", "fast", 1024, 30, 0, "gce-spot", "cloud-run-jobs", "e2b"), 0, "e2b"},
-		{"ranked by order", ranked, 0, "cloud-run-jobs"},
-		{"explicit provider infeasible -> 422", explicit, 5, ""},
-		{"unknown class -> 422", spec("nope", "cheap", 1024, 30, 0), 5, ""},
-	}
-	for _, c := range cases {
-		got, st, _ := place(pol, use, c.s, c.slots)
-		ok := st == http.StatusOK
-		if ok != (c.want != "") || got.Computer != c.want || !ok && st != http.StatusUnprocessableEntity {
-			t.Errorf("%s: got %q status=%d reasons=%v, want %q", c.name, got.Computer, st, got.Reason, c.want)
+	pol, s := seedPolicy(t), PlaceSpec{Class: "light-edit", Self: "claude/a12e00a7"}
+	check := func(name string, u map[string]AgentUsage, slots, wantSt int, wantAgent string, wantRule int) Placement {
+		t.Helper()
+		got, st, _ := place(pol, u, s, slots)
+		if st != wantSt || got.Agent != wantAgent || got.Rule != wantRule {
+			t.Errorf("%s: %d %+v, want %d %s rule %d", name, st, got, wantSt, wantAgent, wantRule)
 		}
-		// seed usage: a12e00a7 fits (5h 30%, 7d 40%) and is lexicographically first.
-		if ok && got.Agent != "claude/a12e00a7" {
-			t.Errorf("%s: agent %q", c.name, got.Agent)
-		}
+		return got
 	}
-}
+	if got := check("claude ok", seedUsage(), 5, 200, "claude/a12e00a7", 0); got.Computer != "local" || got.Runner == nil || got.Runner.Mode != "subagent" {
+		t.Errorf("computer %q runner %+v", got.Computer, got.Runner)
+	}
 
-func TestPlaceTieBreakAndDeterminism(t *testing.T) {
-	pol := seedPolicy(t)
-	pol.Agents = []string{"claude/b", "codex/x", "claude/a"}
-	pol.ClassAgents["light-edit"] = []string{"*/*"} // generic tie-break/priority test, not a real classAgents policy
-	pol.Computers["twin"] = pol.Computers["e2b"]    // same key as e2b; "e2b" < "twin"
-	s := spec("light-edit", "safe", 1024, 30, 0, "twin", "e2b")
-	first, st, _ := place(pol, nil, s, 0)
-	if st != http.StatusOK || first.Agent != "claude/a" || first.Computer != "e2b" {
-		t.Fatalf("got %+v", first)
+	u := seedUsage()
+	u["claude/a12e00a7"], u["claude/b1c8ef41"] = win(90, 0), win(90, 0)
+	got := check("self over 5h", u, 5, 200, "opencode/996c87ae", 1)
+	if !reflect.DeepEqual(got.Reason, []string{"claude/a12e00a7: 5h window"}) {
+		t.Errorf("reasons %v", got.Reason)
 	}
+	if got.Runner == nil || got.Runner.Mode != "process" || got.Runner.Model != "opencode-go/deepseek-v4-pro" {
+		t.Errorf("runner %+v", got.Runner)
+	}
+
+	// self missing or not in policy.agents -> the self rule is skipped.
+	for _, self := range []string{"", "claude/zzzz"} {
+		s.Self = self
+		if got := check("self "+self, seedUsage(), 5, 200, "opencode/996c87ae", 1); got.Reason[0] != "rule 0: self unknown" {
+			t.Errorf("reasons %v", got.Reason)
+		}
+	}
+	s.Self = "claude/b1c8ef41" // any registered agent can be self
+	check("self b1c8", seedUsage(), 5, 200, "claude/b1c8ef41", 0)
+	s.Self = "claude/a12e00a7"
+
+	// All over -> 409, defer_until = earliest time any blocked agent fits again.
+	early := time.Date(2026, 9, 27, 13, 0, 0, 0, time.UTC)
+	u["claude/a12e00a7"] = AgentUsage{FiveHour: &UsageWindow{90, early}} // null 7d window is skipped
+	u["opencode/996c87ae"] = win(90, 90)                                 // frees only at r7
+	if _, st, until := place(pol, u, s, 5); st != http.StatusConflict || !until.Equal(early) {
+		t.Errorf("409: %d %v", st, until)
+	}
+
+	delete(u, "claude/a12e00a7")
+	check("usage unknown -> ok", u, 5, 200, "claude/a12e00a7", 0)
+
+	pol.Rules[0].Class = []string{"needs-db"}
+	got = check("class-restricted rule skipped", seedUsage(), 5, 200, "opencode/996c87ae", 1)
+	if got.Reason[0] != "rule 0: class" {
+		t.Errorf("reasons %v", got.Reason)
+	}
+
+	check("no local slot -> 422", seedUsage(), 0, 422, "", 0)
+
+	first, _, _ := place(pol, seedUsage(), s, 5)
 	for i := 0; i < 20; i++ {
-		if again, _, _ := place(pol, nil, s, 0); !reflect.DeepEqual(first, again) {
+		if again, _, _ := place(pol, seedUsage(), s, 5); !reflect.DeepEqual(first, again) {
 			t.Fatalf("run %d: %+v != %+v", i, again, first)
 		}
-	}
-	// Service priority beats the agent name; unlisted services go last.
-	pol.AgentPriority = []string{"codex", "claude"}
-	if got, _, _ := place(pol, nil, s, 0); got.Agent != "codex/x" {
-		t.Fatalf("agentPriority: %+v", got)
-	}
-	pol.AgentPriority, pol.Agents = []string{"codex"}, []string{"claude/a", "aaa/z", "codex/x"}
-	if got, _, _ := place(pol, nil, s, 0); got.Agent != "codex/x" {
-		t.Fatalf("listed first: %+v", got)
-	}
-	pol.Agents = []string{"claude/a", "aaa/z"}
-	if got, _, _ := place(pol, nil, s, 0); got.Agent != "aaa/z" {
-		t.Fatalf("unlisted by name: %+v", got)
 	}
 }
 
@@ -114,7 +105,7 @@ func TestPostPlace(t *testing.T) {
 	t.Setenv("CAD_POLICY", filepath.Join("..", ".agent", "policy.json"))
 	h := newHub()
 	h.publish("capacity", Capacity{Slots: 2})
-	h.publish("usage", UsageMap(seedUsage(t)))
+	h.publish("usage", UsageMap(seedUsage()))
 	srv := httptest.NewServer(newServer(h, "tok"))
 	defer srv.Close()
 	post := func(q, body, token string) *http.Response {
@@ -126,7 +117,7 @@ func TestPostPlace(t *testing.T) {
 		}
 		return res
 	}
-	ok := `{"class":"light-edit","resources":{"memoryMB":1024,"cpus":1,"timeoutMin":30},"placement":{"strategy":"cheap"}}`
+	ok := `{"class":"light-edit","self":"claude/a12e00a7","placement":{"strategy":"ignored"}}`
 	for _, c := range []struct {
 		q, body, token string
 		want           int
@@ -134,8 +125,9 @@ func TestPostPlace(t *testing.T) {
 		{"?ns=a", ok, "tok", 200},
 		{"", ok, "tok", 400},
 		{"?ns=a", ok, "bad", 401},
-		{"?ns=a", `{"class":"light-edit","placement":{"strategy":"weird"}}`, "tok", 400},
-		{"?ns=a", `{"class":"needs-db","resources":{"memoryMB":1024,"cpus":1},"placement":{"allow":["cloud-run-jobs"]}}`, "tok", 422},
+		{"?ns=a", `{"class":"nope"}`, "tok", 400},
+		{"?ns=a", `{}`, "tok", 400},
+		{"?ns=a", `{"class":"light-edit","self":"Claude"}`, "tok", 400},
 	} {
 		res := post(c.q, c.body, c.token)
 		if res.StatusCode != c.want {
@@ -144,7 +136,7 @@ func TestPostPlace(t *testing.T) {
 		if c.want == 200 {
 			var p Placement
 			json.NewDecoder(res.Body).Decode(&p)
-			if p.Computer != "local" || p.Agent != "claude/a12e00a7" {
+			if p.Computer != "local" || p.Agent != "claude/a12e00a7" || p.Rule != 0 {
 				t.Errorf("200 body: %+v", p)
 			}
 		}
@@ -152,73 +144,11 @@ func TestPostPlace(t *testing.T) {
 	}
 }
 
-func TestPlaceWindow(t *testing.T) {
-	pol, seed := seedPolicy(t), seedUsage(t)
-	at := func(s string) time.Time { v, _ := time.Parse(time.RFC3339, s); return v }
-	full := func(pct5, pct7 float64, r5, r7 string) AgentUsage {
-		return AgentUsage{FiveHour: &UsageWindow{pct5, at(r5)}, SevenDay: &UsageWindow{pct7, at(r7)}}
-	}
-	has := func(rs []string, want string) bool {
-		for _, r := range rs {
-			if r == want {
-				return true
-			}
-		}
-		return false
-	}
-	s := spec("light-edit", "cheap", 1024, 30, 0)
-
-	// seed: b1c8ef41 is at 5h 90% > 85 - 1 and is dropped; a12e00a7 wins.
-	got, st, _ := place(pol, seed, s, 5)
-	if st != 200 || got.Agent != "claude/a12e00a7" || !has(got.Reason, "claude/b1c8ef41: 5h window") {
-		t.Fatalf("5h drop: %d %+v", st, got)
-	}
-
-	// Agents are sorted, so claude/* < opencode/*: light-edit reaches opencode once every
-	// claude agent is filtered. codex is in policy.agents (usage still collected for review
-	// quota) but is in no class's classAgents, so it is never a placement candidate.
-	u := map[string]AgentUsage{}
-	for k, v := range seed {
-		u[k] = v
-	}
-	for _, a := range []string{"claude/a12e00a7", "claude/b1c8ef41"} {
-		u[a] = full(90, 0, "2026-09-27T15:00:00Z", "2026-10-03T00:00:00Z")
-	}
-	delete(u, "opencode/996c87ae") // usage unknown
-	if got, _, _ = place(pol, u, s, 5); got.Agent != "opencode/996c87ae" || !has(got.Reason, "opencode/996c87ae: usage unknown") {
-		t.Errorf("claude filtered -> opencode: %+v", got)
-	}
-	for _, c := range []string{"light-edit", "gate-heavy", "needs-db", "long-running", "urgent", "retry"} {
-		spc := s
-		spc.Class = c
-		if got, _, _ := place(pol, u, spc, 5); got.Agent == "codex/2e33b72a" {
-			t.Errorf("%s: codex must never be placed: %+v", c, got)
-		}
-	}
-
-	// needs-db: all matching agents (claude + opencode) over -> 409, defer_until = earliest agent-free time.
-	// b1c8ef41 and opencode exceed both windows so they are free only at their later reset (10-03);
-	// a12e00a7 frees at its own 5h reset (09-27T13), the earliest. A null window is skipped.
-	u["claude/a12e00a7"] = AgentUsage{FiveHour: &UsageWindow{90, at("2026-09-27T13:00:00Z")}}
-	u["claude/b1c8ef41"] = full(90, 90, "2026-09-27T12:00:00Z", "2026-10-03T00:00:00Z")
-	u["opencode/996c87ae"] = full(90, 90, "2026-09-27T14:00:00Z", "2026-10-03T00:00:00Z")
-	_, st, until := place(pol, u, spec("needs-db", "cheap", 1024, 30, 0), 5)
-	if st != http.StatusConflict || !until.Equal(at("2026-09-27T13:00:00Z")) {
-		t.Errorf("409: %d %v", st, until)
-	}
-	// Same usage but no feasible computer: the window isn't the cause -> 422.
-	if _, st, _ = place(pol, u, spec("needs-db", "cheap", 1024, 30, 0, "cloud-run-jobs"), 5); st != http.StatusUnprocessableEntity {
-		t.Errorf("422: %d", st)
-	}
-}
-
 func TestPlaceHubUsage(t *testing.T) {
-	t.Setenv("CAD_POLICY", filepath.Join("..", ".agent", "policy.json"))
 	now := time.Now()
-	past, future := &UsageWindow{95, now.Add(-time.Minute)}, &UsageWindow{95, now.Add(time.Hour)}
+	past := &UsageWindow{95, now.Add(-time.Minute)}
 	u := UsageMap{
-		"claude/a12e00a7": {FiveHour: future, SevenDay: &UsageWindow{1, now.Add(time.Hour)}}, // 5h over
-		"claude/b1c8ef41": {FiveHour: past, SevenDay: past},                                  // both reset: 0%
+		"claude/b1c8ef41": {FiveHour: past, SevenDay: past},
 		"claude/default":  {Error: "claude -p /usage: exit status 1"},
 	}
 	got := usableUsage(u, now)
@@ -231,20 +161,44 @@ func TestPlaceHubUsage(t *testing.T) {
 	if _, ok := got["claude/default"]; ok {
 		t.Fatal("error agent kept as known")
 	}
+}
+
+// A class added to the policy file is accepted without a code change.
+func TestPostPlacePolicyClass(t *testing.T) {
+	pol := seedPolicy(t)
+	pol.Classes["docs-only"] = Class{Criteria: "x", EstPct: 1}
+	b, _ := json.Marshal(pol)
+	f := filepath.Join(t.TempDir(), "p.json")
+	os.WriteFile(f, b, 0o644)
+	t.Setenv("CAD_POLICY", f)
 	h := newHub()
-	h.publish("capacity", Capacity{Slots: 2})
-	h.publish("usage", u)
+	h.publish("capacity", Capacity{Slots: 1})
+	h.publish("usage", UsageMap(seedUsage()))
 	srv := httptest.NewServer(newServer(h, ""))
 	defer srv.Close()
-	res, err := http.Post(srv.URL+"/v1/place?ns=a", "application/json", strings.NewReader(`{"class":"needs-db","resources":{"memoryMB":1024,"cpus":1,"timeoutMin":30}}`))
+	res, err := http.Post(srv.URL+"/v1/place?ns=a", "", strings.NewReader(`{"class":"docs-only","self":"claude/a12e00a7"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer res.Body.Close()
 	var p Placement
 	json.NewDecoder(res.Body).Decode(&p)
-	res.Body.Close()
-	reasons := strings.Join(p.Reason, "|")
-	if res.StatusCode != 200 || p.Agent != "claude/b1c8ef41" || !strings.Contains(reasons, "claude/a12e00a7: 5h window") {
+	if res.StatusCode != 200 || p.Agent != "claude/a12e00a7" || p.Runner == nil || p.Runner.Mode != "subagent" {
 		t.Fatalf("%d %+v", res.StatusCode, p)
+	}
+}
+
+// A candidate without a runner, or a subagent-backed one other than self, is skipped.
+func TestPlaceRunnerChecks(t *testing.T) {
+	pol := seedPolicy(t)
+	pol.Rules = append([]Rule{{Agent: "codex/*", Computer: "local"}, {Agent: "claude/*", Computer: "local"}}, pol.Rules...)
+	got, st, _ := place(pol, seedUsage(), PlaceSpec{Class: "light-edit", Self: "claude/b1c8ef41"}, 5)
+	want := []string{"codex/2e33b72a: no runner", "claude/a12e00a7: subagent runs only as self"}
+	if st != 200 || got.Agent != "claude/b1c8ef41" || got.Rule != 1 || !reflect.DeepEqual(got.Reason, want) {
+		t.Fatalf("%d %+v", st, got)
+	}
+	got, st, _ = place(pol, seedUsage(), PlaceSpec{Class: "light-edit"}, 5) // no self: claude/* matches nothing usable
+	if st != 200 || got.Agent != "opencode/996c87ae" || got.Rule != 3 {
+		t.Fatalf("%d %+v", st, got)
 	}
 }
