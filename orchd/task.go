@@ -225,11 +225,7 @@ func dispatchCmd(args []string, stdin io.Reader, w io.Writer) (int, error) {
 	if rn.Mode == "vm" { // the worker image reads the issue itself (deploy/worker-run.sh)
 		return dispatchVM(rn, ns.Repo, n, w)
 	}
-	session := os.Getenv("CLAUDE_CLOUD_SESSION")
-	if session == "" {
-		session = ns.CloudWorkerSession
-	}
-	if rn.Mode == "cloud" && session == "" {
+	if rn.Mode == "cloud" && cloudSession(ns) == "" {
 		return 2, fmt.Errorf("no cloud session for ns %s: set CLAUDE_CLOUD_SESSION or cloudWorkerSession in %s (create one with `claude --cloud`)", *f["ns"], namespacesFile())
 	}
 	out, err := shell("", "gh", "issue", "view", strconv.Itoa(n), "--repo", ns.Repo, "--json", "title,body")
@@ -244,12 +240,7 @@ func dispatchCmd(args []string, stdin io.Reader, w io.Writer) (int, error) {
 	prompt := taskPrompt(ns.Repo, n, is.Title, is.Body, branch)
 
 	if rn.Mode == "cloud" {
-		out, err := shell("", "claude", "-p", prompt, "--cloud", session, "--output-format", "json")
-		if err != nil {
-			return 1, err
-		}
-		_, err = io.WriteString(w, out)
-		return 0, err
+		return cloudSend(cloudSession(ns), prompt, w)
 	}
 	// The worktree sits next to the NS repo so the directory-based aienv bindings of its parent apply.
 	wt := filepath.Join(filepath.Dir(ns.Path), filepath.Base(ns.Path)+"-task-"+strconv.Itoa(n))
@@ -273,6 +264,25 @@ func dispatchCmd(args []string, stdin io.Reader, w io.Writer) (int, error) {
 		return 1, errors.Join(fmt.Errorf("start %s", argv[0]), err)
 	}
 	return 0, printJSON(w, map[string]any{"started": true, "worktree": wt, "pid": pid, "log": log})
+}
+
+// cloudSession: env CLAUDE_CLOUD_SESSION > the namespace registry's cloudWorkerSession.
+func cloudSession(ns NS) string {
+	if s := os.Getenv("CLAUDE_CLOUD_SESSION"); s != "" {
+		return s
+	}
+	return ns.CloudWorkerSession
+}
+
+// cloudSend runs prompt on the cloud worker session (dispatch's runner mode "cloud") and writes its
+// raw JSON output to w.
+func cloudSend(session, prompt string, w io.Writer) (int, error) {
+	out, err := shell("", "claude", "-p", prompt, "--cloud", session, "--output-format", "json")
+	if err != nil {
+		return 1, err
+	}
+	_, err = io.WriteString(w, out)
+	return 0, err
 }
 
 // statusCmd reports the PR whose body says "Closes #n" (open first, then merged/closed) and, with

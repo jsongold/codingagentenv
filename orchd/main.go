@@ -36,6 +36,8 @@ const usageText = `usage:
       <CLAUDE_CLOUD_SESSION | registry cloudWorkerSession> --output-format json, print its output;
       vm = runner.instance must be stopped: set its metadata worker-task and start it (Compute API); the VM
       runs runner.image as opencode-worker-<n> on boot; print {started, instance, zone, project, container, task, startSec}
+  orchd wake [--ns default]
+      mode != sleep: print {skipped:true, mode}, exit 0; mode == sleep: send the fixed wake prompt via dispatch's cloud path, print its output
   orchd status --issue <n> [--pid <pid>] [--ns default] [--repo o/r] [--path dir]
       print {issue, pr, state, running?}: the PR whose body says "Closes #n" (OPEN wins), and with --pid
       whether the dispatched process still runs. One quick gh call; supervisors poll it
@@ -97,6 +99,8 @@ func cmd(args []string, w io.Writer) (int, error) {
 		return pickCmd(args[1:], w)
 	case "dispatch":
 		return dispatchCmd(args[1:], os.Stdin, w)
+	case "wake":
+		return wakeCmd(args[1:], w)
 	case "status":
 		return statusCmd(args[1:], w)
 	case "vm":
