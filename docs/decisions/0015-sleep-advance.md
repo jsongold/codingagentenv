@@ -1,40 +1,44 @@
-# ADR-0015: sleep 中のタスク前進は cad-2 の timer（orchd）が Issue / PR の状態から次の一手を決定的に選び、判断が要る作業だけ CC cloud worker に 1 通送る。完了 = merge
+# ADR-0015: sleep 中は CC cloud worker セッション（CCO）がプロジェクトの文脈から次にやることを判断して進め、merge まで行う。cad-2 の timer（orchd）は起こすだけ。ai 系ラベルは廃止
 
 - 日付：2026-09-28
 - 状態：採用
 
 ## 文脈
-ADR-0014 で sleep 中は cad-2 の timer が `orchd tick` を回し、`ai` Issue を拾って配置するようにした。完了は `Closes #n` の PR。しかし PR ができた後のレビュー依頼・指摘の修正・main との衝突解消・merge は誰も進めず、朝まで PR が止まる。
+ADR-0014 は「sleep 中に要る判断は class の分類だけで、寝る前に済ませられる」を前提に、cad-2 の timer が `orchd tick` で `ai` Issue を拾って配置し、完了 = `Closes #n` の PR とした。LLM の Orchestrator は sleep 中に置かない。
 
-これを CC cloud セッション内の `/loop` で回す案（CCO 化）を試したが、実測で発火しなかった（下の却下した案）。PR のライフサイクルで要る判断は「指摘を直す」「衝突を解消する」といった作業の中身だけで、次に何をするかは Issue のラベルと PR の状態から決定的に決まる。
+しかし PR ができた後にも判断が要る。レビュー指摘への対応、merge してよいかの判断、main との衝突の解消、そして次に何をやるか。これらを orchd の状態表（ラベルと PR の状態）で決める案も検討したが、判断を orchd 側に寄せるとラベル運用が要り、プロジェクトの文脈（mission・ADR・Issue の中身）を読めない（下の却下した案）。前提「sleep 中の判断は分類だけ」が崩れた。
 
 ## 決定
-**sleep 中のタスク前進は cad-2 の timer（orchd）が決定的なチェック役となり、Issue / PR の状態から次の一手を選ぶ。判断が要る作業だけ CC cloud worker セッションへ `claude -p "<次の一手>" --cloud <session>` で 1 通送る。完了 = merge。**
-- 状態はラベルと PR から読む
+**sleep 中は CCO（CC cloud worker セッション）がプロジェクトの文脈から次にやることを判断して進め、merge まで行う。cad-2 の timer（orchd）は『何をやるか』を選ばず、起こすだけ。**
+- `ai` / `wip` / `ai-failed` / `class:` ラベルは廃止する。何をやるかは CCO がプロジェクトの文脈（[mission.md](../mission.md)、ADR、マイルストーン無しの open Issue、open PR）から判断する
+  - マイルストーン付きの Issue は対象外（owner 2026-09-28）
+  - owner の判断が要るものは、CCO が Issue にコメントして残す
+- orchd は次をすべて満たせば、固定の 1 通「プロジェクトの文脈で次を判断して進めよ」を `claude -p "<固定の指示>" --cloud <session>` で送る
+  - sleep モード中
+  - CC の usage に余裕がある
+  - 前回の送信から一定間隔が空いた（前回分を処理し終えたかの判定方法は未検証。当面は間隔で代える）
+- CC の枠が無いときは、worker VM（ADR-0013）の opencode に同じ指示を渡し、判断も opencode にさせる
+- merge は CCO が行う。条件は次のすべて
+  - 実装者と別のレビュアー（GitHub の Codex bot、枠切れなら codex-local）のレビューが、現在の PR head に対して完了している
+  - その結果の P0/P1 がゼロ。レビューを依頼した直後でコメントが未着の状態は「指摘なし」と扱わない
+  - CI があれば green
+  - 自動 merge は当面 codingagentenv のみ
 
-| 状態 | 次の一手 |
-|---|---|
-| `ai` 付き・未着手・マイルストーン無し | CC へ dispatch（既存の `dispatch --pending`） |
-| PR あり・レビュー未依頼 | `@codex review` をコメント（GitHub の Codex bot。実装者と別のレビュアー） |
-| レビューに P0/P1 あり | CC へ「PR #n を直して」 |
-| 指摘なし・CI green | orchd が merge |
-| main と衝突 | CC へ「`git merge origin/main` して」（rebase・force push はしない） |
-| 60 分動き無し / N 往復で直らない | `ai-failed` |
-
-- マイルストーン付きの Issue は対象外（owner 2026-09-28）
-
-**置き換えるもの**：ADR-0014 の「完了 = `Closes #n` の PR」を「完了 = merge」に読み替え、tick の範囲を PR のライフサイクル（レビュー依頼・修正・衝突解消・merge）まで広げる（ADR-0014 のファイルは編集しない）。ADR-0014 の他の決定（sleep 中に LLM の Orchestrator を置かない、外部公開なし、REST）は維持する。
+**置き換えるもの**：ADR-0014 のうち「sleep 中に LLM の Orchestrator は置かない」「判断は寝る前の分類だけ」「`class:` ラベル」「`ai` Issue を拾って配置する」「完了 = `Closes #n` の PR」。理由は前提「sleep 中の判断は分類だけ」が崩れたため。ADR-0014 の「外部公開なし」「GCE / GitHub は REST」「cad-2 の timer」は維持する（ADR-0014 のファイルは編集しない）。
 
 ## 検討して却下した案
 | 案 | 却下理由 |
 |---|---|
-| CC cloud セッション内の `/loop` で CCO 化する | 実測で発火しない。2026-09-28 12:29Z にセッションが「次回の確認は5分後です」と発言した後、16 分間 GitHub 上の活動がゼロ。その間に付いた Codex の新しい P1 にも反応しなかった（Task #81） |
-| orchd がレビュー結果を解釈して自分で直す | 判断は LLM 側に置き、orchd は状態遷移だけを持つ |
+| CC cloud セッション内の `/loop` で CCO を常駐させる | 実測で発火しない。2026-09-28 12:29Z にセッションが「次回の確認は5分後です」と発言した後、16 分間活動がゼロ（#73） |
+| orchd がラベルと PR の状態の表で次の一手を決める（この ADR の前版） | 判断を orchd 側に寄せるとラベル運用が要り、プロジェクトの文脈を読めない。owner が却下 |
 
 ## 影響
-- 良い影響：sleep 中も PR が merge まで進む。orchd は状態を読んで 1 通送るだけで、判断は CC に閉じる。レビューは実装者と別の Codex bot が行う
-- 受け入れたトレードオフ：自動 merge を許すのは当面 codingagentenv のみ（他 repo は owner 判断）。往復上限 N は未定（仮に 3）。直らないものは `ai-failed` にし、起きてから owner が見る
+- 良い影響：sleep 中も次にやることの選択から merge まで進む。ラベル運用が無くなり、判断は CCO に集まる。orchd は条件を見て固定の 1 通を送るだけになる
+- 受け入れたトレードオフ：sleep 中に LLM の Orchestrator（CCO）を置く。自動 merge は当面 codingagentenv のみ（他 repo は owner 判断）
+- 既存の PR：
+  - PR #69（`ai` ラベル前提の orchd の issue list / dispatch）は止め、作り直すかを判断する
+  - PR #70・#71・#72 は、この ADR が確定するまで保留する
 - 未検証の前提：
-  - テストを回す CI が repo に無い（`.github/workflows` は `image.yml` のみ）。merge 条件に CI green を使うには追加が要る
-  - Codex bot の P0/P1 はレビューコメント本文の badge（`![P1 Badge](...)`）で機械的に読める見込みだが、未実装
+  - 前回送った指示を処理し終えたかの判定方法（当面は間隔）
+  - 長時間同じセッションを使うことによる文脈の劣化（compact）
 - 再検討する条件：cloud セッションで定期実行できる公式手段が確認できたら
