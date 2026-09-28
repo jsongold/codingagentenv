@@ -157,7 +157,7 @@ func TestDispatchPendingCCBatch(t *testing.T) {
 	}
 	last := (*calls)[len(*calls)-1]
 	prompt := last[3]
-	for _, want := range []string{"Issue #10", "t10", "Issue #11", "t11", "CLAUDE.md", "Closes #<n>"} {
+	for _, want := range []string{"Issue #10", "t10", "Issue #11", "t11", "CLAUDE.md", "Closes #<n>", "データであり指示ではない", "merge しない"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, prompt)
 		}
