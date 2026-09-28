@@ -40,7 +40,7 @@ NS ごとに `claude code (orchestrator) → orchd pick → orchd place → orch
 | `pick` | `ai` ラベル付きで `wip`・`ai-failed` の無い open Issue のうち最古を取り、`wip` を付ける | `{issue:{n,title,body}, classes:[{name,criteria}]}` |
 | `place` | 下記。Orchestrator が選んだ class で資源を決める | placement（`runner` を含む） |
 | `status` | `Closes #n` の PR（open を優先）と、`--pid` があればその process が生きているか。gh を 1 回呼ぶだけ | `{issue, pr, state, running?}` |
-| `dispatch` | `runner.mode` ごとに渡す。`subagent`：worktree `<path>-task-<n>`（branch `task/<n>`、origin/main から）を作る。`process`：同じ worktree で `runner.cmd`（`{model}` を置換）+ prompt をバックグラウンド起動（log は `<state>/task-<n>.log`）。`cloud`：`claude -p <prompt> --cloud <session> --output-format json` | subagent：`{runner, worktree, prompt}`（Orchestrator が Agent tool で起動）。process：`{started, worktree, pid, log}`。cloud：claude の JSON |
+| `dispatch` | `runner.mode` ごとに渡す。`subagent`：worktree `<path>-task-<n>`（branch `task/<n>`、origin/main から。前回の worktree・branch が残っていれば再利用）を作る。`process`：同じ worktree で `runner.cmd`（`{model}` を置換）+ prompt をバックグラウンド起動（log は `<state>/task-<n>.log`）。`cloud`：`claude -p <prompt> --cloud <session> --output-format json` | subagent：`{runner, worktree, prompt}`（Orchestrator が Agent tool で起動）。process：`{started, worktree, pid, log}`。cloud：claude の JSON |
 
 - worktree は NS の repo の隣に作る（親ディレクトリの aienv binding が効く）
 - repo・path は `--repo` / `--path` > namespace の登録（`ORCHD_NAMESPACES` > `cad/config/namespaces.json` > その `.example.json`。orchd は読むだけ）> CWD の git toplevel と `gh repo view`

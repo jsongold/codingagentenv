@@ -143,7 +143,7 @@ func pickCmd(args []string, w io.Writer) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	out, err := shell("", "gh", "issue", "list", "--repo", ns.Repo, "--label", "ai", "--state", "open", "--limit", "200", "--json", "number,title,body,createdAt,labels")
+	out, err := shell("", "gh", "issue", "list", "--repo", ns.Repo, "--label", "ai", "--state", "open", "--search", "-label:wip -label:ai-failed", "--limit", "200", "--json", "number,title,body,createdAt,labels")
 	var issues []ghIssue
 	if err == nil {
 		err = json.Unmarshal([]byte(out), &issues)
@@ -244,10 +244,8 @@ func dispatchCmd(args []string, stdin io.Reader, w io.Writer) (int, error) {
 	}
 	// The worktree sits next to the NS repo so the directory-based aienv bindings of its parent apply.
 	wt := filepath.Join(filepath.Dir(ns.Path), filepath.Base(ns.Path)+"-task-"+strconv.Itoa(n))
-	for _, a := range [][]string{{"fetch", "-q", "origin"}, {"worktree", "add", "-q", "-b", branch, wt, "origin/main"}} {
-		if _, err := shell("", "git", append([]string{"-C", ns.Path}, a...)...); err != nil {
-			return 1, err
-		}
+	if err := taskWorktree(ns.Path, wt, branch); err != nil {
+		return 1, err
 	}
 	if rn.Mode == "subagent" {
 		return 0, printJSON(w, map[string]any{"runner": "subagent", "worktree": wt, "prompt": prompt})
@@ -306,4 +304,20 @@ func statusCmd(args []string, w io.Writer) (int, error) {
 		res["running"] = syscall.Kill(pid, 0) == nil
 	}
 	return 0, printJSON(w, res)
+}
+
+// taskWorktree creates wt on a new branch off origin/main, or reuses what a failed or interrupted
+// earlier dispatch of the same issue left: the worktree itself, or just its branch.
+func taskWorktree(repo, wt, branch string) error {
+	if _, err := os.Stat(wt); err == nil {
+		return nil
+	}
+	git := func(a ...string) error { _, err := shell("", "git", append([]string{"-C", repo}, a...)...); return err }
+	if err := git("fetch", "-q", "origin"); err != nil {
+		return err
+	}
+	if git("rev-parse", "-q", "--verify", "refs/heads/"+branch) == nil {
+		return git("worktree", "add", "-q", wt, branch)
+	}
+	return git("worktree", "add", "-q", "-b", branch, wt, "origin/main")
 }

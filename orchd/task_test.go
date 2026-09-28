@@ -78,6 +78,9 @@ func TestPickOldestWithoutWip(t *testing.T) {
 	if c := cs[0].(map[string]any); c["name"] == "" || c["criteria"] == "" || len(cs) < 2 {
 		t.Errorf("classes %v", cs)
 	}
+	if !slices.Contains((*calls)[0], "-label:wip -label:ai-failed") {
+		t.Errorf("list must filter claimed issues server-side: %v", (*calls)[0])
+	}
 	if got := strings.Join((*calls)[1][1:], " "); got != "gh issue edit 2 --repo o/r --add-label wip" {
 		t.Errorf("claim: %s", got)
 	}
@@ -107,7 +110,7 @@ const issueJSON = `{"title":"Fix it","body":"details"}`
 
 func TestDispatchSubagent(t *testing.T) {
 	taskEnv(t, reg)
-	calls := fakeShell(t, map[string]string{"gh issue view": issueJSON})
+	calls := fakeShell(t, map[string]string{"gh issue view": issueJSON, "git -C /src/r rev-parse": "ERR"})
 	code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", `{"agent":"claude/a","runner":{"mode":"subagent"}}`)
 	if code != 0 {
 		t.Fatalf("code %d: %s", code, errs)
@@ -128,7 +131,7 @@ func TestDispatchSubagent(t *testing.T) {
 
 func TestDispatchProcess(t *testing.T) {
 	taskEnv(t, reg)
-	calls := fakeShell(t, map[string]string{"gh issue view": issueJSON})
+	calls := fakeShell(t, map[string]string{"gh issue view": issueJSON, "git -C /src/r rev-parse": "ERR"})
 	pl := `{"runner":{"mode":"process","cmd":"opencode run --model {model}","model":"m1"}}`
 	code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", pl)
 	if code != 0 || m["started"] != true || m["pid"] != 42.0 || m["worktree"] != "/src/r-task-7" {
@@ -198,5 +201,16 @@ func TestStatus(t *testing.T) {
 	fakeShell(t, map[string]string{"gh pr list": `[{"url":"u/9","state":"OPEN","body":"Closes #70"}]`})
 	if _, m, _ := runTask(t, "status", "--issue", "7"); m["pr"] != nil || m["state"] != nil {
 		t.Errorf("no PR: %v", m)
+	}
+}
+
+func TestDispatchReusesBranchOfEarlierRun(t *testing.T) { // the branch exists (earlier dispatch), the worktree does not
+	taskEnv(t, reg)
+	calls := fakeShell(t, map[string]string{"gh issue view": issueJSON})
+	if code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", `{"runner":{"mode":"subagent"}}`); code != 0 {
+		t.Fatalf("code %d %s", code, errs)
+	}
+	if got := strings.Join((*calls)[len(*calls)-1][1:], " "); got != "git -C /src/r worktree add -q /src/r-task-7 task/7" {
+		t.Errorf("worktree: %s", got)
 	}
 }

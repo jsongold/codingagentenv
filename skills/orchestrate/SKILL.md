@@ -11,10 +11,10 @@ orchd は毎回 Orchestrator（このセッション）が呼び、結果の JSO
 
 1. `orchd pick --ns <ns>` → `{issue, classes}`（`{none}` なら終わり）。Issue には `wip` が付く（`wip`・`ai-failed` 付きは取らない）。
 2. `classes[].criteria` から class を 1 つ選び、理由を 1 行で Issue にコメントする。
-3. `orchd place --ns <ns> --class <c>` → exit 0 なら placement JSON。3 は保留、1/2/4 は失敗（下の「Issue の状態」）。
+3. `orchd place --ns <ns> --class <c> --self <self>`（self = `claude/<CLAUDE_CONFIG_DIR の basename>`、未設定なら `claude/default`。無いと self の rule が使われない）→ exit 0 なら placement JSON。3 は保留、1/2/4 は失敗（下の「Issue の状態」）。
 4. dispatch は必ず background の Subagent（Agent tool、`run_in_background`）の中で実行する。完了は Subagent の通知で知る。
    - runner `subagent`：Subagent（既定モデル）が `orchd dispatch --ns <ns> --issue <n> --placement '<JSON>'` を実行し、返った `worktree` で `prompt` のとおり作業して PR（`Closes #n`）を出す。
-   - runner `process` / `cloud`：監視役の Subagent（`model: haiku`）が dispatch を実行し、`orchd status --issue <n> [--pid <pid>]` を 1 回 4 分以内の呼び出しで繰り返して（60 秒おき・既定 60 分まで）PR か失敗を待つ。
+   - runner `process` / `cloud`：監視役の Subagent（`model: haiku`）が dispatch を実行し、`orchd status --ns <ns> --issue <n> [--pid <pid>]` を 1 回 4 分以内の呼び出しで繰り返して（60 秒おき・既定 60 分まで）PR か失敗を待つ。
    - 報告は 5 行以内：issue、runner、PR URL か失敗理由。
 
 ## Issue の状態（GitHub だけで持つ。Orchestrator が `gh issue edit` / `gh issue comment` で直接変える）
