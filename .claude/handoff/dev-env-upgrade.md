@@ -1,24 +1,25 @@
 # handoff: dev-env-upgrade
-最終更新: 2026-09-27 19:40 JST
-目的: ローカル Mac = Orchestrator、Worker を local / クラウドに振り分ける開発環境。直近ゴールは「寝ている間も稼働させる」。
-完了条件: (1) cad place v0.0.1（決定木）が main、(2) Mac 睡眠時に GitHub Actions + opencode が `ai` ラベル Issue から PR を出し CI が通る夜を確認。
+最終更新: 2026-09-28 01:10 JST
+目的: ローカル Mac = Orchestrator で task を (agent, computer) に振り分けて並列開発。直近ゴールは「寝ている間も稼働させる」。
+完了条件: (1) PR #22 merge 後、`ai` ラベル Issue から opencode が PR を出し CI が通る夜を確認、(2) dev-dispatch（#44）で place の結果どおり subagent / `opencode run` を自動起動。
 決定事項（詳細 ADR-0010）:
-- 配置 = 分類問題。1段目 task→class は Orchestrator(LLM)、2段目 (class, metadata)→(agent, computer) は cad がコードで決定木評価。ルールは policy.rules のデータ（上から最初に合う）。strategy/cost 並べ替えは過剰で廃止。
-- 戦略: local で claude（窓に余裕の間）→ 尽きたら opencode（OpenCode Go、model 動的・直近 deepseek）→ 全滅 defer。codex はレビュー専用。
-- Mac 睡眠時: GitHub Actions のみ（Fable 推奨 A）。owner が就寝前に手で `ai` ラベル、`wip` をロック、concurrency 1、timeout 60。この repo だけで1週間試す。cloud cad / heartbeat / 自動ラベル / opencode usage collector は作らない。
-- usage は cad が定期収集: claude = `claude -p /usage` → <store>/.claude.json cachedUsageUtilization（無料）、codex = `codex app-server` account/rateLimits/read（無料、byLimitId 走査、欠損窓は null）。
-- agents: claude/a12e00a7, claude/b1c8ef41, codex/2e33b72a（plus、5h 窓なしが正しい）, opencode/996c87ae。claude/default（a12e00a7 と同一）・codex/default（~/.codex team、別アカウント）は除外。
-- slots は CAD_SLOTS=5 固定（1 slot = 1 ws）、メモリは macOS 任せ。aienv は repo 取り込み検討中（未決）。
-- 調査・情報収集は opencode（`opencode run`）に任せ、main が一次ソースで検証。並列起動は snapshot ロック競合で固まる→1本ずつ。
-却下: OSS 採用（ADR-0008）、配置専用 daemon、ML 配置、LLM に配置判断させる、稼働 ws のカウント、cloud cad（今は）、`/status` 画面スクレイプ。
+- 配置 = 分類問題。1段目 task→class は Orchestrator(LLM、基準は policy.classes[].criteria)、2段目は cad の決定木（policy.rules、上から最初に合う）。LLM に配置させない（揺れる・検証不可）。
+- 設定はすべて .agent/policy.json（classes / rules / runners / collect、hot reload）。日々変わるため。
+- Claude は常に subagent（= Orchestrator 自身のアカウント、place に self を渡す）。窓が尽きたら opencode（OpenCode Go、model opencode-go/deepseek-v4-pro、`opencode run`）。codex はレビュー専用。
+- Mac 睡眠時は GitHub Actions のみ（Fable 推奨）: owner が就寝前に手で `ai` ラベル、`wip` ロック、concurrency queue: max、timeout 60、share: false、action を SHA pin。cloud cad / heartbeat / 自動ラベル / opencode usage collector は作らない。
+- usage: claude = `claude -p /usage` → .claude.json cachedUsageUtilization、codex = app-server account/rateLimits/read（無料）。agents: claude/a12e00a7, claude/b1c8ef41, codex/2e33b72a（plus、5h 窓なしが正）, opencode/996c87ae。claude/default・codex/default は除外。
+- 調査は opencode（1本ずつ、並列は snapshot ロックで固まる）、レビューは Fable/Codex。main の変更は常に PR 経由。
+却下: strategy/cost 並べ替え型 place（過剰）、LLM 配置、cloud cad（今は）、`/status` スクレイプ、OSS 採用。
 現在の状態:
-- main = 260ef96（PR #13-#19 merge 済、v0.1.0 は owner 指示で Codex レビュー免除）。main checkout は docs/handoff branch。
-- 担当 Task: #52 in_progress（place v0.0.1、subagent が worktree ../codingagentenv-rules / branch feat/place-rules で実装中、PR は出すが merge しない＝owner レビュー待ち）。#44 pending（c8 着手時）。
+- main = c2d3cf6（PR #13-#21 merge 済）。checkout は docs/handoff-dev-env-upgrade（この handoff）。branch chore/gitignore-env（`.env` ignore、未 push）。
+- PR #22 open（worktree ../codingagentenv-gha、head 12df258）: Codex P1×2 + Fable 指摘全修正済、actionlint ok、owner の merge 待ち。
+- secret: OPENCODE_API_KEY 登録済。OPENCODE_GH_PAT 未登録。
+- 担当 Task: #54 in_progress（PR #22）、#44 pending（dev-dispatch）。
 次の一手:
-1. #52 の PR を確認: `gh pr list --head feat/place-rules`。`cd ../codingagentenv-rules/cad && go test -count=1 ./...`、owner に確認コマンドを渡し、承認後 merge。
-2. GHA workflow PR（Fable 案）: `.github/workflows/opencode.yml`（issues labeled `ai`、`wip` ロック、concurrency 1、timeout 60、anomalyco/opencode/github@latest、model opencode-go/deepseek-v4-pro、use_github_token: true + PAT）、Orchestrator 規則「ai/wip 付き Issue は拾わない」、ADR 追記。owner が secret `OPENCODE_API_KEY` と fine-grained PAT（contents/PR/issues write）を登録。
+1. owner に確認: PR #22 merge 可否、main 保護（ruleset "protect main" id 24066437 は disabled、PR 必須なし）を有効化するか、PAT 登録。
+2. merge 後の実地テスト: `gh issue create --title "test: opencode sleep run" --body "README の配置ロジック節の誤字を1つ直して" --label ai` → `gh run list --workflow opencode-sleep.yml --limit 1` → PR 確認。
+3. #44 dev-dispatch: place(self=CLAUDE_CONFIG_DIR basename) → runner.mode subagent なら Agent、process なら worktree で `opencode run --model <model>`。
 注意・未解決:
-- 要確認: GITHUB_TOKEN で作った PR は CI を起動しない（Fable 指摘、docs 未確認）。OpenCode Go の CI 利用規約（未確認）、`/zen/go/v1/usage`（source のみ、docs 無し）。
-- 未決: aienv 取り込みとコマンド名（codingenv aienv / caenv）、worktree がバインド外で別アカウント継承する問題。
-- 片付け待ち worktree 多数（`git worktree list`）。GitHub 既定ブランチは feat/task-queue のまま（PR は必ず --base main、本文編集は gh api PATCH）。
-- 未コミットの他変更あり（token-usage.jsonl、node_modules、package-lock.json、.claude/changegraph、.claude/design、research_notes）。
+- repo は PUBLIC、main は無保護（agent が PAT で main に直 push 可能）。
+- chore/gitignore-env と docs/handoff-dev-env-upgrade を PR にするか未決。aienv 取り込み・コマンド名も未決。
+- 未コミットの他変更あり（.claude/token-usage.jsonl ほか untracked）。
