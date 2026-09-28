@@ -3,7 +3,7 @@
 cad + orchd + Claude Code を 1 つの image（`ghcr.io/jsongold/codingagentenv/cad`）にして、COS の VM で常駐させる。
 
 - image：main への push ごとに GitHub Actions（`.github/workflows/image.yml`）が build し、`:main` と `:sha-<7桁>` を GHCR に push する
-- VM：startup script（`startup.sh`、毎 boot root で実行）が image 内の `fetch-auth` を起動して Secret Manager から secret を volume に書き（下の「secrets」）、COS 既定の `live-restore: true`（swarm と非互換）を `/var/lib/docker/daemon.json` で false にして（初回のみ docker を再起動。COS の docker.service が起動前にこのファイルを `/etc/docker/daemon.json` へ copy する）、single-node Docker Swarm を init し（初回のみ。swarm の状態は `/var/lib/docker` に残る）、service `cad`（`--network host`、`/var/lib/cad:/data`）を作る。`cad-update.timer` が 5 分ごとに `docker service update --image …:main cad` を実行し、digest が変わっていれば health-gated に入れ替え、失敗すれば自動で前の image に rollback する（= main に追従）。`orchd-sleep.timer` が 15 分ごとに cad の container 内で `orchd wake` を実行する（下の「sleep loop」）
+- VM：startup script（`startup.sh`、毎 boot root で実行）が image 内の `fetch-auth` を起動して Secret Manager から secret を volume に書き（下の「secrets」）、COS 既定の `live-restore: true`（swarm と非互換）を `/var/lib/docker/daemon.json` で false にして（初回のみ docker を再起動。COS の docker.service が起動前にこのファイルを `/etc/docker/daemon.json` へ copy する）、single-node Docker Swarm を init し（初回のみ。swarm の状態は `/var/lib/docker` に残る）、service `cad`（`--network host`、`/var/lib/cad:/data`）を作る。`cad-update.timer` が 5 分ごとに `docker service update --image …:main cad` を実行し、digest が変わっていれば health-gated に入れ替え、失敗すれば自動で前の image に rollback する（= main に追従）。`orchd-sleep.timer` が 5 分ごとに cad の container 内で `orchd wake` を実行する（下の「sleep loop」）
 - 旧来の `gcloud compute instances create-with-container`（COS の container 起動 agent）は deprecated なので使わない
 - アクセスは IAP SSH のみ（firewall `allow-iap-ssh-cad`：tcp:22 from 35.235.240.0/20、tag `cad`）。cad は VM の `127.0.0.1:7878` だけで listen する（`--network host` + cad の既定 addr。非 loopback は `CAD_TOKEN` なしだと cad 自身が拒否する）
 - 既定：project `suggestorder-dev`、zone `us-central1-a`、VM `cad-2`、`e2-micro`（env `PROJECT` `ZONE` `VM` `MACHINE` で上書き）
@@ -102,12 +102,12 @@ gcloud compute instances reset cad-2 --project suggestorder-dev --zone us-centra
 
 ## sleep loop（`orchd-sleep.timer`）
 
-owner が寝ている間は cad-2 の timer が 15 分ごとに `orchd wake` を回す（[ADR-0015](../../docs/decisions/0015-sleep-advance.md)）。`orchd mode set sleep` のときだけ実質動き、CC cloud worker セッション（CCO）に固定の 1 通を送って起こすだけで、何をやるかは選ばない。起きている間は手元の Orchestrator が動くので、timer は動いていても何もしない。
+owner が寝ている間は cad-2 の timer が 5 分ごとに `orchd wake` を回す（[ADR-0015](../../docs/decisions/0015-sleep-advance.md)）。`orchd mode set sleep` のときだけ実質動き、CC cloud worker セッション（CCO）に固定の 1 通を送って起こすだけで、何をやるかは選ばない。起きている間は手元の Orchestrator が動くので、timer は動いていても何もしない。
 
-- 有効化：`startup.sh` が boot ごとに `orchd-sleep.service`（oneshot）と `orchd-sleep.timer`（boot 3 分後から 15 分ごと。boot 直後の 1 回目が `cad-update.timer` の boot 2 分後と重ならないようずらしてある）を作り、`systemctl enable --now` する。手で有効化する操作は無い（metadata の `startup-script` を今の `startup.sh` に差し替えて reboot / reset すれば入る。上の「恒久的に固定」と同じ手順）
+- 有効化：`startup.sh` が boot ごとに `orchd-sleep.service`（oneshot）と `orchd-sleep.timer`（boot 3 分後から 5 分ごと。boot 直後の 1 回目が `cad-update.timer` の boot 2 分後と重ならないようずらしてある）を作り、`systemctl enable --now` する。手で有効化する操作は無い（metadata の `startup-script` を今の `startup.sh` に差し替えて reboot / reset すれば入る。上の「恒久的に固定」と同じ手順）
 - 中身：service の label で cad の container を引き（`cad.1.<task id>`）、`docker exec <container> /app/orchd/bin/orchd wake`（ns は `default`、user は image の `cad`、env も image のもの）
-- **`orchd mode set sleep` のときだけ実質動く**。mode の判定は orchd 側で、sleep 以外なら exit 0 と `{"skipped":true,...}` を出して終わる（15 分ごとに journal に 1 行残る）。寝る前に `orchd mode set sleep`、起きたら `orchd mode clear`（または別の mode を set）。mode のファイルは volume（`/data/orchd/state/mode/`）にあるので cad の container の中で実行する：`$S "sudo docker exec \$(sudo docker ps -q -f label=com.docker.swarm.service.name=cad) orchd mode set sleep --by owner"`
-- exit code：3（cad が未 ready、または update / rollback の途中で cad の container が無い）は defer として成功扱い（`SuccessExitStatus=3`）、次の 15 分後に再試行。1・2（claude / API の失敗、入力不正、cloud の session が無いなど）は unit が failed になる
+- **`orchd mode set sleep` のときだけ実質動く**。mode の判定は orchd 側で、sleep 以外なら exit 0 と `{"skipped":true,...}` を出して終わる（5 分ごとに journal に 1 行残る）。寝る前に `orchd mode set sleep`、起きたら `orchd mode clear`（または別の mode を set）。mode のファイルは volume（`/data/orchd/state/mode/`）にあるので cad の container の中で実行する：`$S "sudo docker exec \$(sudo docker ps -q -f label=com.docker.swarm.service.name=cad) orchd mode set sleep --by owner"`
+- exit code：3（cad が未 ready、または update / rollback の途中で cad の container が無い）は defer として成功扱い（`SuccessExitStatus=3`）、次の 5 分後に再試行。1・2（claude / API の失敗、入力不正、cloud の session が無いなど）は unit が failed になる
 - cad の update との直列化：`cad-update.service` は cad の container を stop-first で入れ替えるので、wake の途中に走ると orchd が殺される。そこで両者を直列にしている。`orchd-sleep.service` は `cad-update.service` の実行中は `ExecCondition` で skip し（failed にはならない。journal に `cad-update running; skipped`）、`cad-update.service` は入れ替えの前に実行中の `orchd-sleep.service` の終了を待つ（5 秒ごと、最大 600 秒。超えたら update を優先して進める）。どちらも oneshot で実行中の状態は `activating` なので、`systemctl is-active` の出力の文字列で判定している
 - 前提：`orchd wake` を持つ image。それより古い image では `wake` を知らず exit 2 で failed になる
 

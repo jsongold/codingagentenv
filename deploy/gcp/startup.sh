@@ -120,7 +120,7 @@ OnUnitActiveSec=5min
 WantedBy=timers.target
 UNIT
 
-# Sleep loop (ADR-0015): every 15 minutes run `orchd wake` inside the cad container to wake the cloud worker
+# Sleep loop (ADR-0015): every 5 minutes run `orchd wake` inside the cad container to wake the cloud worker
 # session. orchd decides whether to act: a no-op (exit 0, {"skipped":true,...}) unless `orchd mode set sleep`;
 # exit 3 = deferred (cad not ready), retried on the next run, so SuccessExitStatus=3 keeps the unit from being
 # marked failed. The task's container is cad.1.<task id>, so it is looked up by the swarm service label (as in
@@ -144,11 +144,11 @@ UNIT
 
 cat >/etc/systemd/system/orchd-sleep.timer <<UNIT
 [Unit]
-Description=Run orchd wake every 15 minutes (sleep loop, ADR-0015)
+Description=Run orchd wake every 5 minutes (sleep loop, ADR-0015)
 
 [Timer]
 OnBootSec=3min
-OnUnitActiveSec=15min
+OnUnitActiveSec=5min
 
 [Install]
 WantedBy=timers.target
