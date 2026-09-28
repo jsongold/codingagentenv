@@ -32,7 +32,7 @@ MSG
 for id in "${CLAUDE_IDS[@]}"; do
   cat <<MSG
   gcloud compute ssh $VM --project $PROJECT --zone $ZONE --tunnel-through-iap -- -t \\
-    sudo docker exec -it -e CLAUDE_CONFIG_DIR=/data/.aienv/.store/$id cad claude
+    'sudo docker exec -it -e CLAUDE_CONFIG_DIR=/data/.aienv/.store/$id \$(sudo docker ps -q -f label=com.docker.swarm.service.name=cad) claude'
   # then /login, finish in the browser, /exit.  -> agent claude/$id
 MSG
 done
@@ -41,5 +41,7 @@ cat <<MSG
 CLAUDE_CONFIG_DIR must be /data/.aienv/.store/<id>: cad's usage collector runs
 CLAUDE_CONFIG_DIR=\$HOME/.aienv/.store/<id> claude, and \$HOME=/data (= /var/lib/cad on the VM).
 Without it, login lands in /data/.claude (= agent claude/default).
-Check: gcloud compute ssh $VM --project $PROJECT --zone $ZONE --tunnel-through-iap -- sudo docker exec cad cad show usage --local
+Check: gcloud compute ssh $VM --project $PROJECT --zone $ZONE --tunnel-through-iap -- \\
+  'sudo docker exec \$(sudo docker ps -q -f label=com.docker.swarm.service.name=cad) cad show usage --local'
+(cad runs as swarm service "cad"; its container is cad.1.<task id>, so look it up by the service label.)
 MSG

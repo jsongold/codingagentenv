@@ -39,5 +39,11 @@ ENV HOME=/data \
 WORKDIR /data
 VOLUME /data
 ENTRYPOINT ["/app/entrypoint.sh"]
+# Swarm gates updates on this: a task counts as running only once healthy, and update-failure-action=rollback
+# reverts an image whose task never gets healthy (deploy/gcp/startup.sh). start-period covers cad's first
+# usage collection. https://docs.docker.com/reference/dockerfile/#healthcheck
+# TODO: switch to /healthz?ready when the cad readiness PR lands.
+HEALTHCHECK --interval=15s --timeout=3s --start-period=90s --retries=3 \
+  CMD curl -fsS -o /dev/null http://127.0.0.1:7878/healthz || exit 1
 # cad listens on 127.0.0.1:7878 (its default); run with --network host so the host's loopback is cad's.
 CMD ["cad"]
