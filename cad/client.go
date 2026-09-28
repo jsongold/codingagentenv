@@ -31,26 +31,36 @@ func getCmd(args []string, w io.Writer) error {
 	case !nsRe.MatchString(*ns):
 		return errNS
 	}
+	b, err := cadGetRaw(topic, *ns)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(b)
+	return err
+}
+
+// cadGetRaw issues one GET /v1/<topic>?ns=<ns> against the running cad (CAD_ADDR/CAD_TOKEN) and
+// returns the raw response body. Shared by `cad get` and `cad show --usage`.
+func cadGetRaw(topic, ns string) ([]byte, error) {
 	addr := os.Getenv("CAD_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:7878"
 	}
-	req, err := http.NewRequest("GET", "http://"+addr+"/v1/"+url.PathEscape(topic)+"?ns="+*ns, nil)
+	req, err := http.NewRequest("GET", "http://"+addr+"/v1/"+url.PathEscape(topic)+"?ns="+url.QueryEscape(ns), nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if t := os.Getenv("CAD_TOKEN"); t != "" {
 		req.Header.Set("Authorization", "Bearer "+t)
 	}
 	res, err := (&http.Client{Timeout: 2 * time.Second}).Do(req)
 	if err != nil {
-		return fmt.Errorf("cad daemon unreachable at %s: %v", addr, err)
+		return nil, fmt.Errorf("cad daemon unreachable at %s: %v", addr, err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(res.Body, 512))
-		return fmt.Errorf("GET /v1/%s: %s: %s", topic, res.Status, b)
+		return nil, fmt.Errorf("GET /v1/%s: %s: %s", topic, res.Status, b)
 	}
-	_, err = io.Copy(w, res.Body)
-	return err
+	return io.ReadAll(res.Body)
 }
