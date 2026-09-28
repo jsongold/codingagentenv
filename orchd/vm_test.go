@@ -179,6 +179,72 @@ func TestDispatchVMUnavailable(t *testing.T) {
 	}
 }
 
+// TestDispatchVMPicksAnyStoppedInstance: runner.instance lists two VMs of the same kind (create-worker.sh, up to
+// 3); the first is busy, so dispatch skips it and starts the second stopped one.
+func TestDispatchVMPicksAnyStoppedInstance(t *testing.T) {
+	taskEnv(t, reg)
+	fakeShell(t, nil)
+	oldTok, oldSleep, oldBudget, oldPoll := accessToken, sleep, vmBudget, vmPoll
+	t.Cleanup(func() { accessToken, sleep, vmBudget, vmPoll = oldTok, oldSleep, oldBudget, oldPoll })
+	vmBudget, vmPoll, sleep = 50*time.Millisecond, time.Millisecond, time.Sleep
+	accessToken = func() (string, error) { return "tok", nil }
+	items := map[string]any{"fingerprint": "fp1", "items": []metaItem{{"startup-script", "worker-task"}}}
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, _ := strings.CutPrefix(r.URL.Path, "/projects/p1/zones/z1/")
+		calls = append(calls, r.Method+" "+p)
+		switch {
+		case r.Method == "GET" && p == "instances/worker-spot":
+			json.NewEncoder(w).Encode(map[string]any{"status": "RUNNING", "metadata": items})
+		case r.Method == "GET" && p == "instances/worker-spot-2":
+			json.NewEncoder(w).Encode(map[string]any{"status": "TERMINATED", "metadata": items})
+		case r.Method == "POST" && p == "instances/worker-spot-2/setMetadata":
+			io.WriteString(w, `{"name":"op-md","status":"DONE"}`)
+		case r.Method == "POST" && p == "instances/worker-spot-2/start":
+			io.WriteString(w, `{"name":"op-start","status":"DONE"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("ORCHD_COMPUTE_URL", srv.URL)
+	pl := `{"runner":{"mode":"vm","instance":"worker-spot,worker-spot-2","zone":"z1","project":"p1","image":"ghcr.io/o/w:main","model":"prov/m-1"}}`
+	code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", pl)
+	if code != 0 || m["instance"] != "worker-spot-2" || m["container"] != "opencode-worker-7" {
+		t.Fatalf("code %d %v %s", code, m, errs)
+	}
+	if len(calls) < 2 || calls[0] != "GET instances/worker-spot" || calls[1] != "GET instances/worker-spot-2" {
+		t.Errorf("did not check worker-spot before worker-spot-2: %v", calls)
+	}
+}
+
+// TestDispatchVMAllInstancesBusy: every VM of the kind is running another task.
+func TestDispatchVMAllInstancesBusy(t *testing.T) {
+	taskEnv(t, reg)
+	fakeShell(t, nil)
+	oldTok, oldSleep, oldBudget, oldPoll := accessToken, sleep, vmBudget, vmPoll
+	t.Cleanup(func() { accessToken, sleep, vmBudget, vmPoll = oldTok, oldSleep, oldBudget, oldPoll })
+	vmBudget, vmPoll, sleep = 50*time.Millisecond, time.Millisecond, time.Sleep
+	accessToken = func() (string, error) { return "tok", nil }
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, _ := strings.CutPrefix(r.URL.Path, "/projects/p1/zones/z1/")
+		switch p {
+		case "instances/worker-spot":
+			json.NewEncoder(w).Encode(map[string]any{"status": "RUNNING", "metadata": map[string]any{"fingerprint": "fp1"}})
+		case "instances/worker-spot-2":
+			json.NewEncoder(w).Encode(map[string]any{"status": "STAGING", "metadata": map[string]any{"fingerprint": "fp1"}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("ORCHD_COMPUTE_URL", srv.URL)
+	pl := `{"runner":{"mode":"vm","instance":"worker-spot,worker-spot-2","zone":"z1","project":"p1","image":"ghcr.io/o/w:main","model":"prov/m-1"}}`
+	if code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", pl); code != 5 || !strings.Contains(errs, "computer unavailable") {
+		t.Errorf("code %d %s", code, errs)
+	}
+}
+
 func TestDispatchVMBadRunner(t *testing.T) {
 	taskEnv(t, reg)
 	fakeShell(t, nil)
