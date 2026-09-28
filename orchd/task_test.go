@@ -64,6 +64,7 @@ func TestPickOldestWithoutWip(t *testing.T) {
 	taskEnv(t, reg)
 	calls := fakeShell(t, map[string]string{"gh issue list": `[
 		{"number":3,"title":"t3","body":"b3","createdAt":"2026-09-03T00:00:00Z","labels":[{"name":"ai"}]},
+		{"number":0,"title":"t0","body":"b0","createdAt":"2026-08-01T00:00:00Z","labels":[{"name":"ai-failed"}]},
 		{"number":1,"title":"t1","body":"b1","createdAt":"2026-09-01T00:00:00Z","labels":[{"name":"wip"}]},
 		{"number":2,"title":"t2","body":"b2","createdAt":"2026-09-02T00:00:00Z","labels":[]}]`})
 	code, m, errs := runTask(t, "pick")

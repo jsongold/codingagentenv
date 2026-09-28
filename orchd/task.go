@@ -129,7 +129,7 @@ func taskFlags(name string, args []string, extra ...string) (map[string]*string,
 	return v, nil
 }
 
-// pickCmd claims the oldest open issue labeled ai without wip (adds wip) and prints it with the classes to choose from.
+// pickCmd claims the oldest open issue labeled ai without wip or ai-failed (adds wip) and prints it with the classes to choose from.
 func pickCmd(args []string, w io.Writer) (int, error) {
 	f, err := taskFlags("pick", args)
 	if err != nil {
@@ -151,9 +151,11 @@ func pickCmd(args []string, w io.Writer) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	issues = slices.DeleteFunc(issues, func(i ghIssue) bool { return slices.Contains(i.Labels, label{"wip"}) })
+	issues = slices.DeleteFunc(issues, func(i ghIssue) bool {
+		return slices.Contains(i.Labels, label{"wip"}) || slices.Contains(i.Labels, label{"ai-failed"})
+	})
 	if len(issues) == 0 {
-		return 0, printJSON(w, map[string]any{"none": true, "reason": "no open issue labeled ai without wip"})
+		return 0, printJSON(w, map[string]any{"none": true, "reason": "no open issue labeled ai without wip or ai-failed"})
 	}
 	i := slices.MinFunc(issues, func(a, b ghIssue) int { return strings.Compare(a.CreatedAt, b.CreatedAt) })
 	if _, err := shell("", "gh", "issue", "edit", strconv.Itoa(i.Number), "--repo", ns.Repo, "--add-label", "wip"); err != nil {

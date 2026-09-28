@@ -26,7 +26,7 @@ const usageText = `usage:
       mode precedence: --mode > <state>/mode/<ns>.json > <state>/mode/_global.json > ORCHD_MODE > auto
       "auto" = policy.rules (local is the last resort); others = policy.modes.<m>.rules (urgent = local-first)
   orchd pick [--ns default] [--repo o/r] [--path dir]
-      claim the oldest open issue labeled ai without wip (adds wip); print {issue:{n,title,body}, classes:[{name,criteria}]}
+      claim the oldest open issue labeled ai without wip/ai-failed (adds wip); print {issue:{n,title,body}, classes:[{name,criteria}]}
       or {none, reason}. repo/path: flags > namespace registry > git toplevel of the CWD + gh repo view
   orchd dispatch --issue <n> --placement <json|-> [--ns default] [--repo o/r] [--path dir]
       hand issue n to the place output's runner.mode: subagent = create worktree <path>-task-<n> (branch
