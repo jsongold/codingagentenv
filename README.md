@@ -1,5 +1,7 @@
 # codingagentenv — 全プロジェクト共通の Claude Code ハーネス
 
+**Mission**: コーディングエージェントを 24/7 動かし続け、コストを最小に抑えながら計算資源と AI の使用枠を使い切る（[docs/mission.md](docs/mission.md)）。
+
 /clear 後も文脈を失わず、作業を Task list 経由で Subagent に実行させるためのハーネス。
 ハーネス本体は global（`~/.claude/`）に置き、各 project はデータだけを持つ（ADR-0003）。テンプレートを各 repo にコピーする方式はやめた。
 
