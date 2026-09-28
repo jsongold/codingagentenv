@@ -61,6 +61,12 @@ hatchet-lite v0.107.0 + postgres 15.6、TS SDK 1.33.2、Node v26。2 つの work
   - ADR-0008：`cad` の責務を usage の収集・配信に縮小する。「既存 OSS の採用」の却下は再検討条件（満たす OSS が出てきた）に該当した
   - ADR-0010：place の置き場所を `cad` → `orchd` に移す。Mac 睡眠時の GitHub Actions 経路との関係を整理する
 
+## 追記（2026-09-28）：版の引き継ぎと設定の互換
+- **設定の互換ルール**：新しい版の cad / orchd は古い設定ファイル（`cad/config.json`、`orchd/policy.json`、state 配下）をそのまま読めること。キーの追加は既定値で吸収する（例 `placement.staleUsage` が無ければ `pass`）。キーの意味や形を壊す変更は、起動時に古い形を新しい形へ書き換える migration を同じ版に入れる。旧名は別名として残す（例 `CAD_POLICY`）
+- **cad の入れ替え**：usage を集めるたびに `<state>/usage-snapshot.json` を atomic に書く（state = `CAD_STATE_DIR` > `<app>/state`）。起動時に 24 時間以内の snapshot を全 agent `stale: true`（`fetchedAt` は元のまま）で即公開し、最初の収集で上書きする
+- **readiness**：`GET /healthz` は liveness のまま。`GET /healthz?ready` は snapshot を読んだか最初の収集が終わったら 200、それまで 503（JSON で reason）
+- **orchd**：place の前に `/healthz?ready` を見る。503 なら exit 3（reason `cad not ready`、`defer_until` = 今 + 2 分）。接続できなければ 2 秒おきに 3 回再試行してから exit 1。stale な agent は `placement.staleUsage`（`pass` 既定 = 従来どおり配置し reason に `<agent>: usage stale`、`block` = 飛ばす）
+
 ## 未決
 - self-host か Hatchet Cloud か（Cloud の無料枠は 1M runs / 月）
 - Claude を Hatchet 経由で動かすか。subagent のままだと Claude の task は Hatchet の状態に乗らない

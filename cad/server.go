@@ -14,6 +14,10 @@ import (
 func newServer(h *hub, token string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/healthz" {
+			if r.URL.Query().Has("ready") {
+				h.serveReady(w)
+				return
+			}
 			fmt.Fprintln(w, "ok")
 			return
 		}
@@ -121,4 +125,16 @@ func (h *hub) serveEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		fl.Flush()
 	}
+}
+
+// serveReady (GET /healthz?ready): 200 once usage is known (snapshot loaded or first collection
+// done), else 503. Plain /healthz stays liveness.
+func (h *hub) serveReady(w http.ResponseWriter) {
+	if src, ok := h.readySrc.Load().(string); ok {
+		writeJSON(w, map[string]interface{}{"ready": true, "usage": src})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	json.NewEncoder(w).Encode(map[string]interface{}{"ready": false, "reason": "usage not collected yet"})
 }

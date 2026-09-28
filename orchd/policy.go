@@ -17,6 +17,7 @@ type Policy struct {
 	Modes     map[string]Mode `json:"modes"`     // mode name -> its rule list, used instead of Rules (see mode.go)
 	Placement struct {
 		ReservePct float64 `json:"reservePct"` // usage headroom kept free per window
+		StaleUsage string  `json:"staleUsage"` // "pass" (default: a stale agent is placed as if usage were unknown) or "block" (skipped)
 	} `json:"placement"`
 	Classes map[string]Class  `json:"classes"` // the task classes place accepts (the Orchestrator classifies by criteria)
 	Runners map[string]Runner `json:"runners"` // service -> how the Orchestrator launches it (returned by place)
@@ -57,6 +58,9 @@ func loadPolicy() (Policy, error) {
 	}
 	if err == nil && len(p.Classes) == 0 {
 		err = errors.New(`no "classes" (want classes{name:{criteria,estPct}} — see ADR-0010)`)
+	}
+	if s := p.Placement.StaleUsage; err == nil && s != "" && s != "pass" && s != "block" {
+		err = fmt.Errorf("placement.staleUsage %q: want pass or block", s)
 	}
 	for s, r := range p.Runners {
 		switch {

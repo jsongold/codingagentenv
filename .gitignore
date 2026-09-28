@@ -3,4 +3,5 @@
 !CLAUDE.md
 .claude/settings.local.json
 cad/bin/
+cad/state/
 cad/config/namespaces.json

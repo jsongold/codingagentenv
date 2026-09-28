@@ -27,6 +27,7 @@ func main() {
 		log.Fatalf("cad: refusing to bind non-loopback %s without CAD_TOKEN", addr)
 	}
 	h := newHub()
+	h.loadSnapshot()
 	go h.run(collectors, 250*time.Millisecond, nil)
 	go h.runQuotaResets(pollEvery)
 	log.Printf("cad: listening on %s", addr)

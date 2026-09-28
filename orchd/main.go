@@ -26,14 +26,17 @@ const usageText = `usage:
       mode precedence: --mode > <state>/mode/<ns>.json > <state>/mode/_global.json > ORCHD_MODE > auto
       "auto" = policy.rules (local is the last resort); others = policy.modes.<m>.rules (urgent = local-first)
   orchd show [rules|classes|runners]    print policy sections (no arg = all three)
+  stale usage (cad restarted from its snapshot): policy placement.staleUsage "pass" (default; placed
+      as if unknown, reason "<agent>: usage stale") or "block" (skipped)
 files (CWD-independent): app dir = $ORCHD_HOME > dir above orchd's bin/ (if it has policy.json) > .
   policy: ORCHD_POLICY > <app>/policy.json; state: ORCHD_STATE_DIR > <app>/state
 env: ORCHD_MODE; CAD_ADDR (> mode cadAddr > top-level cadAddr for auto > 127.0.0.1:7878), CAD_TOKEN
 exit codes:
   0  placed (or shown)
-  1  cad unreachable / cad error / bad policy file
+  1  cad unreachable (after 3 retries 2s apart) / cad error / bad policy file
   2  bad input (unknown class or mode, bad --self or --ns, unknown command)
-  3  deferred: every fitting agent is over a usage window; prints {defer_until, reason}
+  3  deferred: every fitting agent is over a usage window, or cad is not ready
+     (GET /healthz?ready = 503, e.g. just restarted; defer_until = now+2m); prints {defer_until, reason}
   4  no rule fits; prints {reason}
 `
 
@@ -115,6 +118,12 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 		return 2, err
 	}
 	addr := cadAddr(pol, mode)
+	switch ready, err := cadReady(addr); {
+	case err != nil:
+		return 1, err
+	case !ready: // cad restarted and has no usage yet: try again shortly instead of placing blind
+		return 3, printJSON(w, map[string]interface{}{"defer_until": time.Now().Add(cadNotReadyDefer).UTC(), "reason": []string{"cad not ready"}})
+	}
 	var usage map[string]AgentUsage
 	var capacity struct {
 		Slots int `json:"slots"`
@@ -171,4 +180,32 @@ func printJSON(w io.Writer, v interface{}) error {
 		_, err = fmt.Fprintf(w, "%s\n", b)
 	}
 	return err
+}
+
+const cadNotReadyDefer = 2 * time.Minute
+
+var cadRetryEvery = 2 * time.Second // tests shorten it
+
+// cadReady asks GET /healthz?ready: 200 = ready, 503 = up but no usage yet. A connection error
+// (cad restarting) is retried 3 times cadRetryEvery apart before giving up.
+func cadReady(addr string) (bool, error) {
+	c := &http.Client{Timeout: 5 * time.Second}
+	for i := 0; ; i++ {
+		res, err := c.Get("http://" + addr + "/healthz?ready")
+		if err != nil {
+			if i < 3 {
+				time.Sleep(cadRetryEvery)
+				continue
+			}
+			return false, fmt.Errorf("cad unreachable at %s: %v", addr, err)
+		}
+		res.Body.Close()
+		switch res.StatusCode {
+		case http.StatusOK:
+			return true, nil
+		case http.StatusServiceUnavailable:
+			return false, nil
+		}
+		return false, fmt.Errorf("cad GET /healthz?ready: %s", res.Status)
+	}
 }
