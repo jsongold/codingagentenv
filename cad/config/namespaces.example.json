@@ -1,0 +1,3 @@
+{
+  "default": { "repo": "jsongold/codingagentenv", "path": "~/projects/codingagentenv", "orchestratorUrl": "", "caps": { "concurrent": 2 } }
+}

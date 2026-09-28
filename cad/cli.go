@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -17,7 +18,7 @@ import (
 )
 
 const cliUsage = `usage:
-  cad                                   run the server (env: CAD_ADDR, CAD_TOKEN, CAD_POLICY, CAD_SLOTS, CAD_USAGE_EVERY, CAD_CLAUDE_BIN, ...)
+  cad                                   run the server (env: CAD_ADDR, CAD_TOKEN, CAD_CONFIG, CAD_SLOTS, CAD_USAGE_EVERY, CAD_CLAUDE_BIN, ...)
   cad get meta|<topic> -ns <namespace>  print the running cad's metadata as JSON (GET /v1/meta, /v1/<topic>; env: CAD_ADDR, CAD_TOKEN)
   cad show [collect|agents|computers|policy]  print records (no arg = the policy; rules/classes/runners: see orchd)
   cad show cost --computer [<name>] (--hour|--day|--month) [--cpus N] [--mem GiB]
@@ -29,7 +30,8 @@ const cliUsage = `usage:
   cad add agent <service/account>
   cad add computer <name> [--replace] [--file f.json | -]  (JSON body; piped stdin also works)
   cad rm agent <agent> | computer <name>
-files: CAD_POLICY > .agent/policy.json. A running cad re-reads it on mtime change. Usage is collected by cad (topic "usage").
+files: CAD_CONFIG (alias CAD_POLICY) > $CAD_HOME/config.json > <dir above cad's bin/>/config.json > ./config.json.
+A running cad re-reads it on mtime change. Keys cad does not know are kept by add/rm. Usage is collected by cad (topic "usage").
 `
 
 func without(xs []string, x string) []string {
@@ -102,13 +104,6 @@ func cli(args []string, stdin io.Reader, stdout io.Writer) error {
 	return errUsage
 }
 
-func policyFile() string {
-	if p := os.Getenv("CAD_POLICY"); p != "" {
-		return p
-	}
-	return ".agent/policy.json"
-}
-
 // loadPolicy reads the policy file; a missing file yields defaultPolicy (add creates it).
 func loadPolicy() (Policy, error) {
 	b, err := os.ReadFile(policyFile())
@@ -131,10 +126,15 @@ func savePolicy(p Policy) error {
 	if err != nil {
 		return err
 	}
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(b, &m); err != nil {
+	m := map[string]json.RawMessage{}
+	if old, err := os.ReadFile(policyFile()); err == nil {
+		json.Unmarshal(old, &m) // keys cad does not model survive add/rm; loadPolicy already parsed this file
+	}
+	var cur map[string]json.RawMessage
+	if err := json.Unmarshal(b, &cur); err != nil {
 		return err
 	}
+	maps.Copy(m, cur)
 	delete(m, "source") // runtime-only field
 	b, err = json.MarshalIndent(m, "", "  ")
 	if err != nil {

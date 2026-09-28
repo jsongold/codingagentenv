@@ -14,7 +14,7 @@ import (
 
 func seedPolicy(t *testing.T) Policy {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", ".agent", "policy.json"))
+	b, err := os.ReadFile("policy.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func runCmd(args ...string) (string, int) {
 func TestPlaceCmd(t *testing.T) {
 	t.Setenv("ORCHD_STATE_DIR", t.TempDir())
 	t.Setenv("ORCHD_MODE", "")
-	t.Setenv("ORCHD_POLICY", filepath.Join("..", ".agent", "policy.json"))
+	t.Setenv("ORCHD_POLICY", "policy.json")
 	fakeCad(t, seedUsage(), 2)
 	out, code := runCmd("place", "--class", "light-edit", "--self", "claude/a12e00a7")
 	var p Placement

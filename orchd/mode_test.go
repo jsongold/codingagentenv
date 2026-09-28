@@ -13,7 +13,7 @@ func modeEnv(t *testing.T) string {
 	d := t.TempDir()
 	t.Setenv("ORCHD_STATE_DIR", d)
 	t.Setenv("ORCHD_MODE", "")
-	t.Setenv("ORCHD_POLICY", filepath.Join("..", ".agent", "policy.json"))
+	t.Setenv("ORCHD_POLICY", "policy.json")
 	return d
 }
 
@@ -81,6 +81,7 @@ type placeOut struct {
 	Placement
 	Mode       string `json:"mode"`
 	ModeSource string `json:"modeSource"`
+	CadAddr    string `json:"cadAddr"`
 }
 
 func TestPlaceWithMode(t *testing.T) {
@@ -94,7 +95,7 @@ func TestPlaceWithMode(t *testing.T) {
 		return p, code
 	}
 	// auto (nothing set): Claude cloud first, runner looked up as claude@claude-cloud.
-	if p, code := place(); code != 0 || p.Mode != "auto" || p.ModeSource != "default" || p.Computer != "claude-cloud" || p.Runner.Mode != "cloud" {
+	if p, code := place(); code != 0 || p.Mode != "auto" || p.ModeSource != "default" || p.CadAddr != os.Getenv("CAD_ADDR") || p.Computer != "claude-cloud" || p.Runner.Mode != "cloud" {
 		t.Errorf("auto: %d %+v", code, p)
 	}
 	runCmd("mode", "set", "urgent", "--ns", "default")

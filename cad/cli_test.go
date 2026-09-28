@@ -133,7 +133,7 @@ func TestIsCLI(t *testing.T) {
 }
 
 func TestCLIShowSections(t *testing.T) {
-	t.Setenv("CAD_POLICY", filepath.Join("..", ".agent", "policy.json"))
+	t.Setenv("CAD_CONFIG", "config.json")
 	for sec, want := range map[string]string{"collect": `"60s"`, "agents": `"claude/a12e00a7"`} {
 		if out, code := run(t, "", "show", sec); code != 0 || !strings.Contains(out, want) {
 			t.Errorf("show %s: %d %s", sec, code, out)
@@ -218,15 +218,22 @@ func TestCLIShowCost(t *testing.T) {
 	}
 }
 
-// rules/classes/runners/modes belong to orchd: cad neither validates nor requires them, but keeps them on add.
-func TestPolicyKeepsOrchdSections(t *testing.T) {
+// Keys cad does not model (e.g. ones a later version adds) survive add and rm.
+func TestSaveKeepsUnknownKeys(t *testing.T) {
 	p := cliEnv(t)
-	os.WriteFile(p, []byte(`{"runners":{"opencode":{"mode":"process"}},"rules":[{"agent":"self"}],"modes":{"urgent":{"rules":[]}}}`), 0o644)
-	if out, code := run(t, "", "add", "agent", "claude/x"); code != 0 {
-		t.Fatalf("%d %s", code, out)
-	}
-	if got := currentPolicy(); len(got.Agents) != 1 || !strings.Contains(string(got.Runners), `"process"`) || !strings.Contains(string(got.Modes), `"urgent"`) {
-		t.Fatalf("%+v", got)
+	os.WriteFile(p, []byte(`{"future":{"x":1},"rules":[{"agent":"self"}]}`), 0o644)
+	for _, args := range [][]string{{"add", "agent", "claude/x"}, {"rm", "agent", "claude/x"}} {
+		if out, code := run(t, "", args...); code != 0 {
+			t.Fatalf("%v: %d %s", args, code, out)
+		}
+		b, _ := os.ReadFile(p)
+		var m struct {
+			Future struct{ X int }
+			Rules  []struct{ Agent string }
+		}
+		if json.Unmarshal(b, &m); m.Future.X != 1 || len(m.Rules) != 1 || m.Rules[0].Agent != "self" {
+			t.Fatalf("%v: %s", args, b)
+		}
 	}
 	if out, code := run(t, "", "show", "rules"); code == 0 {
 		t.Fatalf("show rules still in cad: %s", out)

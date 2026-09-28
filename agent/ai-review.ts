@@ -2,9 +2,9 @@
 // Tries policy review.reviewers in order, skipping the implementer and reviewers cad reports as
 // exhausted. A backend that hits its quota is reported to cad and the next reviewer is tried.
 // Prints "<reviewer> reviewed #<pr>: <comment URL or file>"; exits 1 with a one-line reason if none succeeds.
-// Env: CAD_URL (http://127.0.0.1:7878), CAD_NS (default), CAD_TOKEN, CAD_POLICY, AI_REVIEW_IMPLEMENTER.
+// Env: CAD_URL (http://127.0.0.1:7878), CAD_NS (default), CAD_TOKEN, CAD_CONFIG (alias CAD_POLICY), AI_REVIEW_IMPLEMENTER.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -55,13 +55,13 @@ function run(cmd: string, args: string[], input?: string) {
   return { code: r.status ?? 127, out, err, last: (err || out).split("\n").pop() ?? "" };
 }
 
-// CAD_POLICY > ./.agent/policy.json > cad /v1/policy > the repo's .agent/policy.json.
+// CAD_CONFIG > CAD_POLICY > cad /v1/policy > the repo's cad/config.json.
 async function policy(): Promise<{ reviewers: string[]; excludeImplementer: boolean }> {
   const read = (p: string) => JSON.parse(readFileSync(p, "utf8"));
   let p: any;
-  if (process.env.CAD_POLICY) p = read(process.env.CAD_POLICY);
-  else if (existsSync(".agent/policy.json")) p = read(".agent/policy.json");
-  else p = (await cad(`/v1/policy?${cadNS}`)) ?? read(join(repo, ".agent/policy.json"));
+  const file = process.env.CAD_CONFIG || process.env.CAD_POLICY;
+  if (file) p = read(file);
+  else p = (await cad(`/v1/policy?${cadNS}`)) ?? read(join(repo, "cad/config.json"));
   const reviewers = p?.review?.reviewers;
   if (!Array.isArray(reviewers) || reviewers.length === 0) fail("policy has no review.reviewers");
   return { reviewers, excludeImplementer: p.review.excludeImplementer !== false };

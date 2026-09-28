@@ -29,12 +29,6 @@ type Policy struct {
 	} `json:"providers"`
 	Computers map[string]Computer `json:"computers"` // records only (`cad show cost`)
 	Agents    []string            `json:"agents"`    // e.g. "claude/default", "claude/3f9a1c0e"; usage is collected for these
-	// Owned by orchd (ADR-0011); kept raw so `cad add/rm` round-trips them.
-	Rules     json.RawMessage `json:"rules,omitempty"`
-	Placement json.RawMessage `json:"placement,omitempty"`
-	Classes   json.RawMessage `json:"classes,omitempty"`
-	Runners   json.RawMessage `json:"runners,omitempty"`
-	Modes     json.RawMessage `json:"modes,omitempty"`
 	Collect   struct {
 		Usage struct {
 			Every string `json:"every"` // time.ParseDuration; CAD_USAGE_EVERY overrides
@@ -71,18 +65,15 @@ var (
 	polMod  time.Time
 )
 
-// currentPolicy resolves CAD_POLICY > ./.agent/policy.json (if present) > built-in default,
+// currentPolicy resolves policyFile() (see home.go), or the built-in default when no env names a file and it is absent,
 // re-reading the file when its mtime changes. A bad file is logged and the last good policy kept.
 func currentPolicy() Policy {
 	polMu.Lock()
 	defer polMu.Unlock()
-	path := os.Getenv("CAD_POLICY")
-	if path == "" {
-		path = ".agent/policy.json"
-		if _, err := os.Stat(path); err != nil {
-			pol, polPath = defaultPolicy(), ""
-			return pol
-		}
+	path := policyFile()
+	if _, err := os.Stat(path); err != nil && os.Getenv("CAD_CONFIG") == "" && os.Getenv("CAD_POLICY") == "" {
+		pol, polPath = defaultPolicy(), ""
+		return pol
 	}
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs

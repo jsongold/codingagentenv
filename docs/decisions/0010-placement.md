@@ -44,7 +44,9 @@ ADR-0008 / 0009 は「provider の固定一覧（`policy.providers.allowed`）�
 - **同時実行**：2つの place が同時に来ると同じ空きを二重に数えうる。lease（関門）は実害が出るまで入れない。
 - **Orchestrator は Claude Code のまま**（Task list と `VERIFIED:` の hook が強制できるのはここだけ、ADR-0002 / 0004）。Codex・opencode・Gemini などは Worker またはレビュアーとして使う。
 
-## 設定はファイル（.agent/policy.json）
+## 設定はファイル（.agent/policy.json → 各 app のディレクトリ）
+> 追記（2026-09-28, owner 決定）：共有の `.agent/policy.json` は廃止。各 app が自分のディレクトリに設定と状態を持つ。orchd = `orchd/policy.json`（rules・modes・classes・runners・placement、パターン展開用に agents と computer 名の写し）・状態 `orchd/state/`。cad = `cad/config.json`（agents・computers・collect・gate・review・providers）・`cad/config/namespaces.json`（gitignore、例は `namespaces.example.json`）。場所は CWD に依存せず `<APP>_HOME` > 実行ファイルの 1 つ上（`<app>/bin/..`）> CWD で決める。mode ごとに `cadAddr` を持てる（urgent = local の cad、auto = VM の cad）。以下の `.agent/policy.json` は当時の記述。
+
 仕様も精度も日々変わるので、調整するものはすべて `.agent/policy.json`（`CAD_POLICY` で差し替え可）に置き、コードには置かない。稼働中の `cad` は mtime で再読込する（壊れたファイルは log に出して直前の良い policy を使い続ける）。`cad show [classes|rules|runners|collect|agents|computers|policy]` で読む。
 - `classes`：`{name: {criteria, estPct}}`。place が受け付ける class の一覧（コードの固定一覧を置き換え）。`criteria` は Orchestrator が分類に使う基準、`estPct` は 1 task が使う使用枠の見積もり（旧 `placement.estPct`）。class の追加はファイルの編集だけで済む。`classes` の無いファイルは `orchd` が拒否する（exit 1。ADR-0011 以降 `cad` は検証しない）
 - `rules`：順序付きの決定リスト（上記）。`agent` は `path.Match` のパターンか `self`
