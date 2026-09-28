@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,6 +139,83 @@ func TestCLIShowSections(t *testing.T) {
 		if out, code := run(t, "", "show", sec); code != 0 || !strings.Contains(out, want) {
 			t.Errorf("show %s: %d %s", sec, code, out)
 		}
+	}
+}
+
+func TestCLIShowCost(t *testing.T) {
+	cliEnv(t)
+	run(t, localJSON, "add", "computer", "local")
+	run(t, `{"vcpuHourUSD":0.0258,"gibHourUSD":0.00645,"minBillSec":60,"coldStartSec":90,"maxMemMB":8192,"maxCpus":2,"maxMin":0}`, "add", "computer", "gce-spot")
+
+	// hour/day/month, default shape (2 cpu / 8 GiB).
+	for _, tc := range []struct {
+		flag string
+		want string
+	}{
+		{"--hour", `"period": "hour"`},
+		{"--day", `"period": "day"`},
+		{"--month", `"period": "month"`},
+	} {
+		out, code := run(t, "", "show", "cost", "--computer", tc.flag)
+		if code != 0 || !strings.Contains(out, tc.want) {
+			t.Fatalf("%s: %d %s", tc.flag, code, out)
+		}
+	}
+
+	// filter to one computer; flags may surround the name.
+	out, code := run(t, "", "show", "cost", "gce-spot", "--computer", "--day")
+	if code != 0 || !strings.Contains(out, `"computer": "gce-spot"`) || strings.Contains(out, "local") {
+		t.Fatalf("filter: %d %s", code, out)
+	}
+	out, code = run(t, "", "show", "cost", "--computer", "--day", "gce-spot")
+	if code != 0 || !strings.Contains(out, `"computer": "gce-spot"`) {
+		t.Fatalf("filter (flags first): %d %s", code, out)
+	}
+
+	// --cpus/--mem change the shape.
+	out, code = run(t, "", "show", "cost", "gce-spot", "--computer", "--month", "--cpus", "4", "--mem", "16")
+	if code != 0 {
+		t.Fatalf("shape: %d %s", code, out)
+	}
+	var got struct {
+		Prices []costEntry `json:"prices"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err, out)
+	}
+	if want := (0.0258*4 + 0.00645*16) * 730; len(got.Prices) != 1 || got.Prices[0].USD != math.Round(want*10000)/10000 {
+		t.Fatalf("shape price: %+v want %v", got.Prices, want)
+	}
+
+	// local is always priced 0.
+	out, _ = run(t, "", "show", "cost", "local", "--computer", "--hour")
+	if !strings.Contains(out, `"usd": 0`) {
+		t.Fatalf("local: %s", out)
+	}
+
+	// sorted by price ascending, then name.
+	out, _ = run(t, "", "show", "cost", "--computer", "--day")
+	if i, j := strings.Index(out, "local"), strings.Index(out, "gce-spot"); i == -1 || j == -1 || i > j {
+		t.Fatalf("sort order: %s", out)
+	}
+
+	// bad usage -> exit 2.
+	for _, args := range [][]string{
+		{"show", "cost", "--day"},                              // missing --computer
+		{"show", "cost", "--computer"},                         // missing period
+		{"show", "cost"},                                       // missing both
+		{"show", "cost", "--computer", "--day", "--hour"},      // duplicate period
+		{"show", "cost", "--computer", "--day", "--cpus", "0"}, // bad cpus
+		{"show", "cost", "--computer", "--day", "--mem", "-1"}, // bad mem
+	} {
+		if _, code := run(t, "", args...); code != 2 {
+			t.Errorf("%v: want exit 2, got %d", args, code)
+		}
+	}
+
+	// unknown computer -> exit 1.
+	if _, code := run(t, "", "show", "cost", "nope", "--computer", "--day"); code != 1 {
+		t.Fatalf("unknown computer: want exit 1, got %d", code)
 	}
 }
 
