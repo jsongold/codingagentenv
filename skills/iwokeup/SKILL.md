@@ -16,9 +16,9 @@ disable-model-invocation: true
    $S "sudo docker exec \$(sudo docker ps -q -f label=com.docker.swarm.service.name=cad) orchd mode show --ns <ns>"   # mode が sleep でないこと
    ```
    - `show` が `sleep` のまま（`modeSource` が `file:global` など）なら、消さずに owner に伝える。ssh が通らなければ理由を伝え、2 へ進む（一覧は手元で取れる）。
-2. 手元で `orchd issue list --ns <ns>` → `[{number, title, state, pr, prState}]`（milestone 付きの Issue は出ない）。次の順に短く一覧にする（該当なしの組は省く）：
+2. 手元で `orchd issue list --ns <ns>` → `[{number, title, state, pr, prState}]`（milestone 付きの Issue は出ない）。Issue は ns の repo のもので、手元の cwd の repo とは限らない。`gh` で Issue を見るときは必ず `--repo <repo>` を付ける。`<repo>` は `/igosleep` と同じ順で決める：cad-2 の登録（`$S "sudo docker exec \$(sudo docker ps -q -f label=com.docker.swarm.service.name=cad) cat /data/cad/config/namespaces.json"`）の `<ns>.repo`、無ければ（ssh が通らないときも）手元の `cad/config/namespaces.json`（無ければ `.example.json`）の `<ns>.repo`、無ければ `gh repo view --json nameWithOwner -q .nameWithOwner`。次の順に短く一覧にする（該当なしの組は省く）：
    - PR あり：`#n title` と PR の URL・`prState`（`OPEN` はレビュー待ち）。state は問わない
-   - ai-failed（PR なし）：owner の判断が要る。理由は Issue の最後のコメント（`gh issue view <n> --comments`）から 1 行で
-   - wip（PR なし）：止まっている可能性。`orchd: dispatched to <computer> at <時刻>` のコメントがあれば時刻も
+   - ai-failed（PR なし）：owner の判断が要る。理由は Issue の最後のコメント（`gh issue view <n> --repo <repo> --comments`）から 1 行で
+   - wip（PR なし）：止まっている可能性。`orchd: dispatched to <computer> at <時刻>` のコメント（同じく `gh issue view <n> --repo <repo> --comments`）があれば時刻も
    - pending：未着手のまま残った件数と番号
 3. 最後に「`/pickup` で文脈を戻してから、ai-failed と wip を見る」と 1 行で促す。PR の merge・ラベルの付け替えはここではしない。
