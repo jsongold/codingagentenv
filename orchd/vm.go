@@ -34,7 +34,9 @@ var (
 	vmBudget = 170 * time.Second
 	vmCall   = 30 * time.Second
 	vmPoll   = 5 * time.Second
-	sleep    = time.Sleep
+	// vmReserve: a worker-task younger than this counts as another dispatch still starting the VM.
+	vmReserve = 5 * time.Minute
+	sleep     = time.Sleep
 )
 
 // computeURL: ORCHD_COMPUTE_URL overrides the API base (tests use an httptest server).
@@ -157,6 +159,22 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 	if in.Status != "TERMINATED" { // RUNNING / PROVISIONING / STAGING: another task has it
 		return unavailable("%s is %s (busy)", rn.Instance, in.Status)
 	}
+	upgraded := false
+	for _, it := range in.Metadata.Items {
+		switch it.Key {
+		case "startup-script": // an old script (IAP ssh era) never reads worker-task: the task would not run
+			upgraded = strings.Contains(it.Value, "worker-task")
+		case "worker-task": // "<n>-<unix> ...": a fresh one is another dispatch between its setMetadata and start
+			// ponytail: time-based reservation; a task that finished within vmReserve also reads as busy (exit 5).
+			id, _, _ := strings.Cut(it.Value, " ")
+			if ts, err := strconv.ParseInt(id[strings.LastIndex(id, "-")+1:], 10, 64); err == nil && time.Since(time.Unix(ts, 0)) < vmReserve {
+				return unavailable("%s is reserved by task %s (busy)", rn.Instance, id)
+			}
+		}
+	}
+	if !upgraded {
+		return unavailable("%s: its startup-script does not read worker-task; update it (deploy/gcp/README.md)", rn.Instance)
+	}
 	// wait polls an operation until DONE; an operation error (e.g. ZONE_RESOURCE_POOL_EXHAUSTED) is returned.
 	wait := func(op gceOperation) error {
 		for op.Status != "DONE" {
@@ -194,10 +212,14 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 	if err == nil {
 		err = wait(op)
 	}
-	if err != nil { // e.g. no Spot capacity in the zone
-		// Best effort: take the task back so a later manual start does not run it (fresh fingerprint, ours changed it).
+	if err != nil { // e.g. no Spot capacity in the zone, or a failed poll of an accepted start
+		// Settle on the instance: already starting = started (else another computer would run the issue too).
+		// Still stopped: take the task back (best effort, fresh fingerprint) so a later manual start does not run it.
 		var now gceInstance
-		if gceCall(tok, rn, "GET", ipath, nil, &now) == nil && now.Status == "TERMINATED" {
+		gerr := gceCall(tok, rn, "GET", ipath, nil, &now)
+		if gerr == nil && (now.Status == "PROVISIONING" || now.Status == "STAGING" || now.Status == "RUNNING") {
+			err = nil
+		} else if gerr == nil && now.Status == "TERMINATED" {
 			items = items[:0]
 			for _, it := range now.Metadata.Items {
 				if it.Key != "worker-task" || it.Value != task {
@@ -207,7 +229,9 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 			var cop gceOperation
 			gceCall(tok, rn, "POST", ipath+"/setMetadata", map[string]any{"fingerprint": now.Metadata.Fingerprint, "items": items}, &cop)
 		}
-		return unavailable("start %s: %v", rn.Instance, err)
+		if err != nil {
+			return unavailable("start %s: %v", rn.Instance, err)
+		}
 	}
 	return 0, printJSON(w, map[string]any{"started": true, "instance": rn.Instance, "container": "opencode-worker-" + strconv.Itoa(n),
 		"task": task, "startSec": math.Round(time.Since(t0).Seconds()*10) / 10})

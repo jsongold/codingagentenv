@@ -19,7 +19,7 @@ import (
 type fakeCompute struct {
 	status          []string
 	startErr, opErr string
-	race            bool
+	race, pollFail  bool
 	fp              string
 	items           []metaItem
 	calls           []string
@@ -28,7 +28,9 @@ type fakeCompute struct {
 func (f *fakeCompute) install(t *testing.T) {
 	t.Helper()
 	f.fp = "fp1"
-	f.items = []metaItem{{"worker-task", "old"}, {"startup-script", "#!/bin/bash"}}
+	if f.items == nil {
+		f.items = []metaItem{{"worker-task", "old"}, {"startup-script", "#!/bin/bash\nmd instance/attributes/worker-task"}}
+	}
 	oldTok, oldSleep, oldBudget, oldPoll := accessToken, sleep, vmBudget, vmPoll
 	t.Cleanup(func() { accessToken, sleep, vmBudget, vmPoll = oldTok, oldSleep, oldBudget, oldPoll })
 	vmBudget, vmPoll, sleep = 50*time.Millisecond, time.Millisecond, time.Sleep
@@ -68,6 +70,10 @@ func (f *fakeCompute) install(t *testing.T) {
 			}
 			io.WriteString(w, `{"name":"op-start","status":"PENDING"}`)
 		case r.Method == "GET" && p == "operations/op-start":
+			if f.pollFail {
+				http.Error(w, "backend error", 500)
+				return
+			}
 			if f.opErr != "" {
 				fmt.Fprintf(w, `{"name":"op-start","status":"DONE","error":{"errors":[{"code":%q,"message":"m"}]}}`, f.opErr)
 				return
@@ -140,6 +146,9 @@ func TestDispatchVMUnavailable(t *testing.T) {
 		"concurrent dispatch":   {status: []string{"TERMINATED"}, race: true},
 		"start refused":         {status: []string{"TERMINATED"}, startErr: "ZONE_RESOURCE_POOL_EXHAUSTED"},
 		"no spot capacity (op)": {status: []string{"TERMINATED"}, opErr: "ZONE_RESOURCE_POOL_EXHAUSTED"},
+		"old startup script":    {status: []string{"TERMINATED"}, items: []metaItem{{"startup-script", "#!/bin/bash"}}},
+		"reserved by a fresh task": {status: []string{"TERMINATED"}, items: []metaItem{{"startup-script", "worker-task"},
+			{"worker-task", fmt.Sprintf("8-%d 8 o/r m i", time.Now().Unix()-10)}}},
 	} {
 		f.install(t)
 		code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl)
@@ -152,6 +161,17 @@ func TestDispatchVMUnavailable(t *testing.T) {
 		if f.startErr+f.opErr != "" && (f.task() != "" || len(f.items) != 1) { // start failed: our task taken back
 			t.Errorf("%s: stale task left: %v", name, f.items)
 		}
+	}
+	f := &fakeCompute{status: []string{"TERMINATED", "STAGING"}, pollFail: true} // start accepted, poll failed: it is starting
+	f.install(t)
+	if code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl); code != 0 || m["started"] != true {
+		t.Errorf("accepted start: code %d %s", code, errs)
+	}
+	f = &fakeCompute{status: []string{"TERMINATED"}, items: []metaItem{{"startup-script", "worker-task"},
+		{"worker-task", fmt.Sprintf("8-%d 8 o/r m i", time.Now().Add(-time.Hour).Unix())}}} // finished task: not a reservation
+	f.install(t)
+	if code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl); code != 0 {
+		t.Errorf("old task: code %d %s", code, errs)
 	}
 	t.Setenv("ORCHD_COMPUTE_URL", "http://127.0.0.1:1") // API unreachable
 	if code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl); code != 5 {
