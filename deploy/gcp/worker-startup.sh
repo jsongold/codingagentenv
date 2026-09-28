@@ -10,7 +10,7 @@
 #      pull runs after the task started: the task runs the cached image at once and the pull (only changed layers)
 #      serves the next start. Only the first boot (no cached image) pulls before.
 #   4. self-stop, event driven: worker-stop.service follows `docker events` (container die); when an
-#      opencode-worker-* container dies and, after stop-grace-seconds (metadata, default 60), none is running,
+#      opencode-worker-* container dies and, after stop-grace-seconds (metadata, default 10), none is running,
 #      it powers the VM off. Safety net: worker-idle.timer powers
 #      it off when no opencode-worker container has run for idle-minutes (metadata, default 30), e.g. a dispatch
 #      that never started its container, or the first boot after create-worker.sh.
@@ -31,7 +31,7 @@ num() { # <metadata key> <default>: a non-negative integer
   case $v in '' | *[!0-9]*) v=$2 ;; esac
   echo "$v"
 }
-grace=$(num stop-grace-seconds 60)
+grace=$(num stop-grace-seconds 10)
 idle=$(num idle-minutes 30)
 
 mkdir -p "$VOL"

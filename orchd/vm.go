@@ -190,11 +190,24 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 		return unavailable("setMetadata %s: %v", rn.Instance, err)
 	}
 	op = gceOperation{}
-	if err := gceCall(tok, rn, "POST", ipath+"/start", nil, &op); err != nil {
-		return unavailable("start %s: %v", rn.Instance, err)
+	err = gceCall(tok, rn, "POST", ipath+"/start", nil, &op)
+	if err == nil {
+		err = wait(op)
 	}
-	if err := wait(op); err != nil {
-		return unavailable("start %s: %v", rn.Instance, err) // e.g. no Spot capacity in the zone
+	if err != nil { // e.g. no Spot capacity in the zone
+		// Best effort: take the task back so a later manual start does not run it (fresh fingerprint, ours changed it).
+		var now gceInstance
+		if gceCall(tok, rn, "GET", ipath, nil, &now) == nil && now.Status == "TERMINATED" {
+			items = items[:0]
+			for _, it := range now.Metadata.Items {
+				if it.Key != "worker-task" || it.Value != task {
+					items = append(items, it)
+				}
+			}
+			var cop gceOperation
+			gceCall(tok, rn, "POST", ipath+"/setMetadata", map[string]any{"fingerprint": now.Metadata.Fingerprint, "items": items}, &cop)
+		}
+		return unavailable("start %s: %v", rn.Instance, err)
 	}
 	return 0, printJSON(w, map[string]any{"started": true, "instance": rn.Instance, "container": "opencode-worker-" + strconv.Itoa(n),
 		"task": task, "startSec": math.Round(time.Since(t0).Seconds()*10) / 10})

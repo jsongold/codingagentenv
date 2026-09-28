@@ -149,6 +149,9 @@ func TestDispatchVMUnavailable(t *testing.T) {
 		if (name == "busy" || name == "concurrent dispatch") && f.task() != "old" {
 			t.Errorf("%s: task overwritten: %q", name, f.task())
 		}
+		if f.startErr+f.opErr != "" && (f.task() != "" || len(f.items) != 1) { // start failed: our task taken back
+			t.Errorf("%s: stale task left: %v", name, f.items)
+		}
 	}
 	t.Setenv("ORCHD_COMPUTE_URL", "http://127.0.0.1:1") // API unreachable
 	if code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl); code != 5 {

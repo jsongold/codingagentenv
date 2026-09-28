@@ -12,7 +12,7 @@ PROJECT=${PROJECT:-suggestorder-dev}
 ZONE=${ZONE:-us-central1-a}
 MACHINE=${MACHINE:-e2-medium}
 IDLE_MINUTES=${IDLE_MINUTES:-30}
-STOP_GRACE_SECONDS=${STOP_GRACE_SECONDS:-60}
+STOP_GRACE_SECONDS=${STOP_GRACE_SECONDS:-10}
 here=$(cd "$(dirname "$0")" && pwd)
 
 run() { printf '+ %s\n' "$*"; "$@"; }

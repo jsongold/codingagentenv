@@ -56,7 +56,7 @@ Compute Engine REST API v1 を直接呼ぶ（gcloud・ssh は使わない。Go �
 1. `instances.get` で状態と metadata を見る。`STOPPING` / `PENDING_STOP`（自己停止の途中）なら `TERMINATED` まで待つ
 2. `TERMINATED` 以外（`RUNNING` / `PROVISIONING` / `STAGING` など＝別 task が使用中）は exit 5。VM 1 台で task は 1 つ
 3. `instances.setMetadata` で metadata `worker-task` = `<id> <n> <repo> <model> <image>` を置く（他の item はそのまま。fingerprint 付きなので同時の dispatch は片方が 412 → exit 5）
-4. `instances.start`、operation が `DONE` になるまで 5 秒おきに見る。失敗（Spot の容量不足など）は exit 5
+4. `instances.start`、operation が `DONE` になるまで 5 秒おきに見る。失敗（Spot の容量不足など）は `worker-task` を消して（best effort）exit 5
 5. `{started, instance, container（opencode-worker-<n>）, task, startSec（dispatch 開始から start の完了まで、実測）}` を出す
 
 1〜4 は合わせて 170 秒まで（各 HTTP 呼び出しは 30 秒まで。dispatch 全体で約 4 分以内）。VM は boot 時に `worker-task` を読み、`docker run -d --rm --name opencode-worker-<n> -v /var/lib/cad:/data -e ISSUE -e REPO -e MODEL <image>` を 1 度だけ実行する（`deploy/gcp/worker-startup.sh`。worker が Issue を読み、PR `Closes #n` を出す）。container が起動したかは orchd からは見えない（`orchd status` の PR で待つ）。
