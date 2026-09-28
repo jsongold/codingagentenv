@@ -55,6 +55,8 @@ type hub struct {
 
 	qmu    sync.Mutex
 	quotas map[string]Quota
+
+	readySrc atomic.Value // string: "snapshot" or "collected" once usage is known; nil = not ready
 }
 
 func newHub() *hub {
@@ -180,6 +182,9 @@ func (h *hub) collectOne(c collector) {
 		return
 	}
 	h.publish(c.topic, v)
+	if c.topic == "usage" {
+		h.usageCollected(v)
+	}
 }
 
 // run starts every collector now and again once its interval has passed since its last run, checking

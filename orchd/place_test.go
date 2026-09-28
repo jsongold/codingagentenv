@@ -108,6 +108,9 @@ func TestPlace(t *testing.T) {
 func fakeCad(t *testing.T, usage map[string]AgentUsage, slots int) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" { // ready, like cad after its first collection
+			return
+		}
 		if r.Header.Get("Authorization") != "Bearer tok" || r.URL.Query().Get("ns") != "default" {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
@@ -224,6 +227,7 @@ func TestPolicyFile(t *testing.T) {
 	for body, want := range map[string]string{
 		`{"agents":[]}`: `no "classes"`,
 		`{"classes":{"x":{}},"runners":{"opencode":{"mode":"process"}}}`: "process needs cmd",
+		`{"classes":{"x":{}},"placement":{"staleUsage":"maybe"}}`:        "want pass or block",
 	} {
 		os.WriteFile(f, []byte(body), 0o644)
 		if out, code := runCmd("show"); code != 1 || !strings.Contains(out, want) {

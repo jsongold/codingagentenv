@@ -73,6 +73,14 @@ func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int)
 				continue
 			}
 			u, ok := usage[a]
+			if ok && u.Stale { // e.g. cad just restarted from its snapshot
+				drop("%s: usage stale", a)
+				if pol.Placement.StaleUsage == "block" {
+					continue
+				}
+				pick(a, r.Computer, i, rn)
+				return out, http.StatusOK, time.Time{}
+			}
 			if !ok {
 				drop("%s: usage unknown", a)
 				pick(a, r.Computer, i, rn)
@@ -124,13 +132,13 @@ type AgentUsage struct {
 	Error    string       `json:"error,omitempty"`
 }
 
-// usableUsage turns cad's usage into what place filters on: agents with Error or Stale
-// are dropped (place reports them as "usage unknown") and windows whose reset has passed count as 0%.
+// usableUsage turns cad's usage into what place filters on: agents with Error are dropped (place
+// reports them as "usage unknown"), Stale ones are kept for place to report and windows whose reset has passed count as 0%.
 // A nil window stays nil (place does not filter on it).
 func usableUsage(m map[string]AgentUsage, now time.Time) map[string]AgentUsage {
 	out := map[string]AgentUsage{}
 	for a, u := range m {
-		if u.Error != "" || u.Stale {
+		if u.Error != "" {
 			continue
 		}
 		for _, w := range []**UsageWindow{&u.FiveHour, &u.SevenDay, &u.Monthly} {
