@@ -34,8 +34,8 @@ const usageText = `usage:
       task/<n> off origin/main), print {runner, worktree, prompt}; process = same worktree, start runner.cmd
       + prompt in the background, print {started, worktree, pid, log}; cloud = claude -p <prompt> --cloud
       <CLAUDE_CLOUD_SESSION | registry cloudWorkerSession> --output-format json, print its output;
-      vm = start runner.instance if stopped (gcloud), wait for IAP ssh + /run/worker-ready, then
-      docker run -d runner.image as opencode-worker-<n>; print {started, instance, container, booted, startSec}
+      vm = runner.instance must be stopped: set its metadata worker-task and start it (Compute API); the VM
+      runs runner.image as opencode-worker-<n> on boot; print {started, instance, container, task, startSec}
   orchd status --issue <n> [--pid <pid>] [--ns default] [--repo o/r] [--path dir]
       print {issue, pr, state, running?}: the PR whose body says "Closes #n" (OPEN wins), and with --pid
       whether the dispatched process still runs. One quick gh call; supervisors poll it
@@ -45,7 +45,8 @@ const usageText = `usage:
 files (CWD-independent): app dir = $ORCHD_HOME > dir above orchd's bin/ (if it has policy.json) > .
   policy: ORCHD_POLICY > <app>/policy.json; state: ORCHD_STATE_DIR > <app>/state (dispatch logs: task-<n>.log)
   namespaces: ORCHD_NAMESPACES > <app>/../cad/config/namespaces.json > its .example.json
-env: ORCHD_MODE; CAD_ADDR (> mode cadAddr > top-level cadAddr for auto > 127.0.0.1:7878), CAD_TOKEN
+env: ORCHD_MODE; CAD_ADDR (> mode cadAddr > top-level cadAddr for auto > 127.0.0.1:7878), CAD_TOKEN;
+  vm: ORCHD_COMPUTE_URL (Compute API base), GCE_METADATA_HOST (token; off GCE: gcloud auth print-access-token)
 exit codes:
   0  placed / picked (also when none) / dispatched (or shown)
   1  cad unreachable (after 3 retries 2s apart) / cad error / bad policy file / gh, git, claude failed
@@ -54,7 +55,7 @@ exit codes:
   3  deferred: every fitting agent is over a usage window, or cad is not ready
      (GET /healthz?ready = 503, e.g. just restarted; defer_until = now+2m); prints {defer_until, reason}
   4  no rule fits; prints {reason}
-  5  dispatch (vm): computer unavailable (start failed, e.g. no Spot capacity, or not reachable in time);
+  5  dispatch (vm): computer unavailable (busy = not stopped, start failed e.g. no Spot capacity, API error);
      re-place with --exclude <that computer>
 `
 

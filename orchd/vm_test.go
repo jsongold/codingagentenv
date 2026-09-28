@@ -1,53 +1,99 @@
 package main
 
 import (
-	"errors"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 	"time"
 )
 
-// fakeGcloud answers gcloud calls: status returns the next describe status (the last one repeats), start and ssh
-// (readiness probe, sshFailures times) and docker run fail per the fields. Every call is recorded without the --project/--zone suffix.
-type fakeGcloud struct {
-	status              []string
-	startErr, runErr    error
-	sshFailures, starts int
-	calls               []string
+// fakeCompute is a Compute Engine API for one instance (project p1, zone z1, worker-spot): get answers the next
+// status (the last one repeats); setMetadata checks the fingerprint (race: another dispatch changed it right after
+// our get); start fails with startErr (HTTP) or opErr (in the operation, after one PENDING poll). Every call is
+// recorded as "METHOD path" without the zone prefix.
+type fakeCompute struct {
+	status          []string
+	startErr, opErr string
+	race, pollFail  bool
+	fp              string
+	items           []metaItem
+	calls           []string
 }
 
-func (f *fakeGcloud) install(t *testing.T) {
+func (f *fakeCompute) install(t *testing.T) {
 	t.Helper()
-	old, oldSleep := gcloud, sleep
-	oldBudget, oldPoll := vmBudget, vmPoll
-	t.Cleanup(func() { gcloud, sleep, vmBudget, vmPoll = old, oldSleep, oldBudget, oldPoll })
-	vmBudget, vmPoll = 50*time.Millisecond, time.Millisecond
-	sleep = time.Sleep
-	gcloud = func(_ time.Duration, args ...string) (string, error) {
-		if got := strings.Join(args[len(args)-4:], " "); got != "--project p1 --zone z1" {
-			t.Errorf("gcloud without project/zone: %v", args)
+	f.fp = "fp1"
+	if f.items == nil {
+		f.items = []metaItem{{"worker-task", "old"}, {"startup-script", "#!/bin/bash\nmd instance/attributes/worker-task"}}
+	}
+	oldTok, oldSleep, oldBudget, oldPoll := accessToken, sleep, vmBudget, vmPoll
+	t.Cleanup(func() { accessToken, sleep, vmBudget, vmPoll = oldTok, oldSleep, oldBudget, oldPoll })
+	vmBudget, vmPoll, sleep = 50*time.Millisecond, time.Millisecond, time.Sleep
+	accessToken = func() (string, error) { return "tok", nil }
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, ok := strings.CutPrefix(r.URL.Path, "/projects/p1/zones/z1/")
+		if !ok || r.Header.Get("Authorization") != "Bearer tok" {
+			t.Errorf("bad request %s %v", r.URL.Path, r.Header)
 		}
-		c := strings.Join(args[:len(args)-4], " ")
-		f.calls = append(f.calls, c)
+		f.calls = append(f.calls, r.Method+" "+p)
 		switch {
-		case strings.HasPrefix(c, "compute instances describe"):
+		case r.Method == "GET" && p == "instances/worker-spot":
 			s := f.status[0]
 			if len(f.status) > 1 {
 				f.status = f.status[1:]
 			}
-			return s + "\n", nil
-		case strings.HasPrefix(c, "compute instances start"):
-			f.starts++
-			return "", f.startErr
-		case strings.Contains(c, "test -e /run/worker-ready") && f.sshFailures > 0:
-			f.sshFailures--
-			return "", errors.New("ssh: connection refused")
-		case strings.Contains(c, "docker run"):
-			return "", f.runErr
+			json.NewEncoder(w).Encode(map[string]any{"status": s, "metadata": map[string]any{"fingerprint": f.fp, "items": f.items}})
+			if f.race {
+				f.fp = "other"
+			}
+		case r.Method == "POST" && p == "instances/worker-spot/setMetadata":
+			var b struct {
+				Fingerprint string
+				Items       []metaItem
+			}
+			json.NewDecoder(r.Body).Decode(&b)
+			if b.Fingerprint != f.fp {
+				http.Error(w, `{"error":{"code":412,"message":"fingerprint"}}`, 412)
+				return
+			}
+			f.items, f.fp = b.Items, "fp2"
+			io.WriteString(w, `{"name":"op-md","status":"DONE"}`)
+		case r.Method == "POST" && p == "instances/worker-spot/start":
+			if f.startErr != "" {
+				http.Error(w, f.startErr, 503)
+				return
+			}
+			io.WriteString(w, `{"name":"op-start","status":"PENDING"}`)
+		case r.Method == "GET" && p == "operations/op-start":
+			if f.pollFail {
+				http.Error(w, "backend error", 500)
+				return
+			}
+			if f.opErr != "" {
+				fmt.Fprintf(w, `{"name":"op-start","status":"DONE","error":{"errors":[{"code":%q,"message":"m"}]}}`, f.opErr)
+				return
+			}
+			io.WriteString(w, `{"name":"op-start","status":"DONE"}`)
+		default:
+			http.NotFound(w, r)
 		}
-		return "", nil
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("ORCHD_COMPUTE_URL", srv.URL)
+}
+
+func (f *fakeCompute) task() string {
+	for _, it := range f.items {
+		if it.Key == "worker-task" {
+			return it.Value
+		}
 	}
+	return ""
 }
 
 const vmPl = `{"runner":{"mode":"vm","instance":"worker-spot","zone":"z1","project":"p1","image":"ghcr.io/o/w:main","model":"prov/m-1"}}`
@@ -55,77 +101,107 @@ const vmPl = `{"runner":{"mode":"vm","instance":"worker-spot","zone":"z1","proje
 func TestDispatchVMStartsStoppedVM(t *testing.T) {
 	taskEnv(t, reg)
 	calls := fakeShell(t, nil)
-	f := &fakeGcloud{status: []string{"TERMINATED"}, sshFailures: 2}
+	f := &fakeCompute{status: []string{"TERMINATED"}}
 	f.install(t)
 	code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl)
-	if code != 0 || m["started"] != true || m["instance"] != "worker-spot" || m["container"] != "opencode-worker-7" || m["booted"] != true {
+	if code != 0 || m["started"] != true || m["instance"] != "worker-spot" || m["container"] != "opencode-worker-7" {
 		t.Fatalf("code %d %v %s", code, m, errs)
 	}
 	if _, ok := m["startSec"].(float64); !ok {
 		t.Errorf("startSec %v", m["startSec"])
 	}
-	if f.starts != 1 {
-		t.Errorf("starts %d", f.starts)
+	want := "GET instances/worker-spot,POST instances/worker-spot/setMetadata,POST instances/worker-spot/start,GET operations/op-start"
+	if got := strings.Join(f.calls, ","); got != want {
+		t.Errorf("calls\n got %s\nwant %s", got, want)
 	}
-	want := "compute ssh worker-spot --tunnel-through-iap --quiet --command sudo docker run -d --rm --name opencode-worker-7 -v /var/lib/cad:/data -e ISSUE=7 -e REPO=o/r -e MODEL=prov/m-1 ghcr.io/o/w:main"
-	if last := f.calls[len(f.calls)-1]; last != want {
-		t.Errorf("docker run call\n got %s\nwant %s", last, want)
+	task := f.task()
+	if !strings.HasPrefix(task, "7-") || !strings.HasSuffix(task, " 7 o/r prov/m-1 ghcr.io/o/w:main") || task != m["task"] {
+		t.Errorf("task %q (printed %v)", task, m["task"])
 	}
-	if len(*calls) != 0 { // no gh, no git: the worker reads the issue itself
+	if len(f.items) != 2 || f.items[1].Key != "startup-script" { // other metadata kept, the old task replaced
+		t.Errorf("items %v", f.items)
+	}
+	if len(*calls) != 0 { // no gh, no git, no gcloud: the worker reads the issue itself
 		t.Errorf("shell calls %v", *calls)
 	}
 }
 
-func TestDispatchVMRunningAndStopping(t *testing.T) {
+func TestDispatchVMWaitsOutStopping(t *testing.T) {
 	taskEnv(t, reg)
 	fakeShell(t, nil)
-	f := &fakeGcloud{status: []string{"RUNNING"}}
+	f := &fakeCompute{status: []string{"STOPPING", "PENDING_STOP", "TERMINATED"}} // self-stop in progress
 	f.install(t)
-	if code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl); code != 0 || m["booted"] != false || f.starts != 0 {
-		t.Fatalf("running: code %d %v %s starts %d", code, m, errs, f.starts)
-	}
-	f = &fakeGcloud{status: []string{"STOPPING", "STOPPING", "TERMINATED"}} // self-stop in progress: wait, then start
-	f.install(t)
-	if code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl); code != 0 || f.starts != 1 {
-		t.Fatalf("stopping: code %d %s starts %d", code, errs, f.starts)
+	if code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl); code != 0 || len(f.calls) != 6 {
+		t.Fatalf("code %d %s calls %v", code, errs, f.calls)
 	}
 }
 
 func TestDispatchVMUnavailable(t *testing.T) {
 	taskEnv(t, reg)
 	fakeShell(t, nil)
-	for name, f := range map[string]*fakeGcloud{
-		"no spot capacity": {status: []string{"TERMINATED"}, startErr: errors.New("ZONE_RESOURCE_POOL_EXHAUSTED")},
-		"never ready":      {status: []string{"TERMINATED"}, sshFailures: 1 << 30},
-		"stuck stopping":   {status: []string{"STOPPING"}},
-		"repairing":        {status: []string{"REPAIRING"}},
+	for name, f := range map[string]*fakeCompute{
+		"busy":                  {status: []string{"RUNNING"}},
+		"being started":         {status: []string{"STAGING"}},
+		"stuck stopping":        {status: []string{"STOPPING"}},
+		"concurrent dispatch":   {status: []string{"TERMINATED"}, race: true},
+		"start refused":         {status: []string{"TERMINATED"}, startErr: "ZONE_RESOURCE_POOL_EXHAUSTED"},
+		"no spot capacity (op)": {status: []string{"TERMINATED"}, opErr: "ZONE_RESOURCE_POOL_EXHAUSTED"},
+		"old startup script":    {status: []string{"TERMINATED"}, items: []metaItem{{"startup-script", "#!/bin/bash"}}},
+		"reserved by a fresh task": {status: []string{"TERMINATED"}, items: []metaItem{{"startup-script", "worker-task"},
+			{"worker-task", fmt.Sprintf("8-%d 8 o/r m i", time.Now().Unix()-10)}}},
 	} {
 		f.install(t)
 		code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl)
 		if code != 5 || !strings.Contains(errs, "computer unavailable") {
 			t.Errorf("%s: code %d %s", name, code, errs)
 		}
+		if (name == "busy" || name == "concurrent dispatch") && f.task() != "old" {
+			t.Errorf("%s: task overwritten: %q", name, f.task())
+		}
+		if f.startErr+f.opErr != "" && (f.task() != "" || len(f.items) != 1) { // start failed: our task taken back
+			t.Errorf("%s: stale task left: %v", name, f.items)
+		}
 	}
-	f := &fakeGcloud{status: []string{"RUNNING"}, runErr: errors.New("docker: Conflict")} // container of this issue already runs
+	f := &fakeCompute{status: []string{"TERMINATED", "STAGING"}, pollFail: true} // start accepted, poll failed: it is starting
 	f.install(t)
-	if code, _, _ := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl); code != 1 {
-		t.Errorf("docker run failure: code %d", code)
+	if code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl); code != 0 || m["started"] != true {
+		t.Errorf("accepted start: code %d %s", code, errs)
 	}
-	f = &fakeGcloud{status: []string{"RUNNING", "STOPPING"}, runErr: errors.New("ssh: 255")} // preempted after ready
+	f = &fakeCompute{status: []string{"TERMINATED"}, items: []metaItem{{"startup-script", "worker-task"},
+		{"worker-task", fmt.Sprintf("8-%d 8 o/r m i", time.Now().Add(-time.Hour).Unix())}}} // finished task: not a reservation
 	f.install(t)
-	if code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl); code != 5 || !strings.Contains(errs, "went STOPPING") {
-		t.Errorf("vm gone before docker run: code %d %s", code, errs)
+	if code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl); code != 0 {
+		t.Errorf("old task: code %d %s", code, errs)
+	}
+	t.Setenv("ORCHD_COMPUTE_URL", "http://127.0.0.1:1") // API unreachable
+	if code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl); code != 5 {
+		t.Errorf("unreachable: code %d %s", code, errs)
 	}
 }
 
 func TestDispatchVMBadRunner(t *testing.T) {
 	taskEnv(t, reg)
 	fakeShell(t, nil)
-	f := &fakeGcloud{status: []string{"RUNNING"}}
+	f := &fakeCompute{status: []string{"TERMINATED"}}
 	f.install(t)
 	bad := strings.Replace(vmPl, "prov/m-1", "m; rm -rf /", 1)
 	if code, _, _ := runTask(t, "dispatch", "--issue", "7", "--placement", bad); code != 2 || len(f.calls) != 0 {
 		t.Errorf("unsafe model: code %d calls %v", code, f.calls)
+	}
+}
+
+func TestAccessTokenFromMetadataServer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Metadata-Flavor") != "Google" || r.URL.Path != "/computeMetadata/v1/instance/service-accounts/default/token" {
+			http.Error(w, "no", 403)
+			return
+		}
+		io.WriteString(w, `{"access_token":"ya29.x","expires_in":3599,"token_type":"Bearer"}`)
+	}))
+	defer srv.Close()
+	t.Setenv("GCE_METADATA_HOST", strings.TrimPrefix(srv.URL, "http://"))
+	if tok, err := accessToken(); err != nil || tok != "ya29.x" {
+		t.Errorf("token %q %v", tok, err)
 	}
 }
 

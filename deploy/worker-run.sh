@@ -1,7 +1,8 @@
 #!/bin/bash
 # Entrypoint of the opencode worker image (Dockerfile.worker): one GitHub issue -> one PR.
 #   docker run --rm -v /var/lib/cad:/data -e ISSUE=7 -e REPO=owner/name -e MODEL=provider/model <image>
-# Started by `orchd dispatch` (runner mode vm) over IAP ssh on a worker VM (deploy/gcp/worker-startup.sh).
+# Started on boot of a worker VM from the task `orchd dispatch` (runner mode vm) put in its metadata
+# (deploy/gcp/worker-startup.sh).
 # Auth comes from files deploy/fetch-auth.sh wrote under /data (never from args or env of the caller):
 #   /data/.aienv/.store/<id>/opencode/auth.json   -> ~/.local/share/opencode/auth.json (https://opencode.ai/docs/cli/)
 #   /data/.aienv/.store/<id>/github/token         -> GH_TOKEN (fine-grained PAT: contents + pull requests write)

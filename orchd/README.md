@@ -29,7 +29,7 @@ tools/orchd status --issue 7 [--pid 1234]                      # Closes #7 の P
 | 3 | 窓で全滅（旧 409）。`defer_until` = 最も早く空く時刻。または cad が未 ready（`GET /healthz?ready` が 503。再起動直後など）で reason `cad not ready`、`defer_until` = 今 + 2 分 | `{defer_until, reason}` |
 | 4 | 合う rule なし（旧 422。local の slot 無しなど） | `{reason}` |
 
-`pick` / `dispatch` / `status`：0 = 成功（pick は該当なしでも 0、`{none, reason}`）、1 = gh / git / claude / `docker run` の失敗、2 = 入力が不正（`--issue`・`--placement`、cloud の session が無い）、5 = computer unavailable（dispatch の vm：VM を start できない〈Spot の容量不足など〉・時間内に ready にならない）。5 のとき Orchestrator は `orchd place --exclude <その computer>` で置き直す（`--exclude` の computer の rule は reason `rule <i>: computer <c> excluded` で飛ばす。複数はカンマ区切り）。
+`pick` / `dispatch` / `status`：0 = 成功（pick は該当なしでも 0、`{none, reason}`）、1 = gh / git / claude / `docker run` の失敗、2 = 入力が不正（`--issue`・`--placement`、cloud の session が無い）、5 = computer unavailable（dispatch の vm：VM が停止中でない〈別 task が使用中〉・start できない〈Spot の容量不足など〉・API の失敗）。5 のとき Orchestrator は `orchd place --exclude <その computer>` で置き直す（`--exclude` の computer の rule は reason `rule <i>: computer <c> excluded` で飛ばす。複数はカンマ区切り）。
 
 ## Orchestrator との関係
 
@@ -40,7 +40,7 @@ NS ごとに `claude code (orchestrator) → orchd pick → orchd place → orch
 | `pick` | `ai` ラベル付きで `wip`・`ai-failed` の無い open Issue のうち最古を取り、`wip` を付ける | `{issue:{n,title,body}, classes:[{name,criteria}]}` |
 | `place` | 下記。Orchestrator が選んだ class で資源を決める | placement（`runner` を含む） |
 | `status` | `Closes #n` の PR（open を優先）と、`--pid` があればその process が生きているか。gh を 1 回呼ぶだけ | `{issue, pr, state, running?}` |
-| `dispatch` | `runner.mode` ごとに渡す。`subagent`：worktree `<path>-task-<n>`（branch `task/<n>`、origin/main から。前回の worktree・branch が残っていれば再利用）を作る。`process`：同じ worktree で `runner.cmd`（`{model}` を置換）+ prompt をバックグラウンド起動（log は `<state>/task-<n>.log`）。`cloud`：`claude -p <prompt> --cloud <session> --output-format json`。`vm`：下の「vm runner」 | subagent：`{runner, worktree, prompt}`（Orchestrator が Agent tool で起動）。process：`{started, worktree, pid, log}`。cloud：claude の JSON。vm：`{started, instance, container, booted, startSec}` |
+| `dispatch` | `runner.mode` ごとに渡す。`subagent`：worktree `<path>-task-<n>`（branch `task/<n>`、origin/main から。前回の worktree・branch が残っていれば再利用）を作る。`process`：同じ worktree で `runner.cmd`（`{model}` を置換）+ prompt をバックグラウンド起動（log は `<state>/task-<n>.log`）。`cloud`：`claude -p <prompt> --cloud <session> --output-format json`。`vm`：下の「vm runner」 | subagent：`{runner, worktree, prompt}`（Orchestrator が Agent tool で起動）。process：`{started, worktree, pid, log}`。cloud：claude の JSON。vm：`{started, instance, container, task, startSec}` |
 
 - worktree は NS の repo の隣に作る（親ディレクトリの aienv binding が効く）
 - repo・path は `--repo` / `--path` > namespace の登録（`ORCHD_NAMESPACES` > `cad/config/namespaces.json` > その `.example.json`。orchd は読むだけ）> CWD の git toplevel と `gh repo view`
@@ -51,13 +51,17 @@ NS ごとに `claude code (orchestrator) → orchd pick → orchd place → orch
 
 `runners["opencode@gce-spot"]` / `["opencode@gce-std"]` = `{mode: vm, instance, zone, project, image, model}`。VM と image は `deploy/gcp/README.md` の「opencode worker VM」（#53。owner が `create-worker.sh` で作るまでは describe が失敗して exit 5 → `--exclude` で local に落ちる）。VM は普段 `TERMINATED`（停止）で、task が終わると自分で止まる。`dispatch` は：
 
-1. `gcloud compute instances describe` で状態を見る。`STOPPING` / `PENDING_STOP`（自己停止の途中）なら `TERMINATED` まで待つ
-2. `TERMINATED` なら `gcloud compute instances start`。失敗（Spot の容量不足など）は exit 5
-3. `gcloud compute ssh --tunnel-through-iap -- test -e /run/worker-ready` が通るまで 5 秒おき。1〜3 は合わせて 170 秒まで（各 gcloud 呼び出しは 30 秒まで。dispatch 全体で約 4 分以内）。超えたら exit 5
-4. `sudo docker run -d --rm --name opencode-worker-<n> -v /var/lib/cad:/data -e ISSUE -e REPO -e MODEL <image>`（worker が Issue を読み、PR `Closes #n` を出す）。失敗時に VM が `RUNNING` でなくなっていれば（preempt・自己停止）exit 5、そうでなければ exit 1
-5. `{started, instance, container, booted（start したか）, startSec（dispatch 開始から docker run まで、実測）}` を出す
+Compute Engine REST API v1 を直接呼ぶ（gcloud・ssh は使わない。Go の標準ライブラリだけ）：
 
-orchd を動かす環境（Orchestrator の Mac）に `gcloud` と、VM への IAP SSH と start の権限が要る（cad の container 内の orchd には gcloud が無いので vm は使えず、exit 5 で置き直しになる）。
+1. `instances.get` で状態と metadata を見る。`STOPPING` / `PENDING_STOP`（自己停止の途中）なら `TERMINATED` まで待つ
+2. `TERMINATED` 以外（`RUNNING` / `PROVISIONING` / `STAGING` など＝別 task が使用中）は exit 5。VM 1 台で task は 1 つ。`TERMINATED` でも、5 分以内の `worker-task`（別の dispatch が setMetadata から start までの途中）がある、または `startup-script` が `worker-task` を読まない旧版なら exit 5
+3. `instances.setMetadata` で metadata `worker-task` = `<id> <n> <repo> <model> <image>` を置く（他の item はそのまま。fingerprint 付きなので同時の dispatch は片方が 412 → exit 5）
+4. `instances.start`、operation が `DONE` になるまで 5 秒おきに見る。失敗（Spot の容量不足など）したら instance を見直し、起動中（`PROVISIONING` / `STAGING` / `RUNNING`）なら成功扱い、`TERMINATED` なら `worker-task` を消して（best effort）exit 5
+5. `{started, instance, container（opencode-worker-<n>）, task, startSec（dispatch 開始から start の完了まで、実測）}` を出す
+
+1〜4 は合わせて 170 秒まで（各 HTTP 呼び出しは 30 秒まで。dispatch 全体で約 4 分以内）。VM は boot 時に `worker-task` を読み、`docker run -d --rm --name opencode-worker-<n> -v /var/lib/cad:/data -e ISSUE -e REPO -e MODEL <image>` を 1 度だけ実行する（`deploy/gcp/worker-startup.sh`。worker が Issue を読み、PR `Closes #n` を出す）。container が起動したかは orchd からは見えない（`orchd status` の PR で待つ）。
+
+access token：GCE 上（cad-2 の cad image 内）は metadata server（`GCE_METADATA_HOST` で上書き可）の default service account、それ以外（Mac）は `gcloud auth print-access-token`。API の base は `ORCHD_COMPUTE_URL`（既定 `https://compute.googleapis.com/compute/v1`、テスト用）。権限：token の主体に worker VM への `compute.instances.get` / `setMetadata` / `start`（と `compute.zoneOperations.get`）が要る。cad-2 から使うなら SA `cad-vm@` に付ける（例 `roles/compute.instanceAdmin.v1`。SA 付き VM の setMetadata には `roles/iam.serviceAccountUser` も要る場合がある。未検証）。
 
 完了は `orchd status --issue <n>`（PR）で待つ。VM が `TERMINATED` なのに PR が無ければ、preempt か worker の失敗（`skills/orchestrate`）。`gce-std` は cad の `config.json` の computers（費用の記録）には未登録（価格を確認してから足す）。
 
