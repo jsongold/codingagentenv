@@ -143,7 +143,7 @@ func pickCmd(args []string, w io.Writer) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	out, err := shell("", "gh", "issue", "list", "--repo", ns.Repo, "--label", "ai", "--state", "open", "--search", "-label:wip -label:ai-failed", "--limit", "200", "--json", "number,title,body,createdAt,labels")
+	out, err := shell("", "gh", "issue", "list", "--repo", ns.Repo, "--label", "ai", "--state", "open", "--search", "-label:wip -label:ai-failed sort:created-asc", "--limit", "200", "--json", "number,title,body,createdAt,labels")
 	var issues []ghIssue
 	if err == nil {
 		err = json.Unmarshal([]byte(out), &issues)

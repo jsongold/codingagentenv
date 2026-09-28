@@ -78,7 +78,7 @@ func TestPickOldestWithoutWip(t *testing.T) {
 	if c := cs[0].(map[string]any); c["name"] == "" || c["criteria"] == "" || len(cs) < 2 {
 		t.Errorf("classes %v", cs)
 	}
-	if !slices.Contains((*calls)[0], "-label:wip -label:ai-failed") {
+	if !slices.Contains((*calls)[0], "-label:wip -label:ai-failed sort:created-asc") {
 		t.Errorf("list must filter claimed issues server-side: %v", (*calls)[0])
 	}
 	if got := strings.Join((*calls)[1][1:], " "); got != "gh issue edit 2 --repo o/r --add-label wip" {
