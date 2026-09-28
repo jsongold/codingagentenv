@@ -31,6 +31,7 @@ ADR-0014 は「sleep 中に要る判断は class の分類だけで、寝る前�
 |---|---|
 | CC cloud セッション内の `/loop` で CCO を常駐させる | 実測で発火しない。2026-09-28 12:29Z にセッションが「次回の確認は5分後です」と発言した後、16 分間活動がゼロ（#73） |
 | orchd がラベルと PR の状態の表で次の一手を決める（この ADR の前版） | 判断を orchd 側に寄せるとラベル運用が要り、プロジェクトの文脈を読めない。owner が却下 |
+| Routine（Cloud Scheduler → `POST /v1/claude_code/routines/{id}/fire`）を CCO にする | routine には daily run cap がある（Max 15 回/日、Pro 5、Team/Ent 25。超えた分は extra usage の従量課金）。5〜15 分間隔（96〜288 回/日）には足りず、既存の Email Triage routine が平日 10 回/日を使っている。API fire は 1 routine あたり 30 回/時、account あたり 100 回/時。schedule trigger の最短間隔は 1 時間。各回が新規セッションになる。根拠：[上限の数値](https://claude.com/blog/introducing-routines-in-claude-code)、[daily cap の存在・API trigger・最短 1 時間](https://code.claude.com/docs/en/routines)、[30 回/時・100 回/時](https://platform.claude.com/docs/en/api/claude-code/routines-fire)。`claude -p --cloud` で既存セッションへ送る方式は routine ではないため daily cap の対象外で、制約はサブスクの枠だけ（owner 2026-09-28 採用） |
 
 ## 影響
 - 良い影響：sleep 中も次にやることの選択から merge まで進む。ラベル運用が無くなり、判断は CCO に集まる。orchd は条件を見て固定の 1 通を送るだけになる
@@ -41,4 +42,6 @@ ADR-0014 は「sleep 中に要る判断は class の分類だけで、寝る前�
 - 未検証の前提：
   - 前回送った指示を処理し終えたかの判定方法（当面は間隔）
   - 長時間同じセッションを使うことによる文脈の劣化（compact）
-- 再検討する条件：cloud セッションで定期実行できる公式手段が確認できたら
+- 再検討する条件：
+  - daily run cap に縛られずに、既存の cloud セッションへ定期実行できる公式手段が確認できたら（routine は cap があるため該当しない）
+  - cloud Orchestrator を夜に数回起こすだけで足りると分かったら、routine を保険として足す
