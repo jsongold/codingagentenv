@@ -87,6 +87,13 @@ fi
 # https://docs.docker.com/engine/swarm/services/#update-a-services-image-after-creation
 # Without --detach it waits for convergence (or the rollback). It exits 0 even after an automatic rollback
 # (observed on Docker 29.8), so the ExecStartPost line is what records the outcome in the journal.
+# Serialized with orchd-sleep.service (below): the update replaces the cad container stop-first, which would kill
+# an orchd dispatch running in it after it has claimed an issue. So the second ExecStartPre waits (every 5s, at
+# most 600s) while orchd-sleep.service is running, and orchd-sleep.service skips its run while this unit runs
+# (its ExecCondition). Both units are Type=oneshot, whose state while running is "activating" (systemctl
+# is-active then exits non-zero), so the state string is compared. The wait is prefixed with "-": after 600s the
+# update goes ahead anyway rather than never updating. In the unit, $$ is systemd's literal $ and \$ keeps this
+# heredoc from expanding it (as in orchd-sleep.service).
 cat >/etc/systemd/system/cad-update.service <<UNIT
 [Unit]
 Description=Refresh secrets and update service cad to the current digest of $IMAGE (auto-rollback on failure)
@@ -95,6 +102,7 @@ After=docker.service
 [Service]
 Type=oneshot
 ExecStartPre=-/usr/bin/docker run --rm --pull always --network host -v "$VOL:/data" --entrypoint /app/bin/fetch-auth $IMAGE
+ExecStartPre=-/bin/sh -c 'n=0; while case "\$\$(systemctl is-active orchd-sleep.service)" in activating|deactivating) true;; *) false;; esac; do [ \$\$n -lt 120 ] || { echo "cad-update: orchd-sleep still running after 600s; updating anyway"; exit 1; }; n=\$\$((n+1)); sleep 5; done'
 ExecStart=/usr/bin/docker service update --quiet --image $IMAGE cad
 ExecStartPost=/usr/bin/docker service inspect cad --format 'cad image={{.Spec.TaskTemplate.ContainerSpec.Image}} update={{if .UpdateStatus}}{{.UpdateStatus.State}}: {{.UpdateStatus.Message}}{{end}}'
 ExecStartPost=-/usr/bin/docker image prune -f
@@ -117,7 +125,10 @@ UNIT
 # ready), retried on the next run, so SuccessExitStatus=3 keeps the unit from being marked failed. The task's
 # container is cad.1.<task id>, so it is looked up by the swarm service label (as in the README); no running task
 # (mid update/rollback) is also a defer (exit 3). docker exec runs as the image's user (cad) with its env
-# (HOME=/data, ORCHD_STATE_DIR, ...). In the unit, $$ is systemd's literal $ (systemd.service "Command lines");
+# (HOME=/data, ORCHD_STATE_DIR, ...). ExecCondition skips the run (exit 1 = condition not met, not a failure;
+# systemd.service "ExecCondition=") while cad-update.service is running, since that replaces the container; see
+# cad-update.service for the other half. The timer starts at boot+3min so the first runs do not coincide with
+# cad-update.timer's boot+2min. In the unit, $$ is systemd's literal $ (systemd.service "Command lines");
 # \$ keeps this heredoc from expanding it.
 cat >/etc/systemd/system/orchd-sleep.service <<UNIT
 [Unit]
@@ -127,6 +138,7 @@ After=docker.service
 [Service]
 Type=oneshot
 SuccessExitStatus=3
+ExecCondition=/bin/sh -c 'case "\$\$(systemctl is-active cad-update.service)" in activating|deactivating) echo "orchd-sleep: cad-update running; skipped"; exit 1;; esac'
 ExecStart=/bin/sh -c 'c=\$\$(/usr/bin/docker ps -q -f label=com.docker.swarm.service.name=cad -f status=running | head -n 1); [ -n "\$\$c" ] || { echo "orchd-sleep: no running cad container; deferred"; exit 3; }; exec /usr/bin/docker exec "\$\$c" /app/orchd/bin/orchd dispatch --pending'
 UNIT
 
@@ -135,7 +147,7 @@ cat >/etc/systemd/system/orchd-sleep.timer <<UNIT
 Description=Run orchd dispatch --pending every 2 minutes (sleep loop, ADR-0014)
 
 [Timer]
-OnBootSec=2min
+OnBootSec=3min
 OnUnitActiveSec=2min
 
 [Install]

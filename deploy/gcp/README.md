@@ -104,10 +104,12 @@ gcloud compute instances reset cad-2 --project suggestorder-dev --zone us-centra
 
 owner が寝ている間は cad-2 の timer が `orchd dispatch --pending` を回す（[ADR-0014](../../docs/decisions/0014-sleep-loop.md)）。起きている間は手元の Orchestrator が orchd を呼ぶので、timer は動いていても何もしない。
 
-- 有効化：`startup.sh` が boot ごとに `orchd-sleep.service`（oneshot）と `orchd-sleep.timer`（boot 2 分後から 2 分ごと。`cad-update.timer` と同じ形）を作り、`systemctl enable --now` する。手で有効化する操作は無い（metadata の `startup-script` を今の `startup.sh` に差し替えて reboot / reset すれば入る。上の「恒久的に固定」と同じ手順）
+- 有効化：`startup.sh` が boot ごとに `orchd-sleep.service`（oneshot）と `orchd-sleep.timer`（boot 3 分後から 2 分ごと。boot 直後の 1 回目が `cad-update.timer` の boot 2 分後と重ならないようずらしてある）を作り、`systemctl enable --now` する。手で有効化する操作は無い（metadata の `startup-script` を今の `startup.sh` に差し替えて reboot / reset すれば入る。上の「恒久的に固定」と同じ手順）
 - 中身：service の label で cad の container を引き（`cad.1.<task id>`）、`docker exec <container> /app/orchd/bin/orchd dispatch --pending`（ns は `default`、user は image の `cad`、env も image のもの）
 - **`orchd mode set sleep` のときだけ実質動く**。mode の判定は orchd 側で、sleep 以外なら exit 0 と `{"skipped":true,...}` を出して終わる（2 分ごとに journal に 1 行残る）。寝る前に `orchd mode set sleep`、起きたら `orchd mode clear`（または別の mode を set）。mode のファイルは volume（`/data/orchd/state/mode/`）にあるので cad の container の中で実行する：`$S "sudo docker exec \$(sudo docker ps -q -f label=com.docker.swarm.service.name=cad) orchd mode set sleep --by owner"`
 - exit code：3（cad が未 ready、または update / rollback の途中で cad の container が無い）は defer として成功扱い（`SuccessExitStatus=3`）、次の 2 分後に再試行。1（gh / claude / API の失敗）・2（入力不正、cloud の session が無いなど）は unit が failed になる
+- cad の update との直列化：`cad-update.service` は cad の container を stop-first で入れ替えるので、dispatch の途中（issue を claim した後）に走ると orchd が殺される。そこで両者を直列にしている。`orchd-sleep.service` は `cad-update.service` の実行中は `ExecCondition` で skip し（failed にはならない。journal に `cad-update running; skipped`）、`cad-update.service` は入れ替えの前に実行中の `orchd-sleep.service` の終了を待つ（5 秒ごと、最大 600 秒。超えたら update を優先して進める）。どちらも oneshot で実行中の状態は `activating` なので、`systemctl is-active` の出力の文字列で判定している
+- それでも孤児になった issue（600 秒超えの後の update、VM や container の crash など）は `wip` のまま残り、60 分経つと次の `dispatch --pending` 自身が `ai-failed` に回収する（#69）
 - 前提：`orchd dispatch --pending` を持つ image（#63）。それより古い image では `dispatch --pending` を知らず exit 2 で failed になる
 
 確認・ログ：
