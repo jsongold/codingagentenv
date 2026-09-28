@@ -19,7 +19,7 @@ func TestWakeSkipsWhenModeNotSleep(t *testing.T) {
 }
 
 func TestWakeSendsFixedPromptWhenSleep(t *testing.T) {
-	taskEnv(t, reg)
+	taskEnv(t, `{"default":{"cloudWorkerSession":"sess-1"}}`) // session only, like cad-2
 	t.Setenv("ORCHD_MODE", "sleep")
 	calls := fakeShell(t, map[string]string{"claude -p": `{"result":"ok"}`})
 	code, m, errs := runTask(t, "wake")
@@ -29,6 +29,7 @@ func TestWakeSendsFixedPromptWhenSleep(t *testing.T) {
 	var claudeCalls int
 	for _, c := range *calls {
 		if c[1] != "claude" {
+			t.Errorf("wake must call only claude: %v", c)
 			continue
 		}
 		claudeCalls++

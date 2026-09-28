@@ -74,8 +74,8 @@ func namespacesFile() string {
 	return f
 }
 
-// resolveNS: --repo/--path > the registry entry > the git toplevel of the CWD and its `gh repo view`.
-func resolveNS(name, repo, path string) (NS, error) {
+// readNS: the registry entry only (no git/gh lookups).
+func readNS(name string) (NS, error) {
 	var ns NS
 	if b, err := os.ReadFile(namespacesFile()); err == nil {
 		var reg map[string]NS
@@ -83,6 +83,15 @@ func resolveNS(name, repo, path string) (NS, error) {
 			return ns, fmt.Errorf("%s: %v", namespacesFile(), err)
 		}
 		ns = reg[name]
+	}
+	return ns, nil
+}
+
+// resolveNS: --repo/--path > the registry entry > the git toplevel of the CWD and its `gh repo view`.
+func resolveNS(name, repo, path string) (NS, error) {
+	ns, err := readNS(name)
+	if err != nil {
+		return ns, err
 	}
 	if repo != "" {
 		ns.Repo = repo
@@ -94,7 +103,6 @@ func resolveNS(name, repo, path string) (NS, error) {
 		home, _ := os.UserHomeDir()
 		ns.Path = filepath.Join(home, rest)
 	}
-	var err error
 	if ns.Path == "" {
 		ns.Path, err = shell("", "git", "rev-parse", "--show-toplevel")
 		ns.Path = strings.TrimSpace(ns.Path)

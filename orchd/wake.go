@@ -30,7 +30,7 @@ func wakeCmd(args []string, w io.Writer) (int, error) {
 	if mode != "sleep" {
 		return 0, printJSON(w, map[string]any{"skipped": true, "mode": mode})
 	}
-	nsv, err := resolveNS(*ns, "", "")
+	nsv, err := readNS(*ns) // wake needs only the session; cad-2 has no checkout
 	if err != nil {
 		return 1, err
 	}
