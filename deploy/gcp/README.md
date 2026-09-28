@@ -3,7 +3,7 @@
 cad + orchd + Claude Code を 1 つの image（`ghcr.io/jsongold/codingagentenv/cad`）にして、COS の VM で常駐させる。
 
 - image：main への push ごとに GitHub Actions（`.github/workflows/image.yml`）が build し、`:main` と `:sha-<7桁>` を GHCR に push する
-- VM：startup script（`startup.sh`、毎 boot root で実行）が single-node Docker Swarm を init し（初回のみ。swarm の状態は `/var/lib/docker` に残る）、service `cad`（`--network host`、`/var/lib/cad:/data`）を作る。`cad-update.timer` が 5 分ごとに `docker service update --image …:main cad` を実行し、digest が変わっていれば health-gated に入れ替え、失敗すれば自動で前の image に rollback する（= main に追従）
+- VM：startup script（`startup.sh`、毎 boot root で実行）が Secret Manager から secret を volume に書き（下の「secrets」）、COS 既定の `live-restore: true`（swarm と非互換）を `/var/lib/docker/daemon.json` で false にして（初回のみ docker を再起動。COS の docker.service が起動前にこのファイルを `/etc/docker/daemon.json` へ copy する）、single-node Docker Swarm を init し（初回のみ。swarm の状態は `/var/lib/docker` に残る）、service `cad`（`--network host`、`/var/lib/cad:/data`）を作る。`cad-update.timer` が 5 分ごとに `docker service update --image …:main cad` を実行し、digest が変わっていれば health-gated に入れ替え、失敗すれば自動で前の image に rollback する（= main に追従）
 - 旧来の `gcloud compute instances create-with-container`（COS の container 起動 agent）は deprecated なので使わない
 - アクセスは IAP SSH のみ（firewall `allow-iap-ssh-cad`：tcp:22 from 35.235.240.0/20、tag `cad`）。cad は VM の `127.0.0.1:7878` だけで listen する（`--network host` + cad の既定 addr。非 loopback は `CAD_TOKEN` なしだと cad 自身が拒否する）
 - 既定：project `suggestorder-dev`、zone `us-central1-a`、VM `cad-2`、`e2-micro`（env `PROJECT` `ZONE` `VM` `MACHINE` で上書き）
@@ -19,20 +19,39 @@ cad + orchd + Claude Code を 1 つの image（`ghcr.io/jsongold/codingagentenv/
 
 user は `cad`（uid 10001）。image の Claude Code は auto-update しない（`DISABLE_AUTOUPDATER=1`）。main に push されるたびに image の build で最新が入る。
 
-## 作成
+## 作成（owner が Mac で、この順に）
 
 ```bash
-deploy/gcp/create-vm.sh     # firewall と VM を作る。既にあれば skip。削除はしない
+deploy/gcp/secrets.sh       # 1. Secret Manager: API 有効化・SA cad-vm@ 作成・secret 作成と upload・secretAccessor 付与
+deploy/gcp/create-vm.sh     # 2. firewall と VM（SA cad-vm@、scope cloud-platform、metadata cad-secrets）。既にあれば skip
+S="gcloud compute ssh cad-2 --project suggestorder-dev --zone us-central1-a --tunnel-through-iap --"
+$S sudo journalctl -u google-startup-scripts | grep 'cad-opencode'   # 3. "cad-opencode-<id>: wrote ..." を確認
+$S "sudo docker exec \$(sudo docker ps -q -f label=com.docker.swarm.service.name=cad) cad show usage"   # opencode の usage が出る
+# 4. Claude の /login（下の「Claude のログイン」）
 ```
 
-## secrets
+既存の VM（SA なしで作った cad-2）を移行する場合は、2 の代わりに（SA の変更は VM の停止が必要）：
 
 ```bash
-deploy/gcp/secrets.sh                 # opencode auth.json を VM の volume にコピー（中身は表示しない）
-                                      # 引数: [opencode-id] [claude-id ...]
+P="--project suggestorder-dev --zone us-central1-a"
+gcloud compute instances stop cad-2 $P
+gcloud compute instances set-service-account cad-2 $P --service-account cad-vm@suggestorder-dev.iam.gserviceaccount.com --scopes cloud-platform
+gcloud compute instances add-metadata cad-2 $P --metadata-from-file startup-script=deploy/gcp/startup.sh,cad-secrets=deploy/gcp/secrets.list
+gcloud compute instances start cad-2 $P
 ```
 
-最後に Claude のログイン手順を表示する。アカウントごとに：
+## secrets（Secret Manager）
+
+- 一覧は `secrets.list`（`<service> <id>` → secret `cad-<service>-<id>`。今は `opencode 996c87ae`）。Mac の `secrets.sh` と VM の `startup.sh`（metadata `cad-secrets` 経由）が同じ一覧を使う。行を足したら `secrets.sh` と `add-metadata ... cad-secrets=deploy/gcp/secrets.list`
+- `secrets.sh`（冪等、gcloud を表示してから実行、値は表示しない）：`secretmanager.googleapis.com` 有効化 → SA `cad-vm@` が無ければ作成 → secret が無ければ作成（automatic replication）→ 有効な version が無ければ `gcloud secrets versions add --data-file ~/.aienv/.store/<id>/opencode/auth.json` → `roles/secretmanager.secretAccessor` を **secret ごとに** SA へ付与（project 全体には付けない）
+- VM 側（`startup.sh`、毎 boot と `cad-update.timer` の 5 分ごと）：metadata server から SA の access token を取り、REST `secrets/<name>/versions/latest:access` を curl で呼び、`payload.data` を base64 decode して `/var/lib/cad/.aienv/.store/<id>/opencode/auth.json`（container の `$HOME/.aienv/...`）へ atomic に書く（mode 600、uid 10001）。失敗したら log を出して既存のファイルを残す。値も token も log に出さない
+- COS には package manager が無く jq も無い前提。token と base64 はどちらも `"` やエスケープを含まない文字集合なので sed で抜く（外れたら書かない）
+- rotation：`ROTATE=1 deploy/gcp/secrets.sh` で新しい version を足す。VM は `latest` を読むので 5 分以内に反映（今すぐなら `$S sudo systemctl start cad-update`）。古い version は `gcloud secrets versions destroy <n> --secret cad-opencode-<id> --project suggestorder-dev` で消す（destroy 済みは無料）
+- ローカル検証：`bash test/startup-fetch.test.sh`（偽の metadata / Secret Manager に対して decode・600・atomic・失敗時の保持を確認）
+
+## Claude のログイン
+
+Claude の認証は Secret Manager に入れず volume に置く。対話の OAuth（/login）で作られ、refresh token が使うたびに回転して container 内の claude が書き戻すため、Secret Manager の値を正にすると古い token で上書きして壊す。アカウントごとに：
 
 ```bash
 gcloud compute ssh cad-2 --project suggestorder-dev --zone us-central1-a --tunnel-through-iap -- -t \
@@ -90,3 +109,5 @@ gcloud compute firewall-rules delete allow-iap-ssh-cad --project suggestorder-de
 ## 費用（月額、us-central1）
 
 e2-micro $6.11 + 外部 IP $3.65 ≈ $9.76（+ boot disk 10GB の standard PD）。
+
+Secret Manager（[pricing](https://cloud.google.com/secret-manager/pricing)、billing account 単位の無料枠）：active version 6 個 / 月と access 10,000 回 / 月は無料。超過は active version $0.06 / 月（$0.000082192 / 時）、access $0.03 / 10,000 回。secret 1 つ × 5 分ごとは約 8,900 回 / 月で無料枠内（secret を増やすと枠を超える。2 つ目からは約 $0.03 / 月ずつ）。
