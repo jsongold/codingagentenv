@@ -18,7 +18,7 @@ ADR-0008 / 0009 は「provider の固定一覧（`policy.providers.allowed`）�
   - アカウントの正本は aienv。`cad` は読むだけで、登録・変更はしない。
   - aienv の shim は `CLAUDE_CODE_OAUTH_TOKEN` を unset する。よって ADR-0009 の「Worker は token 固定で認証」は成り立たない。Worker は `CLAUDE_CONFIG_DIR` 型の store を使うか、shim を通らずに `claude` を起動する（どちらにするかは実装 PR で決める）。
 - **配置は 2 段の分類問題**。段 1（task 文 → class）は Orchestrator（LLM）。段 2（(class, メタデータ) → (Agent, Computer)）は policy の `rules`（データとして持つ順序付きの決定リスト）を評価する決定的なコード。task ごとには判断しない。v0.0.1 で strategy/cost 方式（`classAgents`・`agentPriority`・strategy・cost・coldStart・preemptible・local-first の特例）を置き換えた。`policy.computers` の属性は記録として残すが place は使わない。
-- **`cad` のエンドポイント `POST /v1/place?ns=<ns>` として実装する**。入力は `{"class": ..., "self"?: "<service>/<account>"}`（`policy.classes` に無い・空の class、形式違いの self は 400。他のフィールドは無視）。task の状態を持たない純関数（ADR-0002 / 0008 と整合）。同じ spec と同じ `cad` の値なら同じ答え。`ns` は必須で、無ければ 400（Issue #10）。
+- **place の置き場所は ADR-0011 で `cad` から `orchd`（`orchd place --class <c> [--self ..] [--ns ..]`、exit 0 / 3 = 409 / 4 = 422 / 2 = 400）に移した**。以下の `POST /v1/place` は移す前の記述で、判定の中身は同じ。当初は **`cad` のエンドポイント `POST /v1/place?ns=<ns>` として実装した**。入力は `{"class": ..., "self"?: "<service>/<account>"}`（`policy.classes` に無い・空の class、形式違いの self は 400。他のフィールドは無視）。task の状態を持たない純関数（ADR-0002 / 0008 と整合）。同じ spec と同じ `cad` の値なら同じ答え。`ns` は必須で、無ければ 400（Issue #10）。
   - `200 {agent, computer, rule, reason[], runner}`：採用した組、採用した rule の番号、落とした候補の理由、Agent のサービスの起動方法（`policy.runners`）
   - `409 {defer_until, reason}`：使用枠の窓だけで塞がった rule があり今は置けない。`cad` は待たない・キューを持たない。Orchestrator は Task を pending のまま `DEFER:` を説明欄に書き、後で再 dispatch する
   - `422 {reason}`：条件を満たす組が無い（起動しない）
@@ -46,9 +46,9 @@ ADR-0008 / 0009 は「provider の固定一覧（`policy.providers.allowed`）�
 
 ## 設定はファイル（.agent/policy.json）
 仕様も精度も日々変わるので、調整するものはすべて `.agent/policy.json`（`CAD_POLICY` で差し替え可）に置き、コードには置かない。稼働中の `cad` は mtime で再読込する（壊れたファイルは log に出して直前の良い policy を使い続ける）。`cad show [classes|rules|runners|collect|agents|computers|policy]` で読む。
-- `classes`：`{name: {criteria, estPct}}`。place が受け付ける class の一覧（コードの固定一覧を置き換え）。`criteria` は Orchestrator が分類に使う基準、`estPct` は 1 task が使う使用枠の見積もり（旧 `placement.estPct`）。class の追加はファイルの編集だけで済む。`classes` の無いファイルは daemon が読み込み時に拒否する（旧 `placement.estPct` があればそれを名指しする。自動移行はしない。直前の良い policy を使い続ける）
+- `classes`：`{name: {criteria, estPct}}`。place が受け付ける class の一覧（コードの固定一覧を置き換え）。`criteria` は Orchestrator が分類に使う基準、`estPct` は 1 task が使う使用枠の見積もり（旧 `placement.estPct`）。class の追加はファイルの編集だけで済む。`classes` の無いファイルは `orchd` が拒否する（exit 1。ADR-0011 以降 `cad` は検証しない）
 - `rules`：順序付きの決定リスト（上記）。`agent` は `path.Match` のパターンか `self`
-- `runners`：`{service: {mode, cmd?, model?}}`。`mode` は `subagent`（Orchestrator の Task subagent）か `process`（`cmd` を起動。`{model}` は `model` に置換）。`process` は `cmd` 必須（読み込み時に検証）。place の 200 に選んだ Agent のサービスの runner を入れる。runner の無いサービスの Agent は place で `<agent>: no runner` として飛ばす。`subagent` の Agent は self のときだけ使える（それ以外は `<agent>: subagent runs only as self` で飛ばす。よって `claude/*` の rule も実質 self にしか一致しない）。cad 自身は起動しない（読み取り専用のデータ）
+- `runners`：`{service: {mode, cmd?, model?}}`。`mode` は `subagent`（Orchestrator の Task subagent）か `process`（`cmd` を起動。`{model}` は `model` に置換）。`process` は `cmd` 必須（`orchd` が読み込み時に検証）。place の 200 に選んだ Agent のサービスの runner を入れる。runner の無いサービスの Agent は place で `<agent>: no runner` として飛ばす。`subagent` の Agent は self のときだけ使える（それ以外は `<agent>: subagent runs only as self` で飛ばす。よって `claude/*` の rule も実質 self にしか一致しない）。cad 自身は起動しない（読み取り専用のデータ）
 - `collect.usage.every`：usage collector の間隔（Go の duration）。スケジュールのたびに読むので再起動不要。`CAD_USAGE_EVERY` があればそちらが優先。不正な値は直前の良い値を使い、設定を消すと既定の 60s に戻る。前回の実行時刻 + 現在の間隔で判定するので、短くした間隔は次の tick から効く
 - `placement.reservePct`・`agents`・`computers`：従来どおり
 

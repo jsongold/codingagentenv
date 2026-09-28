@@ -1,7 +1,7 @@
 # ADR-0011: `cad` は事実（usage）だけにし、判断は新設の `orchd` に分ける。task の状態・キュー・実行管理は Hatchet に任せる
 
 - 日付：2026-09-28
-- 状態：提案
+- 状態：提案（決定 1 の place 分割は実装済み。Hatchet は未着手）
 
 ## 文脈
 この repo の目的はコーディングをクラウドでスケールさせること。`cad` は ADR-0008 でメタデータの提供に範囲を絞ったが、ADR-0010 で place・policy（classes / rules / runners）・capacity・workers を抱え、事実（収集した値）と判断（どこで何を動かすか）が1つのバイナリに混ざった。
@@ -24,6 +24,12 @@ Hatchet（github.com/hatchet-dev/hatchet、MIT、v0.107.0 2026-09-15、約 8k st
    - reviewer quota → 不要（書く agent の usage で判断する。owner 決定）
    - place / policy → `orchd`
 5. **Computer の料金**は skypilot-catalog（`catalogs/v8/<cloud>/vms.csv`、7 時間ごとに自動更新、ライセンス要確認）と sandbox 比較サイトの snapshot を使う。place が料金を使うようになるまで取り込まない。
+
+## 実装済み（2026-09-28）
+- place は `orchd/`（独立した Go module `github.com/jsongold/codingagentenv/orchd`、`tools/orchd`）に移した。決定 1 の「同じ Go module」ではなく別 module にした（owner 決定：後で置き換え・削除するので `rm -rf orchd tools/orchd` で cad が壊れないこと）
+- `orchd` は cad を import せず、`GET /v1/usage`・`GET /v1/capacity`（`CAD_ADDR` / `CAD_TOKEN`）だけで cad と話す
+- `orchd` が読む policy は `rules`・`classes`・`runners`・`placement.reservePct`・`agents`（と rule の computer 名の存在確認に `computers` の名前）。`classes` 必須・runners の検証も `orchd` に移した
+- `cad` から `POST /v1/place` と `cad show rules|classes|runners` を外した。`cad` は rules / classes / runners を検証せず、`cad add/rm` で書き戻すときはそのまま残す
 
 ## PoC 結果（2026-09-28、`~/projects/hatchet-poc`）
 hatchet-lite v0.107.0 + postgres 15.6、TS SDK 1.33.2、Node v26。2 つの worker が同じ task `code-task` を登録し、振り分けは run の desired worker labels だけで決まる。

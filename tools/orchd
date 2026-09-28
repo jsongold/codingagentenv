@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# orchd [args] — decide where a task runs (see orchd/README.md). Builds orchd/bin/orchd
+# (gitignored) when it is missing or older than the Go sources.
+set -euo pipefail
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+src=$(cd "$here/../orchd" && pwd)
+bin=$src/bin/orchd
+if [ ! -x "$bin" ] || [ -n "$(find "$src" -maxdepth 1 \( -name '*.go' -o -name go.mod \) -newer "$bin")" ]; then
+  (cd "$src" && go build -o bin/orchd .)
+fi
+exec "$bin" "$@"

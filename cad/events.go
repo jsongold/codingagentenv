@@ -210,3 +210,13 @@ func (h *hub) run(cs []collector, tick time.Duration, stop <-chan struct{}) {
 		}
 	}
 }
+
+// topic decodes the published value of name into v; false if it is not published (yet).
+func (h *hub) topic(name string, v interface{}) bool {
+	for _, e := range h.current() {
+		if e.Topic == name {
+			return json.Unmarshal(e.Data, v) == nil
+		}
+	}
+	return false
+}

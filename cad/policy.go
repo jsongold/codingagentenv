@@ -2,8 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -29,70 +27,19 @@ type Policy struct {
 	Providers struct {
 		Allowed []string `json:"allowed"`
 	} `json:"providers"`
-	// Placement (ADR-0010). providers.allowed above still drives worker polling.
-	Computers map[string]Computer `json:"computers"` // records only; place reads just the names
-	Agents    []string            `json:"agents"`    // e.g. "claude/default", "claude/3f9a1c0e"
-	Rules     []Rule              `json:"rules"`     // ordered decision list; first match wins
-	Placement struct {
-		ReservePct float64 `json:"reservePct"` // usage headroom kept free per window
-	} `json:"placement"`
-	Classes map[string]Class  `json:"classes"` // the task classes place accepts (the Orchestrator classifies by criteria)
-	Runners map[string]Runner `json:"runners"` // service -> how the Orchestrator launches it (returned by place)
-	Collect struct {
+	Computers map[string]Computer `json:"computers"` // records only (`cad show cost`)
+	Agents    []string            `json:"agents"`    // e.g. "claude/default", "claude/3f9a1c0e"; usage is collected for these
+	// Owned by orchd (ADR-0011); kept raw so `cad add/rm` round-trips them.
+	Rules     json.RawMessage `json:"rules,omitempty"`
+	Placement json.RawMessage `json:"placement,omitempty"`
+	Classes   json.RawMessage `json:"classes,omitempty"`
+	Runners   json.RawMessage `json:"runners,omitempty"`
+	Collect   struct {
 		Usage struct {
 			Every string `json:"every"` // time.ParseDuration; CAD_USAGE_EVERY overrides
 		} `json:"usage"`
 	} `json:"collect"`
 	Source string `json:"source"` // file path, or "builtin"
-}
-
-// Class: Criteria tells the Orchestrator when to pick it; EstPct is the usage % one task consumes.
-type Class struct {
-	Criteria string  `json:"criteria"`
-	EstPct   float64 `json:"estPct"`
-}
-
-// Runner: "subagent" (a Task subagent of the Orchestrator) or "process" (run Cmd; {model} is Model).
-type Runner struct {
-	Mode  string `json:"mode"`
-	Cmd   string `json:"cmd,omitempty"`
-	Model string `json:"model,omitempty"`
-}
-
-func (p Policy) check() error {
-	for s, r := range p.Runners {
-		switch {
-		case r.Mode == "process" && r.Cmd == "":
-			return fmt.Errorf("runners.%s: process needs cmd", s)
-		case r.Mode != "subagent" && r.Mode != "process":
-			return fmt.Errorf("runners.%s: mode must be subagent or process", s)
-		}
-	}
-	return nil
-}
-
-// requireClasses rejects a policy file without classes (place would 400 every request). The daemon
-// checks it; the CLI does not, so `cad add` can build a file up. No migration of the old format.
-func requireClasses(b []byte, p Policy) error {
-	if len(p.Classes) > 0 {
-		return nil
-	}
-	var old struct {
-		Placement struct {
-			EstPct json.RawMessage `json:"estPct"`
-		} `json:"placement"`
-	}
-	if json.Unmarshal(b, &old) == nil && old.Placement.EstPct != nil {
-		return errors.New(`no "classes" (placement.estPct was replaced by classes{name:{criteria,estPct}} — see ADR-0010)`)
-	}
-	return errors.New(`no "classes" (want classes{name:{criteria,estPct}} — see ADR-0010)`)
-}
-
-// Rule: agents matching Agent (path.Match over Agents; "self" = the spec's self) run on Computer, for the listed classes (none = any).
-type Rule struct {
-	Agent    string   `json:"agent"`
-	Computer string   `json:"computer"`
-	Class    []string `json:"class,omitempty"`
 }
 
 // Computer holds a placement target's static attributes (pricing, caps, limits; 0 limit = none).
@@ -146,12 +93,6 @@ func currentPolicy() Policy {
 		var p Policy
 		if b, err = os.ReadFile(path); err == nil {
 			if err = json.Unmarshal(b, &p); err == nil {
-				err = p.check()
-			}
-			if err == nil {
-				err = requireClasses(b, p)
-			}
-			if err == nil {
 				p.Source = path
 				pol = p
 			}

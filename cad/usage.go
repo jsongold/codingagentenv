@@ -195,7 +195,7 @@ func readUsage(file string) (AgentUsage, error) {
 }
 
 // collectUsage refreshes every claude/* and codex/* agent concurrently, so the total is one
-// command's time. Other services are left out (place reports them as "usage unknown").
+// command's time. Other services are left out (orchd place treats them as "usage unknown").
 func collectUsage(agents []string, every time.Duration) UsageMap {
 	out := UsageMap{}
 	var mu sync.Mutex
@@ -238,25 +238,6 @@ func usageFor(agent string, every time.Duration) AgentUsage {
 	}
 	u.Stale = u.Error == "" && time.Since(u.FetchedAt) > 2*every
 	return u
-}
-
-// usableUsage turns the published usage into what place filters on: agents with Error or Stale
-// are dropped (place reports them as "usage unknown") and windows whose reset has passed count as 0%.
-// A nil window stays nil (place does not filter on it).
-func usableUsage(m UsageMap, now time.Time) map[string]AgentUsage {
-	out := map[string]AgentUsage{}
-	for a, u := range m {
-		if u.Error != "" || u.Stale {
-			continue
-		}
-		for _, w := range []**UsageWindow{&u.FiveHour, &u.SevenDay} {
-			if *w != nil && !(*w).ResetsAt.After(now) {
-				*w = &UsageWindow{0, (*w).ResetsAt} // copy: the published value is shared
-			}
-		}
-		out[a] = u
-	}
-	return out
 }
 
 func init() {

@@ -81,7 +81,7 @@ func TestUsageEvery(t *testing.T) {
 	t.Setenv("CAD_POLICY", p)
 	t.Setenv("CAD_USAGE_EVERY", "")
 	set := func(every string) {
-		os.WriteFile(p, []byte(`{"classes":{"x":{}},"collect":{"usage":{"every":"`+every+`"}}}`), 0o644)
+		os.WriteFile(p, []byte(`{"collect":{"usage":{"every":"`+every+`"}}}`), 0o644)
 		os.Chtimes(p, time.Now(), time.Now().Add(time.Duration(len(every))*time.Second)) // new mtime
 	}
 	set("5s")

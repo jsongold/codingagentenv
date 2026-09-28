@@ -11,7 +11,7 @@
 | [0007](./0007-multi-session-handoff.md) | /handoff の保存先を `.claude/handoff/<name>.md`（1セッション1ファイル）にする | 採用 | 2026-09-21 |
 | [0008](./0008-orchestrator-worker-cad.md) | Orchestrator（ローカル）と Worker（任意のクラウド）を分け、メタデータは Go 製の `cad` が決定的に返す | 採用 | 2026-09-27 |
 | [0009](./0009-task-spec-orchestration.md) | Orchestrator と Worker の契約は task 1件ごとの YAML の task spec。provider は Orchestrator が strategy 付きで決め、`dev-dispatch` が決定的に適用する | 採用 | 2026-09-27 |
-| [0010](./0010-placement.md) | 配置は (Agent, Computer) の組を選ぶ。判断は Orchestrator の class 分類だけ、選択は `cad` の `POST /v1/place` が決定的に返す | 提案 | 2026-09-27 |
+| [0010](./0010-placement.md) | 配置は (Agent, Computer) の組を選ぶ。判断は Orchestrator の class 分類だけ、選択は `orchd place`（旧 `cad` の `POST /v1/place`、ADR-0011）が決定的に返す | 提案 | 2026-09-27 |
 | [0011](./0011-orchd-hatchet.md) | `cad` は事実（usage）だけにし、判断は `orchd` に分ける。task の状態・キュー・実行管理は Hatchet | 提案 | 2026-09-28 |
 
 新しい ADR を追加するには、0000-template.md をコピーして次の番号のファイルを作り、上の表に1行追加する。
