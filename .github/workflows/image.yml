@@ -30,3 +30,12 @@ jobs:
           tags: |
             ghcr.io/jsongold/codingagentenv/cad:main
             ghcr.io/jsongold/codingagentenv/cad:sha-${{ steps.tag.outputs.short }}
+      # opencode worker (Dockerfile.worker); no cache for the same reason (the opencode install layer).
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.worker
+          push: true
+          tags: |
+            ghcr.io/jsongold/codingagentenv/opencode-worker:main
+            ghcr.io/jsongold/codingagentenv/opencode-worker:sha-${{ steps.tag.outputs.short }}

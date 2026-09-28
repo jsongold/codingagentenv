@@ -1,0 +1,4 @@
+# Secret Manager secrets the worker VMs fetch (deploy/fetch-auth.sh: "<service> <id>" -> secret cad-<service>-<id>).
+# Set as metadata key cad-secrets by create-worker.sh. Names only; no values here.
+opencode 996c87ae
+github worker
