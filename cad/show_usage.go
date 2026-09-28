@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-// errShowUsageArgs: `cad show --usage` takes only --json and --local.
-var errShowUsageArgs = fmt.Errorf("show --usage: unknown flag (only --json, --local allowed): %w", errUsage)
+// errShowUsageArgs: `cad show usage` takes only --json and --local.
+var errShowUsageArgs = fmt.Errorf("show usage: unknown flag (only --json, --local allowed): %w", errUsage)
 
 // usageCollector collects usage in-process; a var so tests can inject a fixture instead of
 // running real claude/codex.
 var usageCollector = collectUsage
 
-// showUsageCmd implements `cad show --usage [--json] [--local]`: default output is a table sorted
+// showUsageCmd implements `cad show usage [--json] [--local]`: default output is a table sorted
 // by agent, --json prints the raw usage map. Data comes from the running cad's "usage" topic
 // (CAD_ADDR/CAD_TOKEN, ns "default"); if that is unreachable (or --local is given) it falls back to
 // collecting directly in-process.

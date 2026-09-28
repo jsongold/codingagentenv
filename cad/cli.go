@@ -23,7 +23,7 @@ const cliUsage = `usage:
   cad show cost --computer [<name>] (--hour|--day|--month) [--cpus N] [--mem GiB]
                                      one machine's price for the period (month=730h); default shape is
                                      2 cpu/8GiB (e2-standard-2); no <name> = every computer, "local" is always 0
-  cad show --usage [--json] [--local]  subscription usage per agent (table, or --json); fetches the
+  cad show usage [--json] [--local]  subscription usage per agent (table, or --json); fetches the
                                      running cad's usage topic, falling back to collecting it locally
                                      if cad is not running (--local always collects locally)
   cad add agent <service/account>
@@ -190,7 +190,7 @@ func show(kind string, args []string, w io.Writer) error {
 	if kind == "cost" {
 		return showCost(args, w)
 	}
-	if kind == "--usage" {
+	if kind == "usage" {
 		return showUsageCmd(args, w)
 	}
 	p, err := loadPolicy()

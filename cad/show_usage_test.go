@@ -83,7 +83,7 @@ func TestShowUsageJSON(t *testing.T) {
 	usageCollector = func(agents []string, every time.Duration) UsageMap {
 		return UsageMap{"claude/test": {FiveHour: &UsageWindow{UsedPct: 7}}}
 	}
-	out, code := run(t, "", "show", "--usage", "--json")
+	out, code := run(t, "", "show", "usage", "--json")
 	if code != 0 {
 		t.Fatalf("code %d: %s", code, out)
 	}
@@ -124,7 +124,7 @@ func TestShowUsageFallbackWhenDaemonUnreachable(t *testing.T) {
 		called = true
 		return UsageMap{"claude/test": {FiveHour: &UsageWindow{UsedPct: 42}}}
 	}
-	out, code := run(t, "", "show", "--usage")
+	out, code := run(t, "", "show", "usage")
 	if code != 0 {
 		t.Fatalf("code %d: %s", code, out)
 	}
@@ -150,7 +150,7 @@ func TestShowUsageLocalForcesFallback(t *testing.T) {
 	usageCollector = func(agents []string, every time.Duration) UsageMap {
 		return UsageMap{"claude/local": {FiveHour: &UsageWindow{UsedPct: 1}}}
 	}
-	out, code := run(t, "", "show", "--usage", "--local", "--json")
+	out, code := run(t, "", "show", "usage", "--local", "--json")
 	if code != 0 {
 		t.Fatalf("code %d: %s", code, out)
 	}
@@ -161,7 +161,7 @@ func TestShowUsageLocalForcesFallback(t *testing.T) {
 
 func TestShowUsageBadFlag(t *testing.T) {
 	cliEnv(t)
-	if out, code := run(t, "", "show", "--usage", "--bogus"); code != 2 {
+	if out, code := run(t, "", "show", "usage", "--bogus"); code != 2 {
 		t.Fatalf("want exit 2, got %d: %s", code, out)
 	}
 }
