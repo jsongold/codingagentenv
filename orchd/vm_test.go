@@ -20,12 +20,9 @@ type fakeGcloud struct {
 func (f *fakeGcloud) install(t *testing.T) {
 	t.Helper()
 	old, oldSleep := gcloud, sleep
-	oldWaits := []time.Duration{vmStopWait, vmStartTimeout, vmReadyWait, vmPoll}
-	t.Cleanup(func() {
-		gcloud, sleep = old, oldSleep
-		vmStopWait, vmStartTimeout, vmReadyWait, vmPoll = oldWaits[0], oldWaits[1], oldWaits[2], oldWaits[3]
-	})
-	vmStopWait, vmReadyWait, vmPoll = 50*time.Millisecond, 50*time.Millisecond, time.Millisecond
+	oldBudget, oldPoll := vmBudget, vmPoll
+	t.Cleanup(func() { gcloud, sleep, vmBudget, vmPoll = old, oldSleep, oldBudget, oldPoll })
+	vmBudget, vmPoll = 50*time.Millisecond, time.Millisecond
 	sleep = time.Sleep
 	gcloud = func(_ time.Duration, args ...string) (string, error) {
 		if got := strings.Join(args[len(args)-4:], " "); got != "--project p1 --zone z1" {
@@ -113,6 +110,11 @@ func TestDispatchVMUnavailable(t *testing.T) {
 	f.install(t)
 	if code, _, _ := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl); code != 1 {
 		t.Errorf("docker run failure: code %d", code)
+	}
+	f = &fakeGcloud{status: []string{"RUNNING", "STOPPING"}, runErr: errors.New("ssh: 255")} // preempted after ready
+	f.install(t)
+	if code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl); code != 5 || !strings.Contains(errs, "went STOPPING") {
+		t.Errorf("vm gone before docker run: code %d %s", code, errs)
 	}
 }
 

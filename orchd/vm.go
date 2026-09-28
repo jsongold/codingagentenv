@@ -32,13 +32,14 @@ var gcloud = func(timeout time.Duration, args ...string) (string, error) {
 	return out, err
 }
 
-// Bounds of one dispatch (the Orchestrator's tool calls stay under ~4 min); tests shorten them.
+// vmBudget bounds waiting out STOPPING, the start and the readiness probes together; each probe and the final
+// docker run get vmCall more at most, so a dispatch returns within ~4 min (the Orchestrator's tool-call limit).
+// Tests shorten them.
 var (
-	vmStopWait     = 60 * time.Second  // a VM still stopping itself: wait for TERMINATED, then start it
-	vmStartTimeout = 120 * time.Second // gcloud compute instances start
-	vmReadyWait    = 90 * time.Second  // after start: IAP ssh up and worker-startup.sh done (/run/worker-ready)
-	vmPoll         = 5 * time.Second
-	sleep          = time.Sleep
+	vmBudget = 170 * time.Second
+	vmCall   = 30 * time.Second
+	vmPoll   = 5 * time.Second
+	sleep    = time.Sleep
 )
 
 // safeArg: values that go into the remote shell command line unquoted.
@@ -53,6 +54,7 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 		}
 	}
 	t0 := time.Now()
+	deadline := t0.Add(vmBudget)
 	g := func(d time.Duration, a ...string) (string, error) {
 		return gcloud(d, append(a, "--project", rn.Project, "--zone", rn.Zone)...)
 	}
@@ -60,15 +62,16 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 		return 5, fmt.Errorf("computer unavailable: "+format, a...)
 	}
 	status := func() (string, error) {
-		s, err := g(30*time.Second, "compute", "instances", "describe", rn.Instance, "--format=value(status)")
+		s, err := g(vmCall, "compute", "instances", "describe", rn.Instance, "--format=value(status)")
 		return strings.TrimSpace(s), err
 	}
 	st, err := status()
-	for deadline := time.Now().Add(vmStopWait); err == nil && (st == "STOPPING" || st == "PENDING_STOP"); st, err = status() {
+	for err == nil && (st == "STOPPING" || st == "PENDING_STOP") {
 		if time.Now().After(deadline) {
-			return unavailable("%s still %s after %s", rn.Instance, st, vmStopWait)
+			return unavailable("%s still %s after %s", rn.Instance, st, vmBudget)
 		}
 		sleep(vmPoll)
+		st, err = status()
 	}
 	if err != nil {
 		return unavailable("%v", err)
@@ -77,27 +80,30 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 	switch st {
 	case "RUNNING", "PROVISIONING", "STAGING": // already up or being started: the ready wait covers it
 	case "TERMINATED":
-		if _, err := g(vmStartTimeout, "compute", "instances", "start", rn.Instance); err != nil {
+		if _, err := g(time.Until(deadline), "compute", "instances", "start", rn.Instance); err != nil {
 			return unavailable("start %s: %v", rn.Instance, err) // e.g. no Spot capacity in the zone
 		}
 	default:
 		return unavailable("%s is %s", rn.Instance, st)
 	}
 	ssh := func(cmd string) (string, error) {
-		return g(45*time.Second, "compute", "ssh", rn.Instance, "--tunnel-through-iap", "--quiet", "--command", cmd)
+		return g(vmCall, "compute", "ssh", rn.Instance, "--tunnel-through-iap", "--quiet", "--command", cmd)
 	}
-	for deadline := time.Now().Add(vmReadyWait); ; sleep(vmPoll) {
+	for ; ; sleep(vmPoll) {
 		_, err := ssh("test -e /run/worker-ready")
 		if err == nil {
 			break
 		}
 		if time.Now().After(deadline) {
-			return unavailable("%s not ready after %s: %v", rn.Instance, vmReadyWait, err)
+			return unavailable("%s not ready within %s: %v", rn.Instance, vmBudget, err)
 		}
 	}
 	name := "opencode-worker-" + strconv.Itoa(n)
 	if _, err := ssh(fmt.Sprintf("sudo docker run -d --rm --name %s -v /var/lib/cad:/data -e ISSUE=%d -e REPO=%s -e MODEL=%s %s",
 		name, n, repo, rn.Model, rn.Image)); err != nil {
+		if st, serr := status(); serr != nil || st != "RUNNING" { // preempted or stopped itself meanwhile
+			return unavailable("%s went %s before docker run: %v", rn.Instance, st, err)
+		}
 		return 1, err
 	}
 	return 0, printJSON(w, map[string]any{"started": true, "instance": rn.Instance, "container": name, "booted": booted,

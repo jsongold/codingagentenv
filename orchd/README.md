@@ -49,12 +49,12 @@ NS ごとに `claude code (orchestrator) → orchd pick → orchd place → orch
 
 ## vm runner（opencode の cloud worker）
 
-`runners["opencode@gce-spot"]` / `["opencode@gce-std"]` = `{mode: vm, instance, zone, project, image, model}`。VM と image は `deploy/gcp/README.md` の「opencode worker VM」。VM は普段 `TERMINATED`（停止）で、task が終わると自分で止まる。`dispatch` は：
+`runners["opencode@gce-spot"]` / `["opencode@gce-std"]` = `{mode: vm, instance, zone, project, image, model}`。VM と image は `deploy/gcp/README.md` の「opencode worker VM」（#53。owner が `create-worker.sh` で作るまでは describe が失敗して exit 5 → `--exclude` で local に落ちる）。VM は普段 `TERMINATED`（停止）で、task が終わると自分で止まる。`dispatch` は：
 
-1. `gcloud compute instances describe` で状態を見る。`STOPPING` / `PENDING_STOP`（自己停止の途中）なら `TERMINATED` まで待つ（最大 60 秒）
-2. `TERMINATED` なら `gcloud compute instances start`（最大 120 秒）。失敗（Spot の容量不足など）は exit 5
-3. `gcloud compute ssh --tunnel-through-iap -- test -e /run/worker-ready` が通るまで 5 秒おき（start 後 最大 90 秒）。通らなければ exit 5
-4. `sudo docker run -d --rm --name opencode-worker-<n> -v /var/lib/cad:/data -e ISSUE -e REPO -e MODEL <image>`（worker が Issue を読み、PR `Closes #n` を出す）
+1. `gcloud compute instances describe` で状態を見る。`STOPPING` / `PENDING_STOP`（自己停止の途中）なら `TERMINATED` まで待つ
+2. `TERMINATED` なら `gcloud compute instances start`。失敗（Spot の容量不足など）は exit 5
+3. `gcloud compute ssh --tunnel-through-iap -- test -e /run/worker-ready` が通るまで 5 秒おき。1〜3 は合わせて 170 秒まで（各 gcloud 呼び出しは 30 秒まで。dispatch 全体で約 4 分以内）。超えたら exit 5
+4. `sudo docker run -d --rm --name opencode-worker-<n> -v /var/lib/cad:/data -e ISSUE -e REPO -e MODEL <image>`（worker が Issue を読み、PR `Closes #n` を出す）。失敗時に VM が `RUNNING` でなくなっていれば（preempt・自己停止）exit 5、そうでなければ exit 1
 5. `{started, instance, container, booted（start したか）, startSec（dispatch 開始から docker run まで、実測）}` を出す
 
 完了は `orchd status --issue <n>`（PR）で待つ。VM が `TERMINATED` なのに PR が無ければ、preempt か worker の失敗（`skills/orchestrate`）。`gce-std` は cad の `config.json` の computers（費用の記録）には未登録（価格を確認してから足す）。
