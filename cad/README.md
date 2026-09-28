@@ -21,6 +21,7 @@ cad get meta -ns default              # 動作確認
 | `cad` | サーバーを起動 |
 | `cad get meta\|<topic> -ns <ns>` | 起動中の cad からメタデータを JSON で取得（`-ns` 必須、無ければ exit 2） |
 | `cad show [classes\|rules\|runners\|collect\|agents\|computers\|policy]` | policy のレコードを表示（引数なし = policy 全体） |
+| `cad show cost --computer [<name>] (--hour\|--day\|--month) [--cpus N] [--mem GiB]` | 1 台を期間中ずっと動かした場合の料金（month=730h、既定 shape は 2 cpu/8GiB）。`<name>` 省略で全 computer、`local` は常に 0 |
 | `cad add agent <service>/<account>` | agent を登録（例 `claude/a12e00a7`） |
 | `cad add computer <name> [--replace] [--file f.json \| -]` | computer を登録 |
 | `cad rm agent <agent> \| computer <name>` | 削除 |
