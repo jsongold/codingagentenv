@@ -1,6 +1,6 @@
 # orchd
 
-task を「どの agent に・どの computer で」やらせるかだけを決める CLI（Go、標準ライブラリのみ）。[ADR-0011](../docs/decisions/0011-orchd-hatchet.md) で `cad` から分けた。判断のロジックは [ADR-0010](../docs/decisions/0010-placement.md)。
+Orchestrator を支える小さな CLI（Go、標準ライブラリのみ）。Issue を取る（pick）、task を「どの agent に・どの computer で」やらせるか決める（place）、その資源に渡す（dispatch）。[ADR-0011](../docs/decisions/0011-orchd-hatchet.md) で `cad` から分けた。判断のロジックは [ADR-0010](../docs/decisions/0010-placement.md)。
 
 - `cad` を import しない。usage と capacity は起動中の cad から HTTP（`GET /v1/usage?ns=`、`GET /v1/capacity?ns=`）で読む
 - 後で置き換え・削除する前提。**`rm -rf orchd tools/orchd` で消せる**（cad はそのまま動く）
@@ -12,6 +12,9 @@ tools/orchd place --class gate-heavy --self claude/a12e00a7   # [--ns default] [
 # {"agent":"claude/a12e00a7","computer":"claude-cloud","rule":0,"reason":null,"runner":{"mode":"cloud","cmd":"claude --cloud"},"mode":"auto","modeSource":"default","cadAddr":"127.0.0.1:17878"}
 tools/orchd mode set urgent [--ns default] [--by owner]      # mode show / mode clear も同じ --ns
 tools/orchd show [rules|classes|runners]                     # 引数なし = 3 つとも
+tools/orchd pick [--ns default]                              # ai Issue を 1 件取って wip を付ける
+tools/orchd dispatch --issue 7 --placement "$json" [--ns default]   # "$json" = place の出力。- で stdin
+tools/orchd status --issue 7 [--pid 1234]                      # Closes #7 の PR と process の生死
 ```
 
 `tools/orchd` は `orchd/bin/orchd` が無いか古ければ `go build` してから実行する（`bin/codingenv install` で `~/.local/bin/orchd` に入る）。
@@ -25,6 +28,24 @@ tools/orchd show [rules|classes|runners]                     # 引数なし = 3 
 | 2 | 入力が不正（class・mode 不明、`--self` / `--ns` の形式違い、不明なコマンド） | なし（stderr に usage） |
 | 3 | 窓で全滅（旧 409）。`defer_until` = 最も早く空く時刻。または cad が未 ready（`GET /healthz?ready` が 503。再起動直後など）で reason `cad not ready`、`defer_until` = 今 + 2 分 | `{defer_until, reason}` |
 | 4 | 合う rule なし（旧 422。local の slot 無しなど） | `{reason}` |
+
+`pick` / `dispatch` / `status`：0 = 成功（pick は該当なしでも 0、`{none, reason}`）、1 = gh / git / claude の失敗、2 = 入力が不正（`--issue`・`--placement`、cloud の session が無い）。
+
+## Orchestrator との関係
+
+NS ごとに `claude code (orchestrator) → orchd pick → orchd place → orchd dispatch → claude code (orchestrator)`。dispatch は Orchestrator が background の Subagent の中で実行し、完了は Subagent の通知で受け取る（subagent の runner はその Subagent が作業する。process / cloud は haiku の監視役 Subagent が `orchd status` を繰り返して PR を待つ）。orchd のコマンドは必ずその NS の Orchestrator（Claude Code のセッション、手順は `skills/orchestrate`）が呼び、結果の JSON を stdout で Orchestrator に返す。次の一手は毎回 Orchestrator が決める（orchd は常駐しない・状態を持たない）。
+
+| コマンド | すること | 返すもの |
+|---|---|---|
+| `pick` | `ai` ラベル付きで `wip`・`ai-failed` の無い open Issue のうち最古を取り、`wip` を付ける | `{issue:{n,title,body}, classes:[{name,criteria}]}` |
+| `place` | 下記。Orchestrator が選んだ class で資源を決める | placement（`runner` を含む） |
+| `status` | `Closes #n` の PR（open を優先）と、`--pid` があればその process が生きているか。gh を 1 回呼ぶだけ | `{issue, pr, state, running?}` |
+| `dispatch` | `runner.mode` ごとに渡す。`subagent`：worktree `<path>-task-<n>`（branch `task/<n>`、origin/main から。前回の worktree・branch が残っていれば再利用）を作る。`process`：同じ worktree で `runner.cmd`（`{model}` を置換）+ prompt をバックグラウンド起動（log は `<state>/task-<n>.log`）。`cloud`：`claude -p <prompt> --cloud <session> --output-format json` | subagent：`{runner, worktree, prompt}`（Orchestrator が Agent tool で起動）。process：`{started, worktree, pid, log}`。cloud：claude の JSON |
+
+- worktree は NS の repo の隣に作る（親ディレクトリの aienv binding が効く）
+- repo・path は `--repo` / `--path` > namespace の登録（`ORCHD_NAMESPACES` > `cad/config/namespaces.json` > その `.example.json`。orchd は読むだけ）> CWD の git toplevel と `gh repo view`
+- cloud の session：`CLAUDE_CLOUD_SESSION` > 登録の `cloudWorkerSession`（owner が `claude --cloud` で 1 度作る）。無ければ exit 2
+- 未実装（後で）：完了処理（PR 確認・`wip` 解除・worktree の片付け）、実行記録、同時数の上限、cad の SSE による defer の再開
 
 ## MODE
 

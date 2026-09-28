@@ -30,6 +30,7 @@ Hatchet（github.com/hatchet-dev/hatchet、MIT、v0.107.0 2026-09-15、約 8k st
 - `orchd` は cad を import せず、`GET /v1/usage`・`GET /v1/capacity`（`CAD_ADDR` / `CAD_TOKEN`）だけで cad と話す
 - `orchd` が読む policy は `rules`・`classes`・`runners`・`placement.reservePct`・`agents`（と rule の computer 名の存在確認に `computers` の名前）。`classes` 必須・runners の検証も `orchd` に移した
 - `cad` から `POST /v1/place` と `cad show rules|classes|runners` を外した。`cad` は rules / classes / runners を検証せず、`cad add/rm` で書き戻すときはそのまま残す
+- 追記（2026-09-28, owner 決定）：`orchd` の範囲は「判断だけ」から **Orchestrator を支える小さな CLI：pick・place・dispatch** に広げた。流れは NS ごとに `claude code (orchestrator) → orchd pick → orchd place → orchd dispatch → claude code (orchestrator)`。`pick` は `ai` Issue を 1 件取って `wip` を付け、`dispatch` は place の runner（subagent / process / cloud）に渡す。どれも結果の JSON を Orchestrator に返すだけで、常駐も状態も持たない（[orchd/README.md](../../orchd/README.md#orchestrator-との関係)）。上の「`orchd` = 判断」はこの追記で読み替える
 
 ## PoC 結果（2026-09-28、`~/projects/hatchet-poc`）
 hatchet-lite v0.107.0 + postgres 15.6、TS SDK 1.33.2、Node v26。2 つの worker が同じ task `code-task` を登録し、振り分けは run の desired worker labels だけで決まる。

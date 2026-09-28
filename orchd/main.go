@@ -25,16 +25,29 @@ const usageText = `usage:
   orchd mode show [--ns <ns>]                   print the effective mode and where it came from
       mode precedence: --mode > <state>/mode/<ns>.json > <state>/mode/_global.json > ORCHD_MODE > auto
       "auto" = policy.rules (local is the last resort); others = policy.modes.<m>.rules (urgent = local-first)
+  orchd pick [--ns default] [--repo o/r] [--path dir]
+      claim the oldest open issue labeled ai without wip/ai-failed (adds wip); print {issue:{n,title,body}, classes:[{name,criteria}]}
+      or {none, reason}. repo/path: flags > namespace registry > git toplevel of the CWD + gh repo view
+  orchd dispatch --issue <n> --placement <json|-> [--ns default] [--repo o/r] [--path dir]
+      hand issue n to the place output's runner.mode: subagent = create worktree <path>-task-<n> (branch
+      task/<n> off origin/main), print {runner, worktree, prompt}; process = same worktree, start runner.cmd
+      + prompt in the background, print {started, worktree, pid, log}; cloud = claude -p <prompt> --cloud
+      <CLAUDE_CLOUD_SESSION | registry cloudWorkerSession> --output-format json, print its output
+  orchd status --issue <n> [--pid <pid>] [--ns default] [--repo o/r] [--path dir]
+      print {issue, pr, state, running?}: the PR whose body says "Closes #n" (OPEN wins), and with --pid
+      whether the dispatched process still runs. One quick gh call; supervisors poll it
   orchd show [rules|classes|runners]    print policy sections (no arg = all three)
   stale usage (cad restarted from its snapshot): policy placement.staleUsage "pass" (default; placed
       as if unknown, reason "<agent>: usage stale") or "block" (skipped)
 files (CWD-independent): app dir = $ORCHD_HOME > dir above orchd's bin/ (if it has policy.json) > .
-  policy: ORCHD_POLICY > <app>/policy.json; state: ORCHD_STATE_DIR > <app>/state
+  policy: ORCHD_POLICY > <app>/policy.json; state: ORCHD_STATE_DIR > <app>/state (dispatch logs: task-<n>.log)
+  namespaces: ORCHD_NAMESPACES > <app>/../cad/config/namespaces.json > its .example.json
 env: ORCHD_MODE; CAD_ADDR (> mode cadAddr > top-level cadAddr for auto > 127.0.0.1:7878), CAD_TOKEN
 exit codes:
-  0  placed (or shown)
-  1  cad unreachable (after 3 retries 2s apart) / cad error / bad policy file
-  2  bad input (unknown class or mode, bad --self or --ns, unknown command)
+  0  placed / picked (also when none) / dispatched (or shown)
+  1  cad unreachable (after 3 retries 2s apart) / cad error / bad policy file / gh, git, claude failed
+  2  bad input (unknown class or mode, bad --self or --ns, bad --issue or --placement, no cloud session,
+     unknown command)
   3  deferred: every fitting agent is over a usage window, or cad is not ready
      (GET /healthz?ready = 503, e.g. just restarted; defer_until = now+2m); prints {defer_until, reason}
   4  no rule fits; prints {reason}
@@ -70,6 +83,12 @@ func cmd(args []string, w io.Writer) (int, error) {
 		return placeCmd(args[1:], w)
 	case "mode":
 		return modeCmd(args[1:], w)
+	case "pick":
+		return pickCmd(args[1:], w)
+	case "dispatch":
+		return dispatchCmd(args[1:], os.Stdin, w)
+	case "status":
+		return statusCmd(args[1:], w)
 	case "show":
 		if len(args) > 2 {
 			return 2, errors.New("show takes at most one section")
