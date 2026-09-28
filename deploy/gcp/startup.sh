@@ -30,6 +30,7 @@ md() { curl -fsS --max-time 10 -H 'Metadata-Flavor: Google' "$MD/$1"; }
 # --pull always: the local :main tag is not what the service tracks (the service pins a digest), so pull it here to
 # run the current fetch-auth; if the registry is unreachable the fetch is skipped and the files are kept.
 # The container runs as uid 10001 (the image's `cad` user), which owns $VOL, so written files are cad's.
+# Keep in sync with ExecStartPre in cad-update.service below (there "$VOL:/data" is quoted for systemd).
 FETCH=(docker run --rm --pull always --network host -v "$VOL:/data" --entrypoint /app/bin/fetch-auth "$IMAGE")
 
 # Swarm refuses to init while live-restore is on ("--live-restore daemon configuration is incompatible with swarm
@@ -93,7 +94,7 @@ After=docker.service
 
 [Service]
 Type=oneshot
-ExecStartPre=-/usr/bin/${FETCH[*]}
+ExecStartPre=-/usr/bin/docker run --rm --pull always --network host -v "$VOL:/data" --entrypoint /app/bin/fetch-auth $IMAGE
 ExecStart=/usr/bin/docker service update --quiet --image $IMAGE cad
 ExecStartPost=/usr/bin/docker service inspect cad --format 'cad image={{.Spec.TaskTemplate.ContainerSpec.Image}} update={{if .UpdateStatus}}{{.UpdateStatus.State}}: {{.UpdateStatus.Message}}{{end}}'
 ExecStartPost=-/usr/bin/docker image prune -f
