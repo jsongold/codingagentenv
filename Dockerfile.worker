@@ -1,0 +1,25 @@
+# opencode cloud worker: one task per container (deploy/worker-run.sh). Runs on the worker VMs
+# (deploy/gcp/create-worker.sh), which mount /var/lib/cad at /data. Build: docker build -f Dockerfile.worker .
+# Runs as uid 10001 like the cad image, because fetch-auth (below) writes /data as that uid with mode 600.
+FROM debian:bookworm-slim
+# gh: official apt repo (https://github.com/cli/cli/blob/trunk/docs/install_linux.md), same as .devcontainer/Dockerfile.
+# jq/curl/base64: deploy/fetch-auth.sh.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates coreutils curl git jq \
+ && install -d -m 0755 /etc/apt/keyrings \
+ && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+ && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      >/etc/apt/sources.list.d/github-cli.list \
+ && apt-get update && apt-get install -y --no-install-recommends gh \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --uid 10001 --create-home --home-dir /home/worker --shell /bin/bash worker \
+ && mkdir -p /data && chown worker:worker /data
+USER worker
+# Official install script (https://opencode.ai/docs/ "curl -fsSL https://opencode.ai/install | bash").
+RUN curl -fsSL https://opencode.ai/install | bash && /home/worker/.opencode/bin/opencode --version
+COPY deploy/worker-run.sh /app/worker-run
+# Secret Manager -> /data; deploy/gcp/worker-startup.sh runs it with --entrypoint on each boot.
+COPY deploy/fetch-auth.sh /app/bin/fetch-auth
+ENV PATH=/home/worker/.opencode/bin:/usr/local/bin:/usr/bin:/bin
+WORKDIR /home/worker
+ENTRYPOINT ["/app/worker-run"]

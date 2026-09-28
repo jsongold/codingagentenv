@@ -7,3 +7,4 @@
 !orchd/policy.json
 !deploy/entrypoint.sh
 !deploy/fetch-auth.sh
+!deploy/worker-run.sh
