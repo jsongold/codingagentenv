@@ -112,3 +112,46 @@ gcloud compute firewall-rules delete allow-iap-ssh-cad --project suggestorder-de
 e2-micro $6.11 + 外部 IP $3.65 ≈ $9.76（+ boot disk 10GB の standard PD）。
 
 Secret Manager（[pricing](https://cloud.google.com/secret-manager/pricing)、billing account 単位の無料枠）：active version 6 個 / 月と access 10,000 回 / 月は無料。超過は active version $0.06 / 月（$0.000082192 / 時）、access $0.03 / 10,000 回。secret 1 つ × 5 分ごとは約 8,900 回 / 月で無料枠内（secret を増やすと枠を超える。2 つ目からは約 $0.03 / 月ずつ）。
+
+## opencode worker VM（`worker-spot` / `worker-std`）
+
+opencode の task を 1 件ずつ container で実行する VM を 2 台持つ。どちらも e2-medium・COS・boot disk 10GB pd-balanced、tag `cad`（IAP SSH）、SA `cad-vm@`（scope cloud-platform）。`worker-spot` は Spot（`--provisioning-model=SPOT --instance-termination-action=STOP`：preempt されても削除されず停止し、disk と cache 済み image が残る。[Spot VMs](https://cloud.google.com/compute/docs/instances/create-use-spot)）、`worker-std` は standard。どちらを使うかは orchd の rule 順（`opencode@gce-spot` → `opencode@gce-std`、`orchd/README.md`）。
+
+- image：`Dockerfile.worker` → `ghcr.io/jsongold/codingagentenv/opencode-worker:main` と `:sha-<7桁>`（`image.yml` が main への push ごとに build）。git・gh・opencode（公式 install script）・`fetch-auth`。entrypoint `deploy/worker-run.sh`：env `ISSUE` `REPO` `MODEL`。`/data` の auth を読み、clone → branch `task/<ISSUE>`（push 済みなら再利用）→ `opencode run --auto --model $MODEL "<gh issue view の内容>"` → commit・push → `Closes #<ISSUE>` の PR が無ければ `gh pr create --base main`。opencode が失敗したら branch だけ push して PR は作らず非 0。push は opencode の終了後の 1 回だけなので、その前に preempt されると作業は失われる（Issue は queue に戻る、`skills/orchestrate`）
+- 起動（毎 boot、`worker-startup.sh`）：`fetch-auth` で secret を `/var/lib/cad` へ → `/run/worker-ready` を作る（orchd はこれを ssh で待ってから `docker run`）→ image を pull。image が cache 済みなら pull は ready の後（dispatch は cache の image で即起動し、pull は変わった layer だけ取って次回に効く）。cache が無い初回だけ ready の前に pull する
+- 停止（自動）：`worker-stop.service` が `docker events`（container の die）を見て、`opencode-worker-*` が終わり `stop-grace-seconds`（metadata、既定 60）後に 1 つも動いていなければ `shutdown -h now`。保険として `worker-idle.timer` が `idle-minutes`（metadata、既定 30）の間 worker container が無ければ止める（container が起動しなかった dispatch・作成直後の初回 boot）。guest OS からの shutdown は stop 扱いで instance は `TERMINATED` になり、`TERMINATED` の間は vCPU・メモリは課金されない（disk と外部 IP は課金）：[stop-start](https://cloud.google.com/compute/docs/instances/stop-start-instance)、[instance life cycle](https://cloud.google.com/compute/docs/instances/instance-life-cycle)
+- grace のトレードオフ：短いほど idle の費用が減り、長いほど続けて来た dispatch が起動待ち（stop→start の数十秒〜）なしで同じ VM を使える。0 にすると毎 task で boot する。Spot の preempt 時の shutdown 猶予は best effort で最大 30 秒（[Spot VMs](https://cloud.google.com/compute/docs/instances/spot)）
+- 速度の選択：停止した VM の `start` を使う（suspend/resume はメモリの復元が再起動より遅いことがある、と MIG の standby pool の doc にある）。`--skip-guest-os-shutdown` は API からの stop/delete にだけ効くので、自分で shutdown するこの VM には使わない。並列度を上げたくなったら MIG の standby pool が次の候補（未実装）
+
+### 作成（owner が 1 度だけ、この順に）
+
+1. GitHub の fine-grained PAT を作る：Repository access = 対象 repo、Permissions = Contents: Read and write、Pull requests: Read and write（Issues: Read は `gh issue view` 用）、Metadata: Read
+2. Secret Manager に入れ、SA に読ませる（`worker-auth.list` の `github worker` → secret `cad-github-worker`。値は stdin から、表示しない。opencode の `cad-opencode-996c87ae` は `secrets.sh` で作成・付与済み）：
+
+```bash
+P=suggestorder-dev
+gcloud secrets create cad-github-worker --project $P --replication-policy automatic
+read -rs T && printf %s "$T" | gcloud secrets versions add cad-github-worker --project $P --data-file=- ; unset T
+gcloud secrets add-iam-policy-binding cad-github-worker --project $P \
+  --member serviceAccount:cad-vm@$P.iam.gserviceaccount.com --role roles/secretmanager.secretAccessor
+```
+
+3. `deploy/gcp/create-worker.sh`（既にあれば skip。firewall `allow-iap-ssh-cad` は `create-vm.sh` が作る）。初回 boot が image を pull し終えたら（serial port に `worker: ready`）表示される `gcloud compute instances stop ...` で止める。止めなくても 30 分で保険の timer が止める
+4. 確認：`gcloud compute instances list --project suggestorder-dev --filter=labels.app=cad-worker`（どちらも `TERMINATED`）
+
+token の rotation は 2 の `versions add` だけ（VM は boot ごとに `latest` を読む）。
+
+### 確認・ログ
+
+```bash
+W="gcloud compute ssh worker-spot --project suggestorder-dev --zone us-central1-a --tunnel-through-iap --"
+$W sudo journalctl -u google-startup-scripts | grep -E 'worker:|cad-'   # secret の取得・ready・pull
+$W sudo docker ps --filter name=opencode-worker-
+$W sudo journalctl -u worker-stop -u worker-idle                        # 自動停止の理由
+```
+
+### 費用（us-central1、動いている間だけ）
+
+- `worker-std`：e2-medium $24.46 / 月（常時稼働した場合。≈ $0.0335 / 時）
+- `worker-spot`：Spot は on-demand から最大 91% 引き、価格は最大 1 日 1 回変わる（[Spot VMs](https://cloud.google.com/compute/docs/instances/spot)、[Spot pricing](https://cloud.google.com/spot-vms/pricing)）。e2-medium の Spot は約 $0.01〜0.03 / 時の見込み（**推定**。公式の表で確認していない）
+- 停止中も課金：boot disk 10GB pd-balanced × 2（と外部 IP の扱いは [IP pricing](https://cloud.google.com/vpc/network-pricing#ipaddress) に従う）。task 1 件（起動 + 実行 30 分 + grace 1 分）で std ≈ $0.02
