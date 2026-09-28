@@ -52,7 +52,6 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 | hooks/harness-task-completed.sh | 未検証の completed を拒否する | TaskCompleted hook | 固定 |
 | global/CLAUDE.harness.md | `~/.claude/CLAUDE.md` のハーネス節の正本 | `bin/codingenv install` で展開 | 随時 |
 | bin/codingenv | global への展開・drift 検出・取り外し | 手で実行 | 固定 |
-| tools/testdb | 共有テスト Postgres（`up`）と worktree ごとの DB URL（`url <worktree>`）。コンテナ名・image・port 等は `TESTDB_*` | Subagent / gate の steps | 固定 |
 | tools/codex-localreview | Codex CLI でローカルレビューして PR にコメント（bot の quota 切れ時） | `codex-localreview <pr> <worktree>` | 固定 |
 | tools/codex-probe | Codex の復帰を待ち、キュー（`<pr> <worktree>` 行）を順にローカルレビュー | バックグラウンドで実行 | 固定 |
 | test/hooks.test.sh, test/harness.test.sh | hook・`bin/codingenv` のテスト | `bash test/<name>` | 固定 |

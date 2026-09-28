@@ -29,7 +29,7 @@
 ## 規約・注意点（デフォルトと違うものだけ）
 - 編集は repo 内だけ。`~/.claude/` 配下は Claude も人も直接編集しない。global に効かせたい変更は repo の正本（`skills/`、`hooks/`、`global/CLAUDE.harness.md`）を直し、ユーザーに `bin/codingenv install` を依頼する（ADR-0005）
 - dispatcher のルールの正本は `global/CLAUDE.harness.md`。`skills/` と `hooks/` は symlink なので、編集すると全 project の挙動が即座に変わる
-- 「task queue」= 内蔵 Task list（ADR-0002）。キューを自作しない（ADR-0001 はその誤解で置き換え済み）
+- 「task queue」= 内蔵 Task list（ADR-0002）。キューを自作しない
 - `hooks/` も global の正本（ADR-0004）。編集は全 project に即座に効くので、変更したら必ず `bash test/hooks.test.sh` を通す
 - task を completed にする前に、description に `VERIFIED: <コマンド> -> <結果>` を別の `TaskUpdate` で追記する。無いと hook が拒否する
 - Claude Code の仕様は docs の原文で確認する。WebFetch の要約は TaskCompleted の exit 2 について誤答した（ADR-0004）
