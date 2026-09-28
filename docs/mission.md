@@ -26,7 +26,7 @@
 | cad | 事実を集めて配信する（Agent の使用量、Computer の料金など） |
 | orchd | 次の task の実行先を決める |
 | Hatchet | task の永続的な状態、キュー、worker の管理（ADR-0011） |
-| worker / GitHub Actions workflow | Agent の CLI を実行し、PR を出す |
+| worker | Agent の CLI を実行し、PR を出す |
 | GitHub | task の入口（Issue）と、結果の検証（PR と CI） |
 
 ## 解くべき課題
