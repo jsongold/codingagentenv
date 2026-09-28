@@ -82,8 +82,8 @@ func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int)
 			for _, w := range []struct {
 				name string
 				w    *UsageWindow
-			}{{"5h", u.FiveHour}, {"7d", u.SevenDay}} {
-				if w.w != nil && w.w.UsedPct+est > limit { // nil: the account has no such window
+			}{{"5h", u.FiveHour}, {"7d", u.SevenDay}, {"monthly", u.Monthly}} {
+				if w.w != nil && (w.w.RateLimited || w.w.UsedPct+est > limit) { // nil: the account has no such window
 					drop("%s: %s window", a, w.name)
 					over = true
 					if w.w.ResetsAt.After(free) {
@@ -111,13 +111,15 @@ func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int)
 
 // UsageWindow / AgentUsage mirror cad's "usage" topic (GET /v1/usage); only what place reads.
 type UsageWindow struct {
-	UsedPct  float64   `json:"usedPct"`
-	ResetsAt time.Time `json:"resetsAt"`
+	UsedPct     float64   `json:"usedPct"`
+	ResetsAt    time.Time `json:"resetsAt"`
+	RateLimited bool      `json:"rateLimited,omitempty"`
 }
 
 type AgentUsage struct {
 	FiveHour *UsageWindow `json:"fiveHour"` // nil (JSON null): the account has no such window
 	SevenDay *UsageWindow `json:"sevenDay"`
+	Monthly  *UsageWindow `json:"monthly"` // opencode only
 	Stale    bool         `json:"stale,omitempty"`
 	Error    string       `json:"error,omitempty"`
 }
@@ -131,9 +133,9 @@ func usableUsage(m map[string]AgentUsage, now time.Time) map[string]AgentUsage {
 		if u.Error != "" || u.Stale {
 			continue
 		}
-		for _, w := range []**UsageWindow{&u.FiveHour, &u.SevenDay} {
+		for _, w := range []**UsageWindow{&u.FiveHour, &u.SevenDay, &u.Monthly} {
 			if *w != nil && !(*w).ResetsAt.After(now) {
-				*w = &UsageWindow{0, (*w).ResetsAt} // copy: the decoded value may be shared
+				*w = &UsageWindow{ResetsAt: (*w).ResetsAt} // copy: the decoded value may be shared
 			}
 		}
 		out[a] = u

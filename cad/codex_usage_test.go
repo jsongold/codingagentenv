@@ -93,7 +93,7 @@ func TestCodexUsageFor(t *testing.T) {
 	}
 	defer func() { codexRunner = runCodexUsage }()
 
-	u := collectUsage([]string{"codex/ok", "codex/fb", "codex/none", "opencode/x"}, time.Minute)
+	u := collectUsage([]string{"codex/ok", "codex/fb", "codex/none", "gemini/x"}, time.Minute)
 	if len(u) != 3 {
 		t.Fatalf("want 3 codex agents, got %v", u)
 	}

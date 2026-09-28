@@ -182,7 +182,7 @@ func codexWindows(wins []codexWin) AgentUsage {
 			continue
 		}
 		if *dst == nil || w.UsedPercent > (*dst).UsedPct {
-			*dst = &UsageWindow{w.UsedPercent, time.Unix(w.ResetsAt, 0).UTC()}
+			*dst = &UsageWindow{UsedPct: w.UsedPercent, ResetsAt: time.Unix(w.ResetsAt, 0).UTC()}
 		}
 	}
 	return u
