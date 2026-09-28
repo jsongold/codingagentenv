@@ -24,10 +24,15 @@ if gcloud compute instances describe "$VM" --project "$PROJECT" --zone "$ZONE" >
   echo "instance $VM exists; skipping (to change the startup script: gcloud compute instances add-metadata $VM --zone $ZONE --project $PROJECT --metadata-from-file startup-script=$here/startup.sh)"
 else
   # External IP (default ephemeral) because there is no Cloud NAT: the VM pulls from ghcr.io.
+  # Service account cad-vm@ (created by secrets.sh; holds secretAccessor on its secrets only) with the
+  # cloud-platform scope: the scope is only the upper bound, IAM decides access (Google's recommended setup,
+  # https://cloud.google.com/compute/docs/access/service-accounts). startup.sh reads the secret list from the
+  # cad-secrets metadata key. https://cloud.google.com/sdk/gcloud/reference/compute/instances/create
   run gcloud compute instances create "$VM" --project "$PROJECT" --zone "$ZONE" \
     --machine-type "$MACHINE" \
     --image-family cos-stable --image-project cos-cloud \
     --boot-disk-size 10GB \
     --tags cad --labels app=cad,managed-by=codingagentenv \
-    --metadata-from-file startup-script="$here/startup.sh"
+    --service-account "cad-vm@$PROJECT.iam.gserviceaccount.com" --scopes cloud-platform \
+    --metadata-from-file "startup-script=$here/startup.sh,cad-secrets=$here/secrets.list"
 fi
