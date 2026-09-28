@@ -16,14 +16,23 @@ X='sudo docker exec -i $(sudo docker ps -q -f label=com.docker.swarm.service.nam
 F=/data/cad/config/namespaces.json   # timer の orchd が読む登録（container 内）
 ```
 
-1. worker セッションを確かめる：`$S "$X cat $F"` の `<ns>.cloudWorkerSession` を見る。
-   - 空・キーが無い・ファイルが無い：owner に「claude.ai/code で新しいセッションを作り、GitHub repo `<repo>` を選んで開始し、URL 末尾の `session_…` を教えて」と頼み、返るまで待つ。CLI の `claude --cloud` では作らない（bundle になり push できない）。`<repo>` は手元の `cad/config/namespaces.json`（無ければ `.example.json`）の `<ns>.repo`、無ければ `gh repo view --json nameWithOwner -q .nameWithOwner`。
-   - 受け取ったら登録する（他のキー・他の ns は残す）→ もう一度 `cat` して確認する：
+1. worker セッションを確かめる：cad-2 の登録を読む。「ファイルが無い」は container 内で判定して `{}` にし、ssh・docker の失敗や JSON でない中身は止める（ここで止めて owner に伝え、何も書き込まない。`{}` で続けると他の ns を消す）：
+
+   ```bash
+   $S "$X sh -c 'if [ -f $F ]; then cat $F; else echo {}; fi'" >/tmp/igosleep-cur.json \
+     && jq -e 'type == "object"' /tmp/igosleep-cur.json >/dev/null \
+     || { rm -f /tmp/igosleep-cur.json; echo 'STOP: cad-2 の namespaces.json を読めない'; }
+   ```
+
+   `/tmp/igosleep-cur.json` の `<ns>.cloudWorkerSession` を見る。
+   - 空・キーが無い：owner に「claude.ai/code で新しいセッションを作り、GitHub repo `<repo>` を選んで開始し、URL 末尾の `session_…` を教えて」と頼み、返るまで待つ。CLI の `claude --cloud` では作らない（bundle になり push できない）。`<repo>` は timer が使う cad-2 の登録を優先する：`/tmp/igosleep-cur.json` の `<ns>.repo`、無ければ手元の `cad/config/namespaces.json`（無ければ `.example.json`）の `<ns>.repo`、無ければ `gh repo view --json nameWithOwner -q .nameWithOwner`。
+   - 受け取ったら、読んだ登録に書き足して書き戻す（他のキー・他の ns は残す。上の読み取りが STOP なら書かない）→ もう一度読んで確認する：
 
      ```bash
-     { $S "$X cat $F" 2>/dev/null || echo '{}'; } \
-       | jq --arg n <ns> --arg r <repo> --arg s <session> '.[$n].repo //= $r | .[$n].cloudWorkerSession = $s' >/tmp/igosleep-ns.json
-     $S "$X sh -c 'cat >$F.tmp && mv $F.tmp $F'" </tmp/igosleep-ns.json
+     jq --arg n <ns> --arg r <repo> --arg s <session> '.[$n].repo //= $r | .[$n].cloudWorkerSession = $s' \
+       /tmp/igosleep-cur.json >/tmp/igosleep-ns.json \
+       && jq -e --arg n <ns> '.[$n].cloudWorkerSession | startswith("session_")' /tmp/igosleep-ns.json >/dev/null \
+       && $S "$X sh -c 'cat >$F.tmp && mv $F.tmp $F'" </tmp/igosleep-ns.json
      ```
 2. `$S "$X orchd mode set sleep --ns <ns> --by owner"` → `{"mode":"sleep",…}` を確認する。exit 2（mode 不明）なら cad-2 の image に `sleep` mode（PR #69）が未反映。ここで止めて owner に伝える。
 3. `/handoff` の手順（`skills/handoff/SKILL.md`）で handoff を書き出してコミットする。
