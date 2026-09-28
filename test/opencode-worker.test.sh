@@ -6,7 +6,7 @@
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 tmp=$(mktemp -d)
-trap 'docker run --rm -v "$tmp:/t" --entrypoint rm opencode-worker-test -rf /t/data /t/nogh /t/remote.git 2>/dev/null; rm -rf "$tmp"' EXIT
+trap 'rm -rf "$tmp"' EXIT
 fail() { echo "FAIL: $*"; cat "$tmp/log" 2>/dev/null; exit 1; }
 docker info >/dev/null 2>&1 || { echo "skip: docker is not running"; exit 0; }
 docker build -q -f "$root/Dockerfile.worker" -t opencode-worker-test "$root" >/dev/null
@@ -34,7 +34,11 @@ git init -q --bare -b main "$tmp/remote.git"
 git clone -q "$tmp/remote.git" "$tmp/seed" && git -C "$tmp/seed" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init && git -C "$tmp/seed" push -q origin main
 
 run() { # [data dir]
-  docker run --rm -v "$tmp:/t" -v "${1:-$tmp/data}:/data" -e PATH=/t/bin:/home/worker/.opencode/bin:/usr/bin:/bin \
+  # As the host user (HOME in the fixture): on a Linux host the fixture is host-owned and 0700, so the image's
+  # uid 10001 could neither read it nor push to the bare repo (Docker Desktop maps ownership, Linux does not).
+  mkdir -p "$tmp/home"
+  docker run --rm --user "$(id -u):$(id -g)" -e HOME=/t/home -v "$tmp:/t" -v "${1:-$tmp/data}:/data" \
+    -e PATH=/t/bin:/home/worker/.opencode/bin:/usr/bin:/bin \
     -e ISSUE=7 -e REPO=o/r -e MODEL=p/m -e CLONE_URL=/t/remote.git opencode-worker-test >"$tmp/log" 2>&1
 }
 run || fail "first run exit $?"

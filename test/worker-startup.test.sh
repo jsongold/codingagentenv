@@ -18,13 +18,17 @@ SH
 cat >/fake/docker <<'SH'
 #!/bin/bash
 echo "docker $*" >>/calls
-case $1 in ps) cat /ps 2>/dev/null ;; events) cat /events ;; esac
+case $1 in ps) cat /ps 2>/dev/null ;; events) cat /events ;; image) [ -e /img ] ;; pull) [ -e /nopull ] && exit 1; touch /img ;; esac
 SH
 printf '#!/bin/bash\necho "$0 $*" >>/calls\n' >/fake/systemctl
 printf '#!/bin/bash\necho shutdown >>/down\n' >/fake/shutdown
 printf '#!/bin/bash\n' >/fake/chown
 chmod +x /fake/*
-bash /s.sh >/log
+touch /nopull; bash /s.sh >/log   # first boot, pull fails: not ready
+[ ! -e /run/worker-ready ] || fail "ready without an image"
+rm /nopull; bash /s.sh >/log        # first boot, pull works
+[ -e /run/worker-ready ] || fail "not ready after the first pull"
+rm /run/worker-ready; : >/calls; bash /s.sh >/log   # later boot, cached image
 grep -q 'ready (stop-grace-seconds=1, idle-minutes=2)' /log || fail "metadata not read: $(cat /log)"
 [ -e /run/worker-ready ] || fail "no ready marker"
 grep -q 'systemctl start worker-stop.service' /calls || fail "watcher not started"

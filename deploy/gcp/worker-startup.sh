@@ -107,6 +107,11 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now worker-idle.timer
 systemctl start worker-stop.service
-touch /run/worker-ready
+# Ready only with a runnable image (a first boot whose pull failed stays unready; orchd then gets exit 5).
+if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  touch /run/worker-ready
+else
+  echo "worker: no image $IMAGE; not ready"
+fi
 echo "worker: ready (stop-grace-seconds=$grace, idle-minutes=$idle)"
 [ "$cached" = 0 ] || pull
