@@ -25,15 +25,12 @@ var reapAfter = 60 * time.Minute
 
 type ghPR struct{ URL, State, Body string }
 
-// ghIssueList lists open issues labeled "ai" from repo (search: gh's search syntax, "" = none),
-// dropping any that carry a milestone.
+// ghIssueList lists open issues labeled "ai" without a milestone from repo (search: extra gh search
+// terms, "" = none). The milestone filter runs server-side so --limit is not spent on milestoned
+// issues; the client-side filter below is only a safety net.
 func ghIssueList(repo, search string) ([]ghIssue, error) {
-	args := []string{"issue", "list", "--repo", repo, "--label", "ai", "--state", "open", "--limit", "200",
-		"--json", "number,title,body,createdAt,labels,milestone"}
-	if search != "" {
-		args = append(args, "--search", search)
-	}
-	out, err := shell("", "gh", args...)
+	out, err := shell("", "gh", "issue", "list", "--repo", repo, "--label", "ai", "--state", "open", "--limit", "1000",
+		"--search", strings.TrimSpace("no:milestone "+search), "--json", "number,title,body,createdAt,labels,milestone")
 	var issues []ghIssue
 	if err == nil {
 		err = json.Unmarshal([]byte(out), &issues)
@@ -66,6 +63,15 @@ func findClosingPR(prs []ghPR, n int) (url, state string) {
 		}
 	}
 	return url, state
+}
+
+// hasLivePR: some PR that closes #n is OPEN or MERGED, i.e. a worker already took it (it removes wip
+// when it opens the PR), so the issue must not be dispatched again (ADR-0014).
+func hasLivePR(prs []ghPR, n int) bool {
+	re := closesRe(n)
+	return slices.ContainsFunc(prs, func(p ghPR) bool {
+		return (p.State == "OPEN" || p.State == "MERGED") && re.MatchString(p.Body)
+	})
 }
 
 func issueState(i ghIssue) string {
@@ -218,51 +224,78 @@ func pendingPrompt(repo string, issues []ghIssue) string {
 	return b.String()
 }
 
-// dispatchPendingBatch adds wip + a dispatch comment to every pending issue and hands them all to the
-// cloud worker session in one message (CC has headroom for the batch).
-func dispatchPendingBatch(repo, session string, issues []ghIssue, w io.Writer) (int, error) {
-	now := time.Now()
-	for _, i := range issues {
-		n := strconv.Itoa(i.Number)
-		if _, err := shell("", "gh", "issue", "edit", n, "--repo", repo, "--add-label", "wip"); err != nil {
-			return 1, err
-		}
-		if _, err := shell("", "gh", "issue", "comment", n, "--repo", repo, "--body", dispatchComment("claude-cloud", now)); err != nil {
-			return 1, err
-		}
+// claimIssue marks issue n as dispatched to computer: the dispatch comment first, then wip, so every
+// wip issue has the comment reapStale needs. If either call fails the issue has no wip and stays
+// pending for the next tick.
+func claimIssue(repo string, n int, computer string) error {
+	ns := strconv.Itoa(n)
+	if _, err := shell("", "gh", "issue", "comment", ns, "--repo", repo, "--body", dispatchComment(computer, time.Now())); err != nil {
+		return err
 	}
-	out, err := shell("", "claude", "-p", pendingPrompt(repo, issues), "--cloud", session, "--output-format", "json")
+	_, err := shell("", "gh", "issue", "edit", ns, "--repo", repo, "--add-label", "wip")
+	return err
+}
+
+// dispatchPendingBatch claims every pending issue (claimIssue) and hands the claimed ones to the cloud
+// worker session in one message (CC has headroom for the batch). An issue that could not be claimed
+// is left out of the batch (reported under skipped) and stays pending.
+func dispatchPendingBatch(repo, session string, issues []ghIssue, w io.Writer) (int, error) {
+	var claimed []ghIssue
+	nums, skipped := []int{}, []map[string]any{}
+	for _, i := range issues {
+		if err := claimIssue(repo, i.Number, "claude-cloud"); err != nil {
+			skipped = append(skipped, map[string]any{"number": i.Number, "reason": err.Error()})
+			continue
+		}
+		claimed = append(claimed, i)
+		nums = append(nums, i.Number)
+	}
+	if len(claimed) == 0 {
+		printJSON(w, map[string]any{"mode": "cc-batch", "issues": nums, "skipped": skipped})
+		return 1, fmt.Errorf("could not claim any of %d pending issues", len(issues))
+	}
+	out, err := shell("", "claude", "-p", pendingPrompt(repo, claimed), "--cloud", session, "--output-format", "json")
 	if err != nil {
 		return 1, err
-	}
-	nums := make([]int, len(issues))
-	for idx, i := range issues {
-		nums[idx] = i.Number
 	}
 	var claudeOut any
 	if json.Unmarshal([]byte(out), &claudeOut) != nil {
 		claudeOut = out
 	}
-	return 0, printJSON(w, map[string]any{"mode": "cc-batch", "computer": "claude-cloud", "issues": nums, "claude": claudeOut})
+	return 0, printJSON(w, map[string]any{"mode": "cc-batch", "computer": "claude-cloud", "issues": nums, "skipped": skipped, "claude": claudeOut})
 }
 
 // dispatchPendingVM hands pending issues, one at a time, to a stopped worker VM through the existing
 // vm runner (dispatchVM); exit 5 (busy) excludes that computer and retries the next rule. claude-cloud
-// is always excluded here: this path only runs when it was already judged to have no headroom. Once
-// no rule fits an issue, it and the rest are left without wip for the next tick.
+// is always excluded here: this path only runs when it was already judged to have no headroom.
+// If no rule fits an issue on its first try (its class or its estimate does not fit), that issue is
+// skipped with the reason and the next one is tried; once every fitting VM turned out busy, it and the
+// rest are deferred without wip to the next tick. Each dispatch adds its class estimate to the
+// in-memory usage, so later issues in the same run are placed against it.
 func dispatchPendingVM(pol Policy, sleepRules []Rule, repo string, issues []ghIssue, usage map[string]AgentUsage, w io.Writer) (int, error) {
 	vp := pol
 	vp.Rules = sleepRules
-	var dispatched []map[string]any
-	var skipped []int
+	u := usableUsage(usage, time.Now())
+	dispatched, skipped, deferred := []map[string]any{}, []map[string]any{}, []int{}
+issues:
 	for idx, i := range issues {
 		class := issueClass(i, pol)
 		exclude := []string{"claude-cloud"}
-		placed := false
 		for {
-			p, status, _ := place(vp, usableUsage(usage, time.Now()), PlaceSpec{Class: class, Exclude: exclude}, 0)
+			p, status, deferUntil := place(vp, u, PlaceSpec{Class: class, Exclude: exclude}, 0)
 			if status != http.StatusOK || p.Runner == nil || p.Runner.Mode != "vm" {
-				break
+				if len(exclude) == 1 { // nothing fits this issue even before any VM was busy: skip only it
+					s := map[string]any{"number": i.Number, "class": class, "reason": p.Reason}
+					if !deferUntil.IsZero() {
+						s["defer_until"] = deferUntil.UTC()
+					}
+					skipped = append(skipped, s)
+					continue issues
+				}
+				for _, rest := range issues[idx:] { // every fitting worker VM is busy: wait for the next tick
+					deferred = append(deferred, rest.Number)
+				}
+				break issues
 			}
 			var buf strings.Builder
 			code, err := dispatchVM(*p.Runner, repo, i.Number, &buf)
@@ -273,27 +306,19 @@ func dispatchPendingVM(pol Policy, sleepRules []Rule, repo string, issues []ghIs
 			if err != nil {
 				return code, err
 			}
-			n := strconv.Itoa(i.Number)
-			if _, err := shell("", "gh", "issue", "edit", n, "--repo", repo, "--add-label", "wip"); err != nil {
+			if err := claimIssue(repo, i.Number, p.Computer); err != nil {
 				return 1, err
 			}
-			if _, err := shell("", "gh", "issue", "comment", n, "--repo", repo, "--body", dispatchComment(p.Computer, time.Now())); err != nil {
-				return 1, err
+			if a, ok := u[p.Agent]; ok {
+				u[p.Agent] = withEstimate(a, pol.Classes[class].EstPct)
 			}
 			var raw any
 			json.Unmarshal([]byte(buf.String()), &raw)
 			dispatched = append(dispatched, map[string]any{"number": i.Number, "computer": p.Computer, "started": raw})
-			placed = true
-			break
-		}
-		if !placed { // no worker VM free: this and every later issue wait for the next tick
-			for _, rest := range issues[idx:] {
-				skipped = append(skipped, rest.Number)
-			}
 			break
 		}
 	}
-	return 0, printJSON(w, map[string]any{"mode": "vm", "dispatched": dispatched, "skipped": skipped})
+	return 0, printJSON(w, map[string]any{"mode": "vm", "dispatched": dispatched, "skipped": skipped, "deferred": deferred})
 }
 
 // dispatchPendingCmd is `orchd dispatch --pending` (ADR-0014): the cad-2 cron entry point. It is a
@@ -338,6 +363,13 @@ func dispatchPendingCmd(ns, repoFlag, pathFlag string, w io.Writer) (int, error)
 		return 1, err
 	}
 	pending := slices.DeleteFunc(slices.Clone(issues), func(i ghIssue) bool { return issueState(i) != "pending" })
+	if len(pending) > 0 { // a worker removes wip when it opens its Closes #n PR: done, not pending
+		prs, err := ghPRList(nsCfg.Repo)
+		if err != nil {
+			return 1, err
+		}
+		pending = slices.DeleteFunc(pending, func(i ghIssue) bool { return hasLivePR(prs, i.Number) })
+	}
 	if len(pending) == 0 {
 		return 0, printJSON(w, map[string]any{"none": true, "reason": "no unstarted ai issue"})
 	}

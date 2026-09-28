@@ -155,3 +155,17 @@ func usableUsage(m map[string]AgentUsage, now time.Time) map[string]AgentUsage {
 	}
 	return out
 }
+
+// withEstimate returns u with est (a class's EstPct, what place adds before comparing) added to each
+// window place checks, as if one more task of that class were running on the agent; nil windows stay
+// nil. dispatch --pending uses it so the next issue in the same run is placed against that usage.
+func withEstimate(u AgentUsage, est float64) AgentUsage {
+	for _, w := range []**UsageWindow{&u.FiveHour, &u.SevenDay, &u.Monthly} {
+		if *w != nil {
+			c := **w // copy: the window may be shared with the caller's map
+			c.UsedPct += est
+			*w = &c
+		}
+	}
+	return u
+}

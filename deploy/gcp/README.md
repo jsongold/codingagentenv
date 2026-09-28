@@ -127,7 +127,7 @@ opencode の task を 1 件ずつ container で実行する VM を 1〜3 台持�
 
 ### 作成（owner が 1 度だけ、この順に）
 
-1. GitHub の fine-grained PAT を作る：Repository access = 対象 repo、Permissions = Contents: Read and write、Pull requests: Read and write、Workflows: Read and write（`.github/workflows/` を変える Issue の push に必要）、Issues: Read（`gh issue view`）、Metadata: Read
+1. GitHub の fine-grained PAT を作る：Repository access = 対象 repo、Permissions = Contents: Read and write、Pull requests: Read and write、Workflows: Read and write（`.github/workflows/` を変える Issue の push に必要）、Issues: Read and write（`gh issue view` と、失敗時の `ai-failed` ラベル・コメント）、Metadata: Read。既存の PAT を Issues: Read で作っている場合は owner が Read and write に更新する
 2. Secret Manager に入れ、SA に読ませる（`worker-auth.list` の `github worker` → secret `cad-github-worker`。値は stdin から、表示しない。opencode の `cad-opencode-996c87ae` は `secrets.sh` で作成・付与済み）：
 
 ```bash

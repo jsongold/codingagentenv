@@ -129,7 +129,8 @@ func TestDispatchPendingCCBatch(t *testing.T) {
 			{"number":10,"title":"t10","body":"b10","createdAt":"2026-09-01T00:00:00Z","labels":[]},
 			{"number":11,"title":"t11","body":"b11","createdAt":"2026-09-02T00:00:00Z","labels":[]},
 			{"number":12,"title":"milestoned","body":"b12","createdAt":"2026-09-03T00:00:00Z","labels":[],"milestone":{"title":"v0.3"}}]`,
-		"claude -p": `{"result":"ok"}`,
+		"gh pr list": `[]`,
+		"claude -p":  `{"result":"ok"}`,
 	})
 	code, m, errs := runTask(t, "dispatch", "--pending")
 	if code != 0 {
@@ -242,6 +243,7 @@ func TestDispatchPendingVMRetriesBusyComputer(t *testing.T) {
 	fakeCad(t, noCCHeadroom(), 2)
 	calls := fakeShell(t, map[string]string{
 		"gh issue list": `[{"number":20,"title":"t20","body":"b20","createdAt":"2026-09-01T00:00:00Z","labels":[]}]`,
+		"gh pr list":    `[]`,
 	})
 	f := &fakeComputeMulti{vms: map[string]*vmSim{
 		"worker-spot": {status: "RUNNING", fp: "fp1"}, // busy: exit 5, excluded
@@ -291,6 +293,7 @@ func TestDispatchPendingVMSkipsWhenAllBusy(t *testing.T) {
 	fakeCad(t, noCCHeadroom(), 2)
 	calls := fakeShell(t, map[string]string{
 		"gh issue list": `[{"number":21,"title":"t21","body":"","createdAt":"2026-09-01T00:00:00Z","labels":[]}]`,
+		"gh pr list":    `[]`,
 	})
 	f := &fakeComputeMulti{vms: map[string]*vmSim{
 		"worker-spot": {status: "RUNNING", fp: "fp1"},
@@ -301,8 +304,11 @@ func TestDispatchPendingVMSkipsWhenAllBusy(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code %d: %s", code, errs)
 	}
-	if skipped, _ := m["skipped"].([]any); len(skipped) != 1 || skipped[0] != 21.0 {
-		t.Errorf("skipped %v", m["skipped"])
+	if deferred, _ := m["deferred"].([]any); len(deferred) != 1 || deferred[0] != 21.0 {
+		t.Errorf("deferred %v", m["deferred"])
+	}
+	if skipped, _ := m["skipped"].([]any); len(skipped) != 0 { // it fit; only the VMs were busy
+		t.Errorf("skipped %v", skipped)
 	}
 	if dispatched, _ := m["dispatched"].([]any); len(dispatched) != 0 {
 		t.Errorf("dispatched %v", dispatched)
@@ -373,5 +379,166 @@ func TestIssueClassDefaults(t *testing.T) {
 	}
 	if c := issueClass(ghIssue{}, pol); c != "gate-heavy" {
 		t.Errorf("no class label: %s", c)
+	}
+}
+
+// ghIssueList pushes the milestone filter to gh so --limit is not spent on milestoned issues.
+func TestGhIssueListFiltersMilestoneServerSide(t *testing.T) {
+	taskEnv(t, reg)
+	t.Setenv("ORCHD_MODE", "sleep")
+	fakeCad(t, seedUsage(), 2)
+	calls := fakeShell(t, map[string]string{"gh issue list": `[]`, "gh pr list": `[]`})
+	runList(t, "issue", "list")
+	runTask(t, "dispatch", "--pending")
+	var searches []string
+	for _, c := range *calls {
+		if strings.Join(c[1:4], " ") != "gh issue list" {
+			continue
+		}
+		if i := slices.Index(c, "--limit"); i < 0 || c[i+1] != "1000" {
+			t.Errorf("limit: %v", c)
+		}
+		if i := slices.Index(c, "--search"); i >= 0 {
+			searches = append(searches, c[i+1])
+		}
+	}
+	if !slices.Equal(searches, []string{"no:milestone", "no:milestone sort:created-asc"}) {
+		t.Errorf("searches %v calls %v", searches, *calls)
+	}
+}
+
+// An issue whose worker already opened (or merged) a Closes #n PR has no wip, but is not pending.
+func TestDispatchPendingExcludesIssueWithLivePR(t *testing.T) {
+	taskEnv(t, reg)
+	t.Setenv("ORCHD_MODE", "sleep")
+	fakeCad(t, seedUsage(), 2)
+	fakeShell(t, map[string]string{
+		"gh issue list": `[
+			{"number":40,"title":"t40","body":"","createdAt":"2026-09-01T00:00:00Z","labels":[]},
+			{"number":41,"title":"t41","body":"","createdAt":"2026-09-02T00:00:00Z","labels":[]},
+			{"number":42,"title":"t42","body":"","createdAt":"2026-09-03T00:00:00Z","labels":[]}]`,
+		"gh pr list": `[{"url":"u/40","state":"OPEN","body":"Closes #40"},
+			{"url":"u/41","state":"MERGED","body":"Fixes #41"},
+			{"url":"u/42","state":"CLOSED","body":"Closes #42"}]`,
+		"claude -p": `{"result":"ok"}`,
+	})
+	code, m, errs := runTask(t, "dispatch", "--pending")
+	if code != 0 {
+		t.Fatalf("code %d: %s", code, errs)
+	}
+	if issues, _ := m["issues"].([]any); len(issues) != 1 || issues[0] != 42.0 {
+		t.Errorf("only #42 (its PR was closed unmerged) is pending: %v", m)
+	}
+}
+
+// The dispatch comment goes first: if it fails, wip is never added (a wip issue without the comment
+// would never be reaped) and the issue stays pending for the next tick.
+func TestDispatchPendingCommentFailureAddsNoWip(t *testing.T) {
+	taskEnv(t, reg)
+	t.Setenv("ORCHD_MODE", "sleep")
+	fakeCad(t, seedUsage(), 2)
+	calls := fakeShell(t, map[string]string{
+		"gh issue list":    `[{"number":43,"title":"t43","body":"","createdAt":"2026-09-01T00:00:00Z","labels":[]}]`,
+		"gh pr list":       `[]`,
+		"gh issue comment": "ERR",
+	})
+	if code, _, _ := runTask(t, "dispatch", "--pending"); code == 0 {
+		t.Errorf("want non-zero exit when no issue could be claimed")
+	}
+	for _, c := range *calls {
+		line := strings.Join(c[1:], " ")
+		if strings.Contains(line, "--add-label wip") || strings.HasPrefix(line, "claude") {
+			t.Errorf("comment failed: no wip and no claude call expected: %v", *calls)
+		}
+	}
+}
+
+func usableVM(fp string) *vmSim {
+	return &vmSim{status: "TERMINATED", fp: fp, items: []metaItem{{"startup-script", "#!/bin/bash\nworker-task"}}}
+}
+
+// opencodeAt: no claude headroom and opencode's 5h window at pct (reservePct 15 -> limit 85).
+func opencodeAt(pct float64) map[string]AgentUsage {
+	u := noCCHeadroom()
+	u["opencode/996c87ae"] = AgentUsage{FiveHour: &UsageWindow{UsedPct: pct, ResetsAt: time.Now().Add(time.Hour)}}
+	return u
+}
+
+// An issue whose class does not fit is skipped; a later issue that fits is still dispatched.
+func TestDispatchPendingVMSkipsUnfitIssue(t *testing.T) {
+	taskEnv(t, reg)
+	t.Setenv("ORCHD_MODE", "sleep")
+	fakeCad(t, opencodeAt(80), 2) // needs-db (6) -> 86 > 85; light-edit (1) -> 81 fits
+	calls := fakeShell(t, map[string]string{
+		"gh issue list": `[
+			{"number":50,"title":"t50","body":"","createdAt":"2026-09-01T00:00:00Z","labels":[{"name":"class:needs-db"}]},
+			{"number":51,"title":"t51","body":"","createdAt":"2026-09-02T00:00:00Z","labels":[{"name":"class:light-edit"}]}]`,
+		"gh pr list": `[]`,
+	})
+	f := &fakeComputeMulti{vms: map[string]*vmSim{"worker-spot": usableVM("fp1"), "worker-std": usableVM("fp2")}}
+	f.install(t, "suggestorder-dev", "us-central1-a")
+	code, m, errs := runTask(t, "dispatch", "--pending")
+	if code != 0 {
+		t.Fatalf("code %d: %s", code, errs)
+	}
+	skipped, _ := m["skipped"].([]any)
+	if len(skipped) != 1 || skipped[0].(map[string]any)["number"] != 50.0 || skipped[0].(map[string]any)["reason"] == nil {
+		t.Errorf("skipped %v", m["skipped"])
+	}
+	dispatched, _ := m["dispatched"].([]any)
+	if len(dispatched) != 1 || dispatched[0].(map[string]any)["number"] != 51.0 {
+		t.Errorf("dispatched %v", m["dispatched"])
+	}
+	if deferred, _ := m["deferred"].([]any); len(deferred) != 0 {
+		t.Errorf("deferred %v", deferred)
+	}
+	for _, c := range *calls {
+		if line := strings.Join(c[1:], " "); strings.Contains(line, "issue edit 50") || strings.Contains(line, "issue comment 50") {
+			t.Errorf("#50 must be left untouched: %v", *calls)
+		}
+	}
+}
+
+// Each dispatch in a run counts against the agent's usage before the next issue is placed.
+func TestDispatchPendingVMCountsEarlierDispatch(t *testing.T) {
+	taskEnv(t, reg)
+	t.Setenv("ORCHD_MODE", "sleep")
+	fakeCad(t, opencodeAt(80), 2) // gate-heavy (4): 80+4 fits, then 84+4 = 88 > 85
+	calls := fakeShell(t, map[string]string{
+		"gh issue list": `[
+			{"number":60,"title":"t60","body":"","createdAt":"2026-09-01T00:00:00Z","labels":[]},
+			{"number":61,"title":"t61","body":"","createdAt":"2026-09-02T00:00:00Z","labels":[]}]`,
+		"gh pr list": `[]`,
+	})
+	// Both VMs are free, so without the running total #61 would be placed on gce-std.
+	f := &fakeComputeMulti{vms: map[string]*vmSim{"worker-spot": usableVM("fp1"), "worker-std": usableVM("fp2")}}
+	f.install(t, "suggestorder-dev", "us-central1-a")
+	code, m, errs := runTask(t, "dispatch", "--pending")
+	if code != 0 {
+		t.Fatalf("code %d: %s", code, errs)
+	}
+	dispatched, _ := m["dispatched"].([]any)
+	if len(dispatched) != 1 || dispatched[0].(map[string]any)["number"] != 60.0 {
+		t.Errorf("dispatched %v", m["dispatched"])
+	}
+	skipped, _ := m["skipped"].([]any)
+	if len(skipped) != 1 || skipped[0].(map[string]any)["number"] != 61.0 || skipped[0].(map[string]any)["defer_until"] == nil {
+		t.Errorf("skipped %v", m["skipped"])
+	}
+	for _, c := range *calls {
+		if strings.Contains(strings.Join(c[1:], " "), "issue edit 61") {
+			t.Errorf("#61 must not get wip: %v", *calls)
+		}
+	}
+	if f.vms["worker-std"].status != "TERMINATED" {
+		t.Errorf("worker-std must not be started")
+	}
+}
+
+func TestWithEstimate(t *testing.T) {
+	w := &UsageWindow{UsedPct: 10}
+	out := withEstimate(AgentUsage{FiveHour: w}, 4)
+	if out.FiveHour.UsedPct != 14 || out.SevenDay != nil || w.UsedPct != 10 {
+		t.Errorf("out %+v, original %+v", out.FiveHour, w)
 	}
 }

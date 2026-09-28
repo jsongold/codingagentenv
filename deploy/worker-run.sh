@@ -45,7 +45,7 @@ mask() { sed "s/$GH_TOKEN/***/g" >&2; }
 # the real exit code), then exit with the code the caller gave it.
 fail() {
   rc=$1; shift
-  gh issue edit "$ISSUE" --repo "$REPO" --add-label ai-failed >&2 || true
+  gh issue edit "$ISSUE" --repo "$REPO" --remove-label wip --add-label ai-failed >&2 || true
   gh issue comment "$ISSUE" --repo "$REPO" --body "orchd: opencode worker failed: $*" >&2 || true
   exit "$rc"
 }
