@@ -1,0 +1,8 @@
+*
+!cad/*.go
+!cad/go.mod
+!cad/config.json
+!orchd/*.go
+!orchd/go.mod
+!orchd/policy.json
+!deploy/entrypoint.sh
