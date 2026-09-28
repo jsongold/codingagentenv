@@ -17,7 +17,8 @@ VOL=${CAD_VOL:-/var/lib/cad}
 MD=${CAD_MD:-http://metadata.google.internal/computeMetadata/v1}
 SM=${CAD_SM:-https://secretmanager.googleapis.com/v1}
 
-md() { curl -fsS -H 'Metadata-Flavor: Google' "$MD/$1"; }
+# Bounded (--max-time) so a stalled endpoint cannot block boot or the update timer.
+md() { curl -fsS --max-time 10 -H 'Metadata-Flavor: Google' "$MD/$1"; }
 
 # Secrets from Secret Manager -> files on the volume. The list is the instance metadata key `cad-secrets`
 # (= deploy/gcp/secrets.list, set by create-vm.sh): lines "<service> <id>" -> secret cad-<service>-<id>.
@@ -47,7 +48,7 @@ fetch_secrets() {
     esac
     # Token via stdin (curl -H @-), not argv, so it does not show up in ps.
     body=$(printf 'Authorization: Bearer %s\n' "$token" |
-      curl -fsS -H @- "$SM/projects/$project/secrets/$name/versions/latest:access") ||
+      curl -fsS --max-time 30 -H @- "$SM/projects/$project/secrets/$name/versions/latest:access") ||
       { echo "$name: access failed; keeping existing file"; continue; }
     data=$(printf %s "$body" | tr -d '\n' | sed -n 's|.*"data" *: *"\([A-Za-z0-9+/=]*\)".*|\1|p')
     [ -n "$data" ] || { echo "$name: no payload.data; keeping existing file"; continue; }
