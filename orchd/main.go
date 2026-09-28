@@ -1,4 +1,4 @@
-// orchd decides where a task runs (ADR-0011): it reads rules/classes/runners from .agent/policy.json
+// orchd decides where a task runs (ADR-0011): it reads rules/classes/runners from orchd/policy.json
 // and asks cad (HTTP only) for usage and capacity. Deleting orchd/ and tools/orchd leaves cad intact.
 package main
 
@@ -18,7 +18,7 @@ import (
 
 const usageText = `usage:
   orchd place --class <c> [--self <service/account>] [--ns default] [--mode <m>]
-      print {agent, computer, rule, reason, runner, mode, modeSource}: the first rule of the
+      print {agent, computer, rule, reason, runner, mode, modeSource, cadAddr}: the first rule of the
       mode's rule list with a usable agent (rule = index in that list)
   orchd mode set <m> [--ns <ns>] [--by <who>]   persist a mode (no --ns = all namespaces)
   orchd mode clear [--ns <ns>]                  remove that mode file
@@ -26,7 +26,9 @@ const usageText = `usage:
       mode precedence: --mode > <state>/mode/<ns>.json > <state>/mode/_global.json > ORCHD_MODE > auto
       "auto" = policy.rules (local is the last resort); others = policy.modes.<m>.rules (urgent = local-first)
   orchd show [rules|classes|runners]    print policy sections (no arg = all three)
-env: ORCHD_STATE_DIR (default ~/.config/codingagentenv), ORCHD_MODE, ORCHD_POLICY > CAD_POLICY > ./.agent/policy.json; CAD_ADDR (default 127.0.0.1:7878), CAD_TOKEN
+files (CWD-independent): app dir = $ORCHD_HOME > dir above orchd's bin/ (if it has policy.json) > .
+  policy: ORCHD_POLICY > <app>/policy.json; state: ORCHD_STATE_DIR > <app>/state
+env: ORCHD_MODE; CAD_ADDR (> mode cadAddr > top-level cadAddr for auto > 127.0.0.1:7878), CAD_TOKEN
 exit codes:
   0  placed (or shown)
   1  cad unreachable / cad error / bad policy file
@@ -112,14 +114,15 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 	if pol.Rules, err = modeRules(pol, mode); err != nil {
 		return 2, err
 	}
+	addr := cadAddr(pol, mode)
 	var usage map[string]AgentUsage
 	var capacity struct {
 		Slots int `json:"slots"`
 	}
-	if err := cadGet("usage", *ns, &usage); err != nil {
+	if err := cadGet(addr, "usage", *ns, &usage); err != nil {
 		return 1, err
 	}
-	if err := cadGet("capacity", *ns, &capacity); err != nil {
+	if err := cadGet(addr, "capacity", *ns, &capacity); err != nil {
 		return 1, err
 	}
 	p, status, until := place(pol, usableUsage(usage, time.Now()), PlaceSpec{Class: *class, Self: *self}, capacity.Slots)
@@ -129,7 +132,8 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 			Placement
 			Mode       string `json:"mode"`
 			ModeSource string `json:"modeSource"`
-		}{p, mode, modeSource})
+			CadAddr    string `json:"cadAddr"`
+		}{p, mode, modeSource, addr})
 	case http.StatusConflict:
 		return 3, printJSON(w, map[string]interface{}{"defer_until": until, "reason": p.Reason})
 	}
@@ -138,11 +142,7 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 
 // cadGet decodes cad's GET /v1/<topic>?ns= into v. 404 = not collected yet: v stays empty,
 // as the former in-cad place treated it (usage unknown, 0 slots).
-func cadGet(topic, ns string, v interface{}) error {
-	addr := os.Getenv("CAD_ADDR")
-	if addr == "" {
-		addr = "127.0.0.1:7878"
-	}
+func cadGet(addr, topic, ns string, v interface{}) error {
 	req, err := http.NewRequest("GET", "http://"+addr+"/v1/"+topic+"?ns="+ns, nil)
 	if err != nil {
 		return err

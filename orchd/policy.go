@@ -7,19 +7,24 @@ import (
 	"os"
 )
 
-// Policy is the part of .agent/policy.json orchd reads. cad owns the rest (agents are shared).
+// Policy is orchd/policy.json (see home.go). Agents and computer names are copies of cad/config.json's
+// (orchd does not read cad's files; keep them in sync by hand for now).
 type Policy struct {
-	Agents    []string                   `json:"agents"`
-	Computers map[string]json.RawMessage `json:"computers"` // names only: a rule's computer must exist
-	Rules     []Rule                     `json:"rules"`     // ordered decision list; first match wins (= mode "auto")
-	Modes     map[string]struct {
-		Rules []Rule `json:"rules"`
-	} `json:"modes"` // mode name -> its rule list, used instead of Rules (see mode.go)
+	Agents    []string        `json:"agents"`
+	Computers []string        `json:"computers"` // names only: a rule's computer must be one
+	CadAddr   string          `json:"cadAddr"`   // cad for mode "auto" (see cadAddr in mode.go)
+	Rules     []Rule          `json:"rules"`     // ordered decision list; first match wins (= mode "auto")
+	Modes     map[string]Mode `json:"modes"`     // mode name -> its rule list, used instead of Rules (see mode.go)
 	Placement struct {
 		ReservePct float64 `json:"reservePct"` // usage headroom kept free per window
 	} `json:"placement"`
 	Classes map[string]Class  `json:"classes"` // the task classes place accepts (the Orchestrator classifies by criteria)
 	Runners map[string]Runner `json:"runners"` // service -> how the Orchestrator launches it (returned by place)
+}
+
+type Mode struct {
+	CadAddr string `json:"cadAddr"` // cad this mode asks for usage/capacity ("" = default)
+	Rules   []Rule `json:"rules"`
 }
 
 // Class: Criteria tells the Orchestrator when to pick it; EstPct is the usage % one task consumes.
@@ -41,15 +46,6 @@ type Rule struct {
 	Agent    string   `json:"agent"`
 	Computer string   `json:"computer"`
 	Class    []string `json:"class,omitempty"`
-}
-
-func policyFile() string {
-	for _, e := range []string{"ORCHD_POLICY", "CAD_POLICY"} {
-		if p := os.Getenv(e); p != "" {
-			return p
-		}
-	}
-	return ".agent/policy.json"
 }
 
 // loadPolicy reads the file on every call (the CLI is short-lived) and checks what place relies on.

@@ -11,7 +11,7 @@ task を複数の Computer に配り、窓が尽きたら後回しにし、失�
 Hatchet（github.com/hatchet-dev/hatchet、MIT、v0.107.0 2026-09-15、約 8k stars。engine は Go + Postgres、SDK は Go / TS / Python）は次を持つ：永続する task 状態とキュー、key ごとの同時数、worker slots、worker label による affinity（beta）、retry / timeout、cancel、cron / schedule、durable sleep、GitHub webhook の cookbook、dashboard。
 
 ## 決定
-1. **分割**：`cad` = 事実。usage の収集と配信だけを持つ（claude は `claude -p /usage`、codex は `codex app-server`、将来 opencode）。`orchd` = 判断。`.agent/policy.json` の classes / rules / runners、place、Hatchet への run の投入を持つ。同じ Go module でバイナリを 2 つにする。`orchd` は最初 CLI（`orchd place`、`orchd dispatch`）で、常駐が必要になったら daemon にする。
+1. **分割**：`cad` = 事実。usage の収集と配信だけを持つ（claude は `claude -p /usage`、codex は `codex app-server`、将来 opencode）。`orchd` = 判断。`.agent/policy.json`（2026-09-28 以降は `orchd/policy.json`。ADR-0010 追記）の classes / rules / runners、place、Hatchet への run の投入を持つ。同じ Go module でバイナリを 2 つにする。`orchd` は最初 CLI（`orchd place`、`orchd dispatch`）で、常駐が必要になったら daemon にする。
 2. **Hatchet を task の状態・キュー・実行管理に採用する**。self-host の hatchet-lite（engine 1 コンテナ + Postgres。PoC で RAM 約 170MB + 約 300MB）。
    - worker は agent × computer ごとに label を持つ（例 `host=mac`, `agent=opencode`）。
    - `orchd` は place の結果を desired worker labels（required）に変換して run を投入する。

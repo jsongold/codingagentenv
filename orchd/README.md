@@ -9,7 +9,7 @@ task を「どの agent に・どの computer で」やらせるかだけを決�
 
 ```bash
 tools/orchd place --class gate-heavy --self claude/a12e00a7   # [--ns default] [--mode <m>]
-# {"agent":"claude/a12e00a7","computer":"claude-cloud","rule":0,"reason":null,"runner":{"mode":"cloud","cmd":"claude --cloud"},"mode":"auto","modeSource":"default"}
+# {"agent":"claude/a12e00a7","computer":"claude-cloud","rule":0,"reason":null,"runner":{"mode":"cloud","cmd":"claude --cloud"},"mode":"auto","modeSource":"default","cadAddr":"127.0.0.1:17878"}
 tools/orchd mode set urgent [--ns default] [--by owner]      # mode show / mode clear も同じ --ns
 tools/orchd show [rules|classes|runners]                     # 引数なし = 3 つとも
 ```
@@ -20,7 +20,7 @@ tools/orchd show [rules|classes|runners]                     # 引数なし = 3 
 
 | code | 意味 | stdout |
 |---|---|---|
-| 0 | 配置できた | `{agent, computer, rule, reason, runner, mode, modeSource}` |
+| 0 | 配置できた | `{agent, computer, rule, reason, runner, mode, modeSource, cadAddr}` |
 | 1 | cad に届かない・cad のエラー・policy ファイルが壊れている | なし（stderr に理由） |
 | 2 | 入力が不正（class・mode 不明、`--self` / `--ns` の形式違い、不明なコマンド） | なし（stderr に usage） |
 | 3 | 窓で全滅（旧 409）。`defer_until` = 最も早く空く時刻 | `{defer_until, reason}` |
@@ -47,7 +47,18 @@ MODE は place が使う rule の一覧を切り替える（[ADR-0010](../docs/d
 
 ## 設定
 
-MODE の状態：`ORCHD_STATE_DIR`（既定 `~/.config/codingagentenv`）。policy ファイル：`ORCHD_POLICY` > `CAD_POLICY` > `./.agent/policy.json`。読むキーは `rules`・`modes`・`classes`（必須）・`runners`・`placement.reservePct`・`agents`（パターン展開用）と、rule の computer 名の確認に `computers` の名前だけ。cad：`CAD_ADDR`（既定 `127.0.0.1:7878`）、`CAD_TOKEN`。
+場所は CWD に依存しない。app dir = `ORCHD_HOME` > 実行ファイルの実体（symlink を解決）が `<dir>/bin/orchd` で `<dir>/policy.json` があれば `<dir>` > CWD。
+
+| 何 | 場所 |
+|---|---|
+| policy（git 管理） | `ORCHD_POLICY` > `<app>/policy.json`（= `orchd/policy.json`） |
+| 状態（gitignore） | `ORCHD_STATE_DIR` > `<app>/state`（MODE は `state/mode/<ns>.json`・`_global.json`） |
+
+`orchd/policy.json` のキー：`rules`・`modes`・`classes`（必須）・`runners`・`placement.reservePct`・`cadAddr`、それに `agents`（パターン展開用）と `computers`（rule の computer 名の確認用、名前の配列）。`agents` と `computers` は `cad/config.json` の写し（orchd は cad のファイルを読まない）。agent を足したら両方を直す。
+
+cad の場所：`CAD_ADDR`（明示すれば常に優先）> mode の `cadAddr`（`auto` は top-level の `cadAddr`、他は `modes.<m>.cadAddr`）> `127.0.0.1:7878`。seed は `urgent` = `127.0.0.1:7878`（手元の cad。urgent は local で動くので local の値を信じる）、`auto` = `127.0.0.1:17878`（常時動く VM の cad。IAP tunnel 経由）。`CAD_TOKEN` も読む。
+
+旧 `.agent/policy.json` と `CAD_POLICY` は orchd では読まない。旧 MODE 状態（`~/.config/codingagentenv/mode/`）は引き継がないので、必要なら `orchd mode set` し直す。
 
 ## 開発
 

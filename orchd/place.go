@@ -41,7 +41,7 @@ func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int)
 			drop("rule %d: class", i)
 			continue
 		}
-		if _, ok := pol.Computers[r.Computer]; !ok && r.Computer != "local" {
+		if !slices.Contains(pol.Computers, r.Computer) && r.Computer != "local" {
 			drop("rule %d: computer %q unknown", i, r.Computer)
 			continue
 		}

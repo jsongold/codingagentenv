@@ -13,27 +13,12 @@ import (
 	"time"
 )
 
-// defaultStateDir holds orchd's persistent state (the mode files). Name not final: change it here only.
-const defaultStateDir = "~/.config/codingagentenv"
-
 // ModeState is <state>/mode/<ns>.json (or _global.json). It outlives the Orchestrator's context
 // (compaction, restarts): the owner says "MODE=URGENT", the Orchestrator runs `orchd mode set urgent`.
 type ModeState struct {
 	Mode  string    `json:"mode"`
 	Since time.Time `json:"since"`
 	By    string    `json:"by,omitempty"`
-}
-
-func stateDir() string {
-	d := os.Getenv("ORCHD_STATE_DIR")
-	if d == "" {
-		d = defaultStateDir
-	}
-	if len(d) > 1 && d[:2] == "~/" {
-		home, _ := os.UserHomeDir()
-		d = filepath.Join(home, d[2:])
-	}
-	return d
 }
 
 // modeFile: ns "" = the global file. ns never starts with "_" (nsRe), so it cannot collide.
@@ -111,6 +96,23 @@ func modeRules(pol Policy, mode string) ([]Rule, error) {
 		return m.Rules, nil
 	}
 	return nil, fmt.Errorf("mode %q: want auto or one of %v", mode, slices.Sorted(maps.Keys(pol.Modes)))
+}
+
+// cadAddr: env CAD_ADDR > the mode's cadAddr (auto: top-level cadAddr) > 127.0.0.1:7878.
+// urgent runs locally and trusts the local cad; auto uses the always-on VM cad (IAP tunnel).
+func cadAddr(pol Policy, mode string) string {
+	a := os.Getenv("CAD_ADDR")
+	switch {
+	case a != "":
+	case mode == "auto":
+		a = pol.CadAddr
+	default:
+		a = pol.Modes[mode].CadAddr
+	}
+	if a == "" {
+		a = "127.0.0.1:7878"
+	}
+	return a
 }
 
 func modeCmd(args []string, w io.Writer) (int, error) {

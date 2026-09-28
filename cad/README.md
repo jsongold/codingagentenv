@@ -7,8 +7,7 @@ task を「誰に・どこで」やらせるかは [orchd](../orchd/README.md) �
 ## 起動
 
 ```bash
-cd ~/projects/codingagentenv          # .agent/policy.json を読む
-CAD_SLOTS=5 cad &                     # tools/cad が必要なら go build してから起動
+CAD_SLOTS=5 cad &                     # どの CWD でも cad/config.json を読む                     # tools/cad が必要なら go build してから起動
 cad get meta -ns default              # 動作確認
 ```
 
@@ -41,14 +40,25 @@ cad get meta -ns default              # 動作確認
 | `GET /v1/events?topics=a,b` | SSE。値が変わった topic だけ push |
 | `POST /v1/quota/<reviewer>` | レビュアーの quota を記録 |
 
-## 設定（`.agent/policy.json`）
+## 設定
+
+場所は CWD に依存しない。app dir = `CAD_HOME` > 実行ファイルの実体（symlink を解決）が `<dir>/bin/cad` で `<dir>/config.json` があれば `<dir>` > CWD。
+
+| 何 | 場所 |
+|---|---|
+| 設定（git 管理） | `CAD_CONFIG` > `CAD_POLICY`（旧名、別名として有効）> `<app>/config.json`（= `cad/config.json`）。無ければ built-in の既定 |
+| namespace の登録（gitignore） | `<app>/config/namespaces.json`。例は `cad/config/namespaces.example.json`（まだ cad は読まない） |
+
+`cad/config.json` のキー：
 
 | キー | 内容 |
 |---|---|
-| `agents` | 使う agent（`<service>/<account>`。account は aienv の store id） |
+| `agents` | 使う agent（`<service>/<account>`。account は aienv の store id）。orchd の `policy.json` にも写しがある |
 | `collect.usage.every` | usage の収集間隔（既定 60s） |
 | `computers` | computer の属性（`cad show cost`） |
-| `rules` / `classes` / `runners` / `placement` | orchd が読む（[orchd/README.md](../orchd/README.md)）。cad は検証せず、`cad add/rm` でもそのまま残す |
+| `gate` / `review` / `providers` | capacity・レビュアー（`agent/ai-review.ts`）・workers の provider |
+
+`cad add/rm` は cad の知らないキーもそのまま残す。rules / classes / runners / modes は `orchd/policy.json`（[orchd/README.md](../orchd/README.md)）。
 
 壊れた policy は読み込まず、直前の正しいものを使い続ける（ログに理由を出す）。
 
@@ -69,7 +79,8 @@ cad get meta -ns default              # 動作確認
 |---|---|
 | `CAD_ADDR` | listen アドレス（既定 `127.0.0.1:7878`） |
 | `CAD_TOKEN` | API token。loopback 以外で listen するときは必須 |
-| `CAD_POLICY` | policy ファイル（既定 `./.agent/policy.json`） |
+| `CAD_HOME` | app dir（既定は実行ファイルの `bin/` の 1 つ上。上の「設定」） |
+| `CAD_CONFIG`（別名 `CAD_POLICY`） | 設定ファイル（既定 `<app>/config.json`） |
 | `CAD_SLOTS` | local の slots を固定（1 slot = 1 workspace） |
 | `CAD_USAGE_EVERY` | usage 収集間隔。policy より優先 |
 | `CAD_CLAUDE_BIN` / `CAD_CODEX_BIN` | CLI の場所（既定は aienv の shim を避けて探す） |
