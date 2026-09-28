@@ -52,9 +52,10 @@ declare -f running >/etc/worker-lib.sh
 # (https://docs.docker.com/reference/cli/docker/system/events/). The container filter wants an exact name, so the
 # opencode-worker- prefix is matched on the event's name attribute. Events arriving during the grace sleep queue
 # in the pipe; each is re-checked, and `running` decides. Restart=always: the stream ends when dockerd restarts.
+# --since this boot replays past events, so a worker that died before the stream subscribed is not missed.
 cat >/etc/worker-stop.sh <<EOF
 . /etc/worker-lib.sh
-docker events --filter type=container --filter event=die --format '{{.Actor.Attributes.name}}' |
+docker events --since $(date +%s) --filter type=container --filter event=die --format '{{.Actor.Attributes.name}}' |
   while read -r name; do
     case \$name in opencode-worker-*) ;; *) continue ;; esac
     sleep $grace
@@ -122,8 +123,12 @@ else
     echo "$id" >"$VOL/task-done"
     echo "worker: task $id: issue $issue repo $repo model $model"
     docker run -d --rm --name "opencode-worker-$issue" -v "$VOL:/data" \
-      -e ISSUE="$issue" -e REPO="$repo" -e MODEL="$model" "${image:-$IMAGE}" ||
-      echo "worker: docker run failed (the idle net stops the VM)"
+      -e ISSUE="$issue" -e REPO="$repo" -e MODEL="$model" "${image:-$IMAGE}" || {
+      # Never started: keep it retryable on the next boot, and stop now (TERMINATED without a PR = re-queue).
+      rm -f "$VOL/task-done"
+      echo "worker: docker run failed; shutting down"
+      shutdown -h now
+    }
   fi
 fi
 echo "worker: ready (stop-grace-seconds=$grace, idle-minutes=$idle)"

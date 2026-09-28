@@ -19,7 +19,7 @@ SH
 cat >/fake/docker <<'SH'
 #!/bin/bash
 echo "docker $*" >>/calls
-case $1 in ps) cat /ps 2>/dev/null ;; events) cat /events ;; image) [ -e /img ] ;; pull) [ -e /nopull ] && exit 1; touch /img ;; esac
+case $1 in ps) cat /ps 2>/dev/null ;; events) cat /events ;; image) [ -e /img ] ;; pull) [ -e /nopull ] && exit 1; touch /img ;; run) if [ "$2" = -d ] && [ -e /norun ]; then exit 1; fi ;; esac
 SH
 printf '#!/bin/bash\necho "$0 $*" >>/calls\n' >/fake/systemctl
 printf '#!/bin/bash\necho shutdown >>/down\n' >/fake/shutdown
@@ -41,6 +41,11 @@ grep -q "docker run -d" /calls && fail "task ran twice"
 grep -q 'task 7-100 already ran' /log || fail "no skip: $(cat /log)"
 echo '7-200 7 o/r prov/m-1 ghcr.io/o/w:main' >/task; : >/calls
 bash /s.sh >/log; grep -qx "$run" /calls || fail "next task not run"
+grep -q 'docker events --since [0-9]' /etc/worker-stop.sh || fail "watcher does not replay events since boot"
+echo '7-300 7 o/r prov/m-1 ghcr.io/o/w:main' >/task; touch /norun
+bash /s.sh >/log                    # docker run fails: retryable, VM stops at once
+[ -e /down ] && [ ! -e /var/lib/cad/task-done ] || fail "failed run: down=$(ls /down 2>&1) done=$(cat /var/lib/cad/task-done 2>&1)"
+rm /down /norun
 
 printf 'fetch-auth-x\nopencode-worker-7\n' >/events; echo abc >/ps
 bash /etc/worker-stop.sh; [ ! -e /down ] || fail "shut down while a worker runs"
