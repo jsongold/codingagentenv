@@ -102,26 +102,17 @@ gcloud compute instances reset cad-2 --project suggestorder-dev --zone us-centra
 
 ## sleep loop（`orchd-sleep.timer`）
 
-owner が寝ている間は cad-2 の timer が 5 分ごとに `orchd wake` を回す（[ADR-0015](../../docs/decisions/0015-sleep-advance.md)）。`orchd mode set sleep` のときだけ実質動き、CC cloud worker セッション（CCO）に固定の 1 通を送って起こすだけで、何をやるかは選ばない。起きている間は手元の Orchestrator が動くので、timer は動いていても何もしない。
-
-- 有効化：`startup.sh` が boot ごとに `orchd-sleep.service`（oneshot）と `orchd-sleep.timer`（boot 3 分後から 5 分ごと。boot 直後の 1 回目が `cad-update.timer` の boot 2 分後と重ならないようずらしてある）を作り、`systemctl enable --now` する。手で有効化する操作は無い（metadata の `startup-script` を今の `startup.sh` に差し替えて reboot / reset すれば入る。上の「恒久的に固定」と同じ手順）
-- 中身：service の label で cad の container を引き（`cad.1.<task id>`）、`docker exec <container> /app/orchd/bin/orchd wake`（ns は `default`、user は image の `cad`、env も image のもの）
-- **`orchd mode set sleep` のときだけ実質動く**。mode の判定は orchd 側で、sleep 以外なら exit 0 と `{"skipped":true,...}` を出して終わる（5 分ごとに journal に 1 行残る）。寝る前に `orchd mode set sleep`、起きたら `orchd mode clear`（または別の mode を set）。mode のファイルは volume（`/data/orchd/state/mode/`）にあるので cad の container の中で実行する：`$S "sudo docker exec \$(sudo docker ps -q -f label=com.docker.swarm.service.name=cad) orchd mode set sleep --by owner"`
-- exit code：3（cad が未 ready、または update / rollback の途中で cad の container が無い）は defer として成功扱い（`SuccessExitStatus=3`）、次の 5 分後に再試行。1・2（claude / API の失敗、入力不正、cloud の session が無いなど）は unit が failed になる
-- cad の update との直列化：`cad-update.service` は cad の container を stop-first で入れ替えるので、wake の途中に走ると orchd が殺される。そこで両者を直列にしている。`orchd-sleep.service` は `cad-update.service` の実行中は `ExecCondition` で skip し（failed にはならない。journal に `cad-update running; skipped`）、`cad-update.service` は入れ替えの前に実行中の `orchd-sleep.service` の終了を待つ（5 秒ごと、最大 600 秒。超えたら update を優先して進める）。どちらも oneshot で実行中の状態は `activating` なので、`systemctl is-active` の出力の文字列で判定している
-- 前提：`orchd wake` を持つ image。それより古い image では `wake` を知らず exit 2 で failed になる
-
-確認・ログ：
+5 分ごとに cad の container で `orchd wake` を実行する。mode が sleep のときだけ CC cloud worker セッションに固定の 1 通を送る（[ADR-0015](../../docs/decisions/0015-sleep-advance.md)）。unit は `startup.sh` が boot ごとに作る。
 
 ```bash
 S="gcloud compute ssh cad-2 --project suggestorder-dev --zone us-central1-a --tunnel-through-iap --"
-$S systemctl list-timers orchd-sleep.timer       # 次回・前回の実行時刻
-$S systemctl status orchd-sleep.service          # 前回の結果（exit code）
-$S sudo journalctl -u orchd-sleep.service -n 50  # orchd の出力（skipped / dispatched / defer_until）
-$S sudo systemctl start orchd-sleep.service      # 今すぐ 1 回（終わるまで待つ）
+C='$(sudo docker ps -q -f label=com.docker.swarm.service.name=cad)'
+$S "sudo docker exec $C orchd mode set sleep --by owner"   # 寝る前
+$S "sudo docker exec $C orchd mode clear"                  # 起きたら
+$S systemctl list-timers orchd-sleep.timer                 # 次回・前回
+$S sudo journalctl -u orchd-sleep.service -n 50            # 出力
+$S sudo systemctl stop orchd-sleep.timer                   # 一時停止（次の reboot まで）
 ```
-
-一時的に止める（次の reboot まで）：`$S sudo systemctl stop orchd-sleep.timer`。
 
 ## 削除
 
