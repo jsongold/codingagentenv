@@ -16,7 +16,7 @@ orchd は毎回 Orchestrator（このセッション）が呼び、結果の JSO
 4. dispatch は必ず background の Subagent（Agent tool、`run_in_background`）の中で実行する。完了は Subagent の通知で知る。
    - runner `subagent`：Subagent（既定モデル）が `orchd dispatch --ns <ns> --issue <n> --placement '<JSON>'` を実行し、返った `worktree` で `prompt` のとおり作業して PR（`Closes #n`）を出す。
    - runner `process` / `cloud`：監視役の Subagent（`model: haiku`）が dispatch を実行し、`orchd status --ns <ns> --issue <n> [--pid <pid>]` を 1 回 4 分以内の呼び出しで繰り返して（60 秒おき・既定 60 分まで）PR か失敗を待つ。
-   - runner `vm`：監視役の Subagent（`model: haiku`）が dispatch を実行し（start と ready 待ちで最大約 4 分）、同じく `orchd status --ns <ns> --issue <n>` を 60 秒おきに繰り返す。PR が無いまま `gcloud compute instances describe <instance> --project <project> --zone <zone> --format='value(status)'` が `TERMINATED` になったら、preempt か worker の失敗として終わる（下の「中断」）。
+   - runner `vm`：監視役の Subagent（`model: haiku`）が dispatch を実行し（start と ready 待ちで最大約 4 分）、同じく `orchd status --ns <ns> --issue <n>` を 60 秒おきに繰り返す。PR が無いまま `orchd vm status --instance <instance> --zone <zone> --project <project>`（instance/zone/project は dispatch の出力 `{started, instance, zone, project, ...}` の値。REST 経由、gcloud は使わない）の `status` が `TERMINATED` になったら、preempt か worker の失敗として終わる（下の「中断」）。
    - 報告は 5 行以内：issue、runner、PR URL か失敗理由（vm は `startSec` も）。
 
 ## Issue の状態（GitHub だけで持つ。Orchestrator が `gh issue edit` / `gh issue comment` で直接変える）
