@@ -35,7 +35,7 @@ const usageText = `usage:
       + prompt in the background, print {started, worktree, pid, log}; cloud = claude -p <prompt> --cloud
       <CLAUDE_CLOUD_SESSION | registry cloudWorkerSession> --output-format json, print its output;
       vm = runner.instance must be stopped: set its metadata worker-task and start it (Compute API); the VM
-      runs runner.image as opencode-worker-<n> on boot; print {started, instance, container, task, startSec}
+      runs runner.image as opencode-worker-<n> on boot; print {started, instance, zone, project, container, task, startSec}
   orchd status --issue <n> [--pid <pid>] [--ns default] [--repo o/r] [--path dir]
       print {issue, pr, state, running?}: the PR whose body says "Closes #n" (OPEN wins), and with --pid
       whether the dispatched process still runs. One quick gh call; supervisors poll it

@@ -42,7 +42,7 @@ NS ごとに `claude code (orchestrator) → orchd pick → orchd place → orch
 | `place` | 下記。Orchestrator が選んだ class で資源を決める | placement（`runner` を含む） |
 | `status` | `Closes #n` の PR（open を優先）と、`--pid` があればその process が生きているか。gh を 1 回呼ぶだけ | `{issue, pr, state, running?}` |
 | `vm status` | 1 台の worker VM の現在の状態（`instances.get` を 1 回。gcloud は使わない） | `{instance, status}` |
-| `dispatch` | `runner.mode` ごとに渡す。`subagent`：worktree `<path>-task-<n>`（branch `task/<n>`、origin/main から。前回の worktree・branch が残っていれば再利用）を作る。`process`：同じ worktree で `runner.cmd`（`{model}` を置換）+ prompt をバックグラウンド起動（log は `<state>/task-<n>.log`）。`cloud`：`claude -p <prompt> --cloud <session> --output-format json`。`vm`：下の「vm runner」 | subagent：`{runner, worktree, prompt}`（Orchestrator が Agent tool で起動）。process：`{started, worktree, pid, log}`。cloud：claude の JSON。vm：`{started, instance, container, task, startSec}` |
+| `dispatch` | `runner.mode` ごとに渡す。`subagent`：worktree `<path>-task-<n>`（branch `task/<n>`、origin/main から。前回の worktree・branch が残っていれば再利用）を作る。`process`：同じ worktree で `runner.cmd`（`{model}` を置換）+ prompt をバックグラウンド起動（log は `<state>/task-<n>.log`）。`cloud`：`claude -p <prompt> --cloud <session> --output-format json`。`vm`：下の「vm runner」 | subagent：`{runner, worktree, prompt}`（Orchestrator が Agent tool で起動）。process：`{started, worktree, pid, log}`。cloud：claude の JSON。vm：`{started, instance, zone, project, container, task, startSec}` |
 
 - worktree は NS の repo の隣に作る（親ディレクトリの aienv binding が効く）
 - repo・path は `--repo` / `--path` > namespace の登録（`ORCHD_NAMESPACES` > `cad/config/namespaces.json` > その `.example.json`。orchd は読むだけ）> CWD の git toplevel と `gh repo view`
@@ -59,7 +59,7 @@ Compute Engine REST API v1 を直接呼ぶ（gcloud・ssh は使わない。Go �
 2. 選んだ VM が `TERMINATED` 以外（全台 `RUNNING` / `PROVISIONING` / `STAGING` など＝別 task が使用中）なら exit 5。VM 1 台で task は 1 つ。`TERMINATED` でも、5 分以内の `worker-task`（別の dispatch が setMetadata から start までの途中）がある、または `startup-script` が `worker-task` を読まない旧版なら exit 5
 3. `instances.setMetadata` で metadata `worker-task` = `<id> <n> <repo> <model> <image>` を置く（他の item はそのまま。fingerprint 付きなので同時の dispatch は片方が 412 → exit 5）
 4. `instances.start`、operation が `DONE` になるまで 5 秒おきに見る。失敗（Spot の容量不足など）したら instance を見直し、起動中（`PROVISIONING` / `STAGING` / `RUNNING`）なら成功扱い、`TERMINATED` なら `worker-task` を消して（best effort）exit 5
-5. `{started, instance, container（opencode-worker-<n>）, task, startSec（dispatch 開始から start の完了まで、実測）}` を出す
+5. `{started, instance, zone, project（選んだ VM のもの。そのまま orchd vm status に渡せる）, container（opencode-worker-<n>）, task, startSec（dispatch 開始から start の完了まで、実測）}` を出す
 
 1〜4 は合わせて 170 秒まで（各 HTTP 呼び出しは 30 秒まで。dispatch 全体で約 4 分以内）。VM は boot 時に `worker-task` を読み、`docker run -d --rm --name opencode-worker-<n> -v /var/lib/cad:/data -e ISSUE -e REPO -e MODEL <image>` を 1 度だけ実行する（`deploy/gcp/worker-startup.sh`。worker が Issue を読み、PR `Closes #n` を出す）。container が起動したかは orchd からは見えない（`orchd status` の PR で待つ）。
 

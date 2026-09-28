@@ -308,8 +308,9 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 			return unavailable("start %s: %v", name, err)
 		}
 	}
-	return 0, printJSON(w, map[string]any{"started": true, "instance": name, "container": "opencode-worker-" + strconv.Itoa(n),
-		"task": task, "startSec": math.Round(time.Since(t0).Seconds()*10) / 10})
+	// zone/project: every candidate shares the runner's, so a monitor can run "orchd vm status" from this output alone.
+	return 0, printJSON(w, map[string]any{"started": true, "instance": name, "zone": rn.Zone, "project": rn.Project,
+		"container": "opencode-worker-" + strconv.Itoa(n), "task": task, "startSec": math.Round(time.Since(t0).Seconds()*10) / 10})
 }
 
 // vmCmd: "orchd vm status --instance <i> --zone <z> --project <p>", the only vm subcommand so far.

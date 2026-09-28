@@ -107,6 +107,9 @@ func TestDispatchVMStartsStoppedVM(t *testing.T) {
 	if code != 0 || m["started"] != true || m["instance"] != "worker-spot" || m["container"] != "opencode-worker-7" {
 		t.Fatalf("code %d %v %s", code, m, errs)
 	}
+	if m["zone"] != "z1" || m["project"] != "p1" { // what "orchd vm status" needs besides instance
+		t.Errorf("zone %v project %v", m["zone"], m["project"])
+	}
 	if _, ok := m["startSec"].(float64); !ok {
 		t.Errorf("startSec %v", m["startSec"])
 	}
@@ -210,7 +213,7 @@ func TestDispatchVMPicksAnyStoppedInstance(t *testing.T) {
 	t.Setenv("ORCHD_COMPUTE_URL", srv.URL)
 	pl := `{"runner":{"mode":"vm","instance":"worker-spot,worker-spot-2","zone":"z1","project":"p1","image":"ghcr.io/o/w:main","model":"prov/m-1"}}`
 	code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", pl)
-	if code != 0 || m["instance"] != "worker-spot-2" || m["container"] != "opencode-worker-7" {
+	if code != 0 || m["instance"] != "worker-spot-2" || m["zone"] != "z1" || m["project"] != "p1" || m["container"] != "opencode-worker-7" {
 		t.Fatalf("code %d %v %s", code, m, errs)
 	}
 	if len(calls) < 2 || calls[0] != "GET instances/worker-spot" || calls[1] != "GET instances/worker-spot-2" {
