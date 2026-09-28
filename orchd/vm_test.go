@@ -284,6 +284,67 @@ func TestDispatchVMAllInstancesBusy(t *testing.T) {
 	}
 }
 
+// TestDispatchVMRejectsStartedWhileWaiting: the instance is STOPPING, but by the time it stops it is RUNNING
+// (another actor started it), not TERMINATED. Regression for a bug where only the metadata (not the status) was
+// re-checked after the wait, so a VM someone else started could still be assigned this task.
+func TestDispatchVMRejectsStartedWhileWaiting(t *testing.T) {
+	taskEnv(t, reg)
+	fakeShell(t, nil)
+	f := &fakeCompute{status: []string{"STOPPING", "RUNNING"}}
+	f.install(t)
+	code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", vmPl)
+	if code != 5 || !strings.Contains(errs, "computer unavailable") {
+		t.Fatalf("code %d %s", code, errs)
+	}
+	if f.task() != "old" {
+		t.Errorf("task overwritten: %q", f.task())
+	}
+}
+
+// TestDispatchVMRetriesAfterFingerprintConflict: the first candidate's setMetadata always 412s (another dispatch
+// grabbed it between our GET and our POST); dispatch must retry with the next stopped instance instead of exiting
+// with "computer unavailable". Regression for a bug where a fingerprint conflict failed the whole dispatch even
+// when another instance was free.
+func TestDispatchVMRetriesAfterFingerprintConflict(t *testing.T) {
+	taskEnv(t, reg)
+	fakeShell(t, nil)
+	oldTok, oldSleep, oldBudget, oldPoll := accessToken, sleep, vmBudget, vmPoll
+	t.Cleanup(func() { accessToken, sleep, vmBudget, vmPoll = oldTok, oldSleep, oldBudget, oldPoll })
+	vmBudget, vmPoll, sleep = 50*time.Millisecond, time.Millisecond, time.Sleep
+	accessToken = func() (string, error) { return "tok", nil }
+	free := map[string]any{"fingerprint": "fp1", "items": []metaItem{{"startup-script", "worker-task"}}}
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, _ := strings.CutPrefix(r.URL.Path, "/projects/p1/zones/z1/")
+		calls = append(calls, r.Method+" "+p)
+		switch {
+		case r.Method == "GET" && p == "instances/worker-spot":
+			json.NewEncoder(w).Encode(map[string]any{"status": "TERMINATED", "metadata": free})
+		case r.Method == "GET" && p == "instances/worker-spot-2":
+			json.NewEncoder(w).Encode(map[string]any{"status": "TERMINATED", "metadata": free})
+		case r.Method == "POST" && p == "instances/worker-spot/setMetadata": // always conflicts: raced away
+			http.Error(w, `{"error":{"code":412,"message":"fingerprint"}}`, 412)
+		case r.Method == "POST" && p == "instances/worker-spot-2/setMetadata":
+			io.WriteString(w, `{"name":"op-md","status":"DONE"}`)
+		case r.Method == "POST" && p == "instances/worker-spot-2/start":
+			io.WriteString(w, `{"name":"op-start","status":"DONE"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("ORCHD_COMPUTE_URL", srv.URL)
+	pl := `{"runner":{"mode":"vm","instance":"worker-spot,worker-spot-2","zone":"z1","project":"p1","image":"ghcr.io/o/w:main","model":"prov/m-1"}}`
+	code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", pl)
+	if code != 0 || m["instance"] != "worker-spot-2" {
+		t.Fatalf("code %d %v %s", code, m, errs)
+	}
+	want := "GET instances/worker-spot,POST instances/worker-spot/setMetadata,GET instances/worker-spot-2,POST instances/worker-spot-2/setMetadata,POST instances/worker-spot-2/start"
+	if got := strings.Join(calls, ","); got != want {
+		t.Errorf("calls\n got %s\nwant %s", got, want)
+	}
+}
+
 func TestDispatchVMBadRunner(t *testing.T) {
 	taskEnv(t, reg)
 	fakeShell(t, nil)

@@ -170,56 +170,60 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 		}
 		return true, ""
 	}
-	// Pick the first TERMINATED-and-usable instance of the kind (a later one may still be free even if an
-	// earlier one is reserved or on an old script). One that is self-stopping (STOPPING/PENDING_STOP) is the
-	// next best (wait it out); one that is RUNNING/STAGING/PROVISIONING is busy with another task.
-	var name string
-	var in gceInstance
-	stopping, busy := "", []string{}
-	var stoppingIn gceInstance
-	for _, inst := range instances {
-		var cur gceInstance
-		if err := gceCall(tok, rn, "GET", "instances/"+inst, nil, &cur); err != nil {
-			return unavailable("%v", err) // e.g. the VM does not exist yet
-		}
-		switch {
-		case cur.Status == "TERMINATED":
-			if ok, reason := usable(cur); ok {
-				name, in = inst, cur
-			} else {
-				busy = append(busy, inst+": "+reason)
+	// selectCandidate returns the next TERMINATED-and-usable instance not in exclude (a later one may still be
+	// free even if an earlier one is reserved or on an old script). If none, it waits out the first self-stopping
+	// (STOPPING/PENDING_STOP) instance and re-checks it once TERMINATED -- another actor may have started it
+	// meanwhile, which is still busy, not usable. name=="" with err==nil means no candidate remains right now.
+	busy := []string{}
+	selectCandidate := func(exclude map[string]bool) (name string, in gceInstance, err error) {
+		var stopping string
+		var stoppingIn gceInstance
+		for _, inst := range instances {
+			if exclude[inst] {
+				continue
 			}
-		case cur.Status == "STOPPING" || cur.Status == "PENDING_STOP":
-			if stopping == "" {
-				stopping, stoppingIn = inst, cur
+			var cur gceInstance
+			if err := gceCall(tok, rn, "GET", "instances/"+inst, nil, &cur); err != nil {
+				return "", gceInstance{}, err // e.g. the VM does not exist yet
 			}
-		default:
-			busy = append(busy, inst+" "+cur.Status)
+			switch {
+			case cur.Status == "TERMINATED":
+				if ok, reason := usable(cur); ok {
+					return inst, cur, nil
+				} else {
+					busy = append(busy, inst+": "+reason)
+				}
+			case cur.Status == "STOPPING" || cur.Status == "PENDING_STOP":
+				if stopping == "" {
+					stopping, stoppingIn = inst, cur
+				}
+			default:
+				busy = append(busy, inst+" "+cur.Status)
+			}
 		}
-		if name != "" {
-			break
+		if stopping == "" {
+			return "", gceInstance{}, nil
 		}
-	}
-	if name == "" && stopping != "" {
 		name, in = stopping, stoppingIn
 		for in.Status == "STOPPING" || in.Status == "PENDING_STOP" {
 			if time.Now().After(deadline) {
-				return unavailable("%s still %s after %s", name, in.Status, vmBudget)
+				return "", gceInstance{}, fmt.Errorf("%s still %s after %s", name, in.Status, vmBudget)
 			}
 			sleep(vmPoll)
 			if err := gceCall(tok, rn, "GET", "instances/"+name, nil, &in); err != nil {
-				return unavailable("%v", err)
+				return "", gceInstance{}, err
 			}
+		}
+		if in.Status != "TERMINATED" { // e.g. another actor started it while we waited
+			busy = append(busy, name+": became "+in.Status+" while waiting")
+			return "", gceInstance{}, nil
 		}
 		if ok, reason := usable(in); !ok {
 			busy = append(busy, name+": "+reason)
-			name = ""
+			return "", gceInstance{}, nil
 		}
+		return name, in, nil
 	}
-	if name == "" { // every instance of the kind is busy, reserved or on an old script
-		return unavailable("all of %s busy: %s", rn.Instance, strings.Join(busy, ", "))
-	}
-	ipath := "instances/" + name
 	// wait polls an operation until DONE; an operation error (e.g. ZONE_RESOURCE_POOL_EXHAUSTED) is returned.
 	wait := func(op gceOperation) error {
 		for op.Status != "DONE" {
@@ -236,22 +240,47 @@ func dispatchVM(rn Runner, repo string, n int, w io.Writer) (int, error) {
 		}
 		return nil
 	}
-	// The task: "<id> <issue> <repo> <model> <image>". The id lets the VM skip a task it already ran (reboot).
-	task := fmt.Sprintf("%d-%d %d %s %s %s", n, t0.Unix(), n, repo, rn.Model, rn.Image)
-	items := []metaItem{{"worker-task", task}}
-	for _, it := range in.Metadata.Items {
-		if it.Key != "worker-task" {
-			items = append(items, it)
-		}
-	}
+	// Pick a candidate and reserve it via setMetadata; the fingerprint makes a concurrent dispatch racing for the
+	// same VM fail here (412) instead of overwriting the task. Retry with another candidate rather than giving up
+	// the whole dispatch, so simultaneous tasks can use the added capacity.
+	var name string
+	var in gceInstance
+	var task string
+	var items []metaItem
 	var op gceOperation
-	// The fingerprint makes a concurrent dispatch to the same VM fail here (412) instead of overwriting the task.
-	if err := gceCall(tok, rn, "POST", ipath+"/setMetadata", map[string]any{"fingerprint": in.Metadata.Fingerprint, "items": items}, &op); err != nil {
-		return unavailable("setMetadata %s: %v", name, err)
+	exclude := map[string]bool{}
+	for {
+		var serr error
+		name, in, serr = selectCandidate(exclude)
+		if serr != nil {
+			return unavailable("%v", serr)
+		}
+		if name == "" { // every instance of the kind is busy, reserved or on an old script
+			return unavailable("all of %s busy: %s", rn.Instance, strings.Join(busy, ", "))
+		}
+		// The task: "<id> <issue> <repo> <model> <image>". The id lets the VM skip a task it already ran (reboot).
+		task = fmt.Sprintf("%d-%d %d %s %s %s", n, t0.Unix(), n, repo, rn.Model, rn.Image)
+		items = []metaItem{{"worker-task", task}}
+		for _, it := range in.Metadata.Items {
+			if it.Key != "worker-task" {
+				items = append(items, it)
+			}
+		}
+		op = gceOperation{}
+		if err := gceCall(tok, rn, "POST", "instances/"+name+"/setMetadata", map[string]any{"fingerprint": in.Metadata.Fingerprint, "items": items}, &op); err != nil {
+			if time.Now().After(deadline) {
+				return unavailable("setMetadata %s: %v", name, err)
+			}
+			busy = append(busy, name+": setMetadata: "+err.Error())
+			exclude[name] = true
+			continue
+		}
+		if err := wait(op); err != nil {
+			return unavailable("setMetadata %s: %v", name, err)
+		}
+		break
 	}
-	if err := wait(op); err != nil {
-		return unavailable("setMetadata %s: %v", name, err)
-	}
+	ipath := "instances/" + name
 	op = gceOperation{}
 	err = gceCall(tok, rn, "POST", ipath+"/start", nil, &op)
 	if err == nil {
