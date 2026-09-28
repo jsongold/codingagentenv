@@ -11,7 +11,16 @@
     "claude-cloud":   { "vcpuHourUSD": 0,      "gibHourUSD": 0,       "minBillSec": 0,  "preemptible": false, "coldStartSec": 30, "caps": { "docker": true,  "db": true  }, "maxMemMB": 8192,  "maxCpus": 4, "maxMin": 0 }
   },
   "agents": ["claude/a12e00a7", "claude/b1c8ef41", "codex/2e33b72a", "opencode/996c87ae"],
-  "rules": [{ "agent": "self", "computer": "local" }, { "agent": "opencode/*", "computer": "local" }],
+  "rules": [
+    { "agent": "self", "computer": "claude-cloud" }, { "agent": "opencode/*", "computer": "gha" },
+    { "agent": "self", "computer": "local" }, { "agent": "opencode/*", "computer": "local" }
+  ],
+  "modes": {
+    "urgent": { "rules": [
+      { "agent": "self", "computer": "local" }, { "agent": "opencode/*", "computer": "local" },
+      { "agent": "self", "computer": "claude-cloud" }, { "agent": "opencode/*", "computer": "gha" }
+    ] }
+  },
   "placement": { "reservePct": 15 },
   "classes": {
     "light-edit":   { "criteria": "docs/config/コメントのみ。テストの追加・変更なし", "estPct": 1 },
@@ -23,6 +32,7 @@
   },
   "runners": {
     "claude":   { "mode": "subagent" },
+    "claude@claude-cloud": { "mode": "cloud", "cmd": "claude --cloud" },
     "opencode": { "mode": "process", "cmd": "opencode run --model {model}", "model": "opencode-go/deepseek-v4-pro" }
   },
   "collect": { "usage": { "every": "60s" } }

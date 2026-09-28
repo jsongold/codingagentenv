@@ -34,6 +34,7 @@ type Policy struct {
 	Placement json.RawMessage `json:"placement,omitempty"`
 	Classes   json.RawMessage `json:"classes,omitempty"`
 	Runners   json.RawMessage `json:"runners,omitempty"`
+	Modes     json.RawMessage `json:"modes,omitempty"`
 	Collect   struct {
 		Usage struct {
 			Every string `json:"every"` // time.ParseDuration; CAD_USAGE_EVERY overrides

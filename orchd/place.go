@@ -63,7 +63,7 @@ func place(pol Policy, usage map[string]AgentUsage, s PlaceSpec, localSlots int)
 				continue
 			}
 			matched = true
-			rn, ok := pol.Runners[strings.SplitN(a, "/", 2)[0]]
+			rn, ok := pol.runner(strings.SplitN(a, "/", 2)[0], r.Computer)
 			if !ok { // the Orchestrator could not launch it
 				drop("%s: no runner", a)
 				continue

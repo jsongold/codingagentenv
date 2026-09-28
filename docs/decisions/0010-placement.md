@@ -59,6 +59,12 @@ ADR-0008 / 0009 は「provider の固定一覧（`policy.providers.allowed`）�
 - **codex はレビュー専用**：実装 Agent としては使わない。`policy.agents` には残す（レビュー枠の usage 収集のため）が、どの rule にも一致させない＝`place` が codex を選ぶことはない。
 - **Mac がスリープしたら** GitHub Actions が opencode を起動して PR を作る。これは `cad` の外で扱い、rules には書かない（今は設計のみ・実装は未着手の future work）。
 
+## MODE（owner 決定・2026-09-28）
+- **MODE** で rule の優先順位を切り替える。`auto`（既定）= top-level `rules`：設計どおり local を最後の手段にする。今は `[{self, claude-cloud}, {opencode/*, gha}, {self, local}, {opencode/*, local}]`（`gha` は `computers` に無いので `computer "gha" unknown` で飛ばされる）。上記「戦略」の通常運用（local 優先）はこれで置き換える
+- `urgent` = `modes.urgent.rules`：local の rule を先頭に置き、その後に auto の rule を並べる。owner が会話で「MODE=URGENT で処理して」と言ったら Orchestrator が `orchd mode set urgent --ns <ns>` を実行し、「解除」で `orchd mode clear --ns <ns>`
+- context 圧縮・再起動で消えないようファイルに保存する（`$ORCHD_STATE_DIR/mode/<ns>.json` / `_global.json`）。起動時の環境変数 `ORCHD_MODE` でもセッション全体に効かせられる。優先順位は `--mode` > ns ファイル > global ファイル > `ORCHD_MODE` > `auto`。詳細は [orchd/README.md](../../orchd/README.md#mode)
+- runner は computer にも依存する：`runners["<service>@<computer>"]` を先に、無ければ `runners["<service>"]`。`claude@claude-cloud` = `{mode: cloud, cmd: "claude --cloud"}`（Orchestrator が cloud セッションを起動する）
+
 ## 検討して却下した案
 | 案 | 却下理由 |
 |---|---|

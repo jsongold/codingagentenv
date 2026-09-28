@@ -11,7 +11,10 @@ import (
 type Policy struct {
 	Agents    []string                   `json:"agents"`
 	Computers map[string]json.RawMessage `json:"computers"` // names only: a rule's computer must exist
-	Rules     []Rule                     `json:"rules"`     // ordered decision list; first match wins
+	Rules     []Rule                     `json:"rules"`     // ordered decision list; first match wins (= mode "auto")
+	Modes     map[string]struct {
+		Rules []Rule `json:"rules"`
+	} `json:"modes"` // mode name -> its rule list, used instead of Rules (see mode.go)
 	Placement struct {
 		ReservePct float64 `json:"reservePct"` // usage headroom kept free per window
 	} `json:"placement"`
@@ -25,7 +28,8 @@ type Class struct {
 	EstPct   float64 `json:"estPct"`
 }
 
-// Runner: "subagent" (a Task subagent of the Orchestrator) or "process" (run Cmd; {model} is Model).
+// Runner: "subagent" (a Task subagent of the Orchestrator), "process" (run Cmd; {model} is Model)
+// or "cloud" (the Orchestrator starts a cloud session with Cmd, e.g. claude --cloud).
 type Runner struct {
 	Mode  string `json:"mode"`
 	Cmd   string `json:"cmd,omitempty"`
@@ -61,14 +65,23 @@ func loadPolicy() (Policy, error) {
 	for s, r := range p.Runners {
 		switch {
 		case err != nil:
-		case r.Mode == "process" && r.Cmd == "":
-			err = fmt.Errorf("runners.%s: process needs cmd", s)
-		case r.Mode != "subagent" && r.Mode != "process":
-			err = fmt.Errorf("runners.%s: mode must be subagent or process", s)
+		case r.Mode != "subagent" && r.Cmd == "":
+			err = fmt.Errorf("runners.%s: %s needs cmd", s, r.Mode)
+		case r.Mode != "subagent" && r.Mode != "process" && r.Mode != "cloud":
+			err = fmt.Errorf("runners.%s: mode must be subagent, process or cloud", s)
 		}
 	}
 	if err != nil {
 		return Policy{}, fmt.Errorf("policy %s: %v", policyFile(), err)
 	}
 	return p, nil
+}
+
+// runner: runners["<service>@<computer>"] first (e.g. claude@claude-cloud), then runners["<service>"].
+func (p Policy) runner(svc, computer string) (Runner, bool) {
+	if rn, ok := p.Runners[svc+"@"+computer]; ok {
+		return rn, true
+	}
+	rn, ok := p.Runners[svc]
+	return rn, ok
 }
