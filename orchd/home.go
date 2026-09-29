@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 var executable = os.Executable // tests fake it
@@ -30,6 +31,17 @@ func policyFile() string {
 		return p
 	}
 	return filepath.Join(appDir(), "policy.json")
+}
+
+// claudeConfigDir: CLAUDE_CONFIG_DIR for a claude/<id> agent, mirroring cad's usage collector
+// (cad/usage.go usageStore, agent claude/<id> -> config dir $HOME/.aienv/.store/<id>; "default" ->
+// the plain ~/.claude.json, i.e. no CLAUDE_CONFIG_DIR, so claude/default gets the CLI's own default dir).
+func claudeConfigDir(agent string) string {
+	home, _ := os.UserHomeDir()
+	if id := strings.TrimPrefix(agent, "claude/"); id != "default" {
+		return filepath.Join(home, ".aienv", ".store", id)
+	}
+	return filepath.Join(home, ".claude")
 }
 
 // stateDir: ORCHD_STATE_DIR > <appDir>/state (gitignored).

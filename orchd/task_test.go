@@ -130,6 +130,24 @@ func TestPlaceSleepFillsSession(t *testing.T) { // cad-2's timer: no --class, se
 	}
 }
 
+// runner.cmd's {configDir} (claude@claude-cloud) is filled from the placed claude/<id> agent,
+// mirroring cad's usage-collector mapping (cad/usage.go usageStore).
+func TestPlaceSleepFillsConfigDir(t *testing.T) {
+	taskEnv(t, `{"default":{"cloudWorkerSession":"sess-1"}}`)
+	fakeCad(t, seedUsage(), 0)
+	fakeShell(t, nil)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	code, m, errs := runTask(t, "place", "--mode", "sleep")
+	if code != 0 {
+		t.Fatalf("code %d %s", code, errs)
+	}
+	rn := m["runner"].(map[string]any)
+	if want := filepath.Join(home, ".aienv", ".store", "a12e00a7"); rn["configDir"] != want {
+		t.Errorf("configDir %v want %s", rn["configDir"], want)
+	}
+}
+
 // runner.stdin in policy.json is relative to the policy file's own directory, not the CWD or a
 // hardcoded app dir: ORCHD_POLICY pointing elsewhere must resolve stdin next to it.
 func TestPlaceStdinRelativeToPolicyDir(t *testing.T) {

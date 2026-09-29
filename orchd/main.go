@@ -25,7 +25,9 @@ const usageText = `usage:
       rule list, -1 when nothing was placed. runner = Runner{} (no keys) when nothing was placed, else the
       first rule with a usable agent's runner. reason: [] when none. defer_until: RFC3339, "" when none.
       No --class: no per-class usage estimate. runner.session (when runner.cmd uses {session}) =
-      CLAUDE_CLOUD_SESSION > the namespace registry's cloudWorkerSession
+      CLAUDE_CLOUD_SESSION > the namespace registry's cloudWorkerSession. runner.configDir (when
+      runner.cmd uses {configDir} and the agent is claude/<id>) = $HOME/.aienv/.store/<id>
+      (claude/default = $HOME/.claude)
       mode precedence: --mode > ORCHD_MODE > auto ("auto" = policy.rules, local is the last resort;
       others = policy.modes.<m>.rules, urgent = local-first)
   orchd dispatch --placement <json|->
@@ -155,6 +157,9 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 				return 1, err
 			}
 			p.Runner.Session = cloudSession(reg)
+		}
+		if strings.Contains(strings.Join(p.Runner.Cmd, " "), "{configDir}") && strings.HasPrefix(p.Agent, "claude/") {
+			p.Runner.ConfigDir = claudeConfigDir(p.Agent)
 		}
 		if p.Runner.Stdin != "" && !filepath.IsAbs(p.Runner.Stdin) { // policy.json stores it relative to itself
 			p.Runner.Stdin = filepath.Join(filepath.Dir(policyFile()), p.Runner.Stdin)
