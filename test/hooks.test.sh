@@ -20,13 +20,9 @@ check() { # name, expected, actual
 # --- SessionStart ---
 mkdir -p "$TMP/filled" "$TMP/empty" "$TMP/template" "$TMP/bin"
 printf '# PROGRESS\n- 最終更新：2026-09-20 11:00\n## 次の一手\n1. do the thing\n' >"$TMP/filled/PROGRESS.md"
-# Fake gh: prints what `gh issue list ... --jq` would, or fails / hangs.
-printf '#!/bin/sh\necho "#92 spec: global harness"\necho "#93 spec: deploy"\n' >"$TMP/bin/gh-ok"
-printf '#!/bin/sh\necho partial; exit 1\n' >"$TMP/bin/gh-fail"
-printf '#!/bin/sh\nsleep 5; echo "#1 late"\n' >"$TMP/bin/gh-slow"
-chmod +x "$TMP/bin/"gh-*
-export HARNESS_GH="$TMP/bin/gh-ok"
-# The spec list runs only in a git repo with a github.com remote.
+# A gh on PATH that only records being called: the hook must never call it.
+printf '#!/bin/sh\ntouch "%s/gh-called"\n' "$TMP" >"$TMP/bin/gh" && chmod +x "$TMP/bin/gh"
+export PATH="$TMP/bin:$PATH"
 gh_repo() { git init -q "$1" && git -C "$1" remote add origin "${2:-https://github.com/example/repo.git}"; }
 gh_repo "$TMP/filled"
 printf '# PROGRESS\n- 最終更新：YYYY-MM-DD HH:MM\n' >"$TMP/template/PROGRESS.md"
@@ -37,31 +33,16 @@ ss() { # source, project dir
 
 OUT=$(ss startup "$TMP/filled")
 check "startup injects PROGRESS.md" 1 "$(printf '%s' "$OUT" | grep -c 'do the thing')"
-check "startup lists doc:spec Issues" 2 "$(printf '%s' "$OUT" | grep -c '^- #9[23] spec: ')"
-check "no gh: spec list is silent" 0 "$(HARNESS_GH="$TMP/bin/none" ss startup "$TMP/filled" | grep -c '^\[harness\] spec')"
-check "gh failing: spec list is silent" 0 "$(HARNESS_GH="$TMP/bin/gh-fail" ss startup "$TMP/filled" | grep -c -e 'partial' -e '^\[harness\] spec')"
-START=$(date +%s)
-OUT=$(HARNESS_GH="$TMP/bin/gh-slow" HARNESS_SPEC_TIMEOUT=1 ss startup "$TMP/filled")
-check "gh hanging: exits 0" 0 $?
-check "gh hanging: gives up within the timeout" yes "$([ $(($(date +%s) - START)) -le 3 ] && echo yes || echo no)"
-check "gh hanging: spec list is silent" 0 "$(printf '%s' "$OUT" | grep -c 'late')"
-check "gh hanging: handoff still injected" 1 "$(printf '%s' "$OUT" | grep -c 'do the thing')"
 check "startup points at /pickup" 1 "$(printf '%s' "$OUT" | grep -c '/pickup')"
+check "startup lists no specs" 0 "$(printf '%s' "$OUT" | grep -c -e '^\[harness\] spec' -e '再提案しない')"
 check "clear injects" 1 "$(ss clear "$TMP/filled" | grep -c 'do the thing')"
 check "compact injects" 1 "$(ss compact "$TMP/filled" | grep -c 'do the thing')"
-check "clear lists specs" 2 "$(ss clear "$TMP/filled" | grep -c '^- #9[23] spec: ')"
-check "compact skips the spec list" 0 "$(ss compact "$TMP/filled" | grep -c '^\[harness\] spec')"
-mkdir -p "$TMP/nogit" "$TMP/gitlab"
-cp "$TMP/filled/PROGRESS.md" "$TMP/nogit/" && cp "$TMP/filled/PROGRESS.md" "$TMP/gitlab/"
-gh_repo "$TMP/gitlab" "git@gitlab.com:example/repo.git"
-printf '#!/bin/sh\ntouch "%s/gh-called"\n' "$TMP" >"$TMP/bin/gh-spy" && chmod +x "$TMP/bin/gh-spy"
-OUT=$(HARNESS_GH="$TMP/bin/gh-spy" ss startup "$TMP/nogit")
+mkdir -p "$TMP/nogit"
+cp "$TMP/filled/PROGRESS.md" "$TMP/nogit/"
+OUT=$(ss startup "$TMP/nogit")
 check "not a git repo: still injects" 1 "$(printf '%s' "$OUT" | grep -c 'do the thing')"
-HARNESS_GH="$TMP/bin/gh-spy" ss startup "$TMP/gitlab" >/dev/null
-HARNESS_GH="$TMP/bin/gh-spy" ss compact "$TMP/filled" >/dev/null
-check "no git / non-github remote / compact: gh is not called" no "$([ -e "$TMP/gh-called" ] && echo yes || echo no)"
-gh_repo "$TMP/sshgh" "git@github.com:example/repo.git" && cp "$TMP/filled/PROGRESS.md" "$TMP/sshgh/"
-check "ssh github.com remote lists specs" 2 "$(ss startup "$TMP/sshgh" | grep -c '^- #9[23] spec: ')"
+ss clear "$TMP/filled" >/dev/null
+check "github repo on startup / clear / compact: gh is not called" no "$([ -e "$TMP/gh-called" ] && echo yes || echo no)"
 check "resume is silent" "" "$(ss resume "$TMP/filled")"
 check "fork is silent" "" "$(ss fork "$TMP/filled")"
 check "no PROGRESS.md is silent" "" "$(ss startup "$TMP/empty")"
@@ -91,7 +72,6 @@ check "two handoffs: newest first" "beta alpha" "$(printf '%s' "$OUT" | grep '^-
 check "two handoffs: body is not injected" 0 "$(printf '%s' "$OUT" | grep -c 'secret body')"
 check "two handoffs: asks for /pickup <name> in the list note" 1 "$(printf '%s' "$OUT" | grep -c '^.harness. 複数の handoff がある。/pickup <name>')"
 check "two handoffs: closing prompt uses /pickup <name>" 1 "$(printf '%s' "$OUT" | grep -c '作業を始める前に /pickup <name> の手順')"
-check "two handoffs: still lists specs" 2 "$(printf '%s' "$OUT" | grep -c '^- #9[23] spec: ')"
 check "two handoffs: resume is silent" "" "$(ss resume "$TMP/h2")"
 check "two handoffs: fork is silent" "" "$(ss fork "$TMP/h2")"
 

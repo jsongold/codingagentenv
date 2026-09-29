@@ -5,6 +5,7 @@
 - Task は GitHub Issue で管理する。main が `/taskman` の Task を Issue に登録してから `/dispatch` に渡す。Subagent が実装・検証・コミットし、完了の判断は Orchestrator（main）がする。1タスク = 1コミット
 - Issue を閉じる前に、main が Subagent の報告を鵜呑みにせず完了条件（done）のコマンドを自分で再実行して確認し、通ったら `gh issue close <番号> --reason completed` で閉じる
 - `/clear` 前は `/handoff`、`/clear` 後・新セッションの最初は `/pickup`（built-in の `/resume` とは別物）
+- project ごとのルールは harness.json に書く（project の `.claude/harness.json` > `~/.claude/harness.json`。今は tickets だけ：チケット管理の場所（github / jira）と spec の見分け方）。spec は skill が harness.json の tickets を読んで探す（hook は spec を一覧しない）。未設定なら spec を探さない。作るときは `/setupca`
 - キューや代替のタスク管理を自作しない。/clear をまたぐ状態は handoff と Issue に残す
 - この節・skill・hook の正本は codingagentenv リポジトリ。`~/.claude/` 側を直接編集せず、リポジトリを直して `bin/codingenv install` で展開する
 - 出力・インターフェースを推測で断言しない。実行結果 / 型定義 / API仕様など実物で確認する

@@ -15,7 +15,7 @@
 ## 作業の始め方（/clear後も必ず）
 `/pickup` が以下を実行する。
 1. .claude/handoff/<name>.md を読む（進行中タスクの状態。handoff が複数あれば選ぶ）。担当 Issue を `gh issue view` で確認する
-2. 関係する `doc:spec` Issue（`gh issue list --label doc:spec`）を確認する（置き換え済みの決定と却下済みの案を再提案しない）
+2. harness.json の tickets に従って関係する spec（この repo では label `doc:spec` の Issue）を確認する（置き換え済みの決定と却下済みの案を再提案しない）
 3. 着手前に「目的・完了条件・次の一手」を3行で復唱し、ずれがあれば質問する
 
 ## コマンド

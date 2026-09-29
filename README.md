@@ -20,8 +20,9 @@ install が行うこと：
 - `bin/codingenv` を `~/.local/bin/codingenv`（`BIN_DIR` で変更可）へ symlink する
 - `tools/*` を同じ `BIN_DIR` へ同名で symlink する（同名の通常ファイルがあればその tool だけ飛ばす）
 - `skills/*` と `hooks/harness-*.sh` を `~/.claude/skills/`、`~/.claude/hooks/` へ symlink する
+- `global/harness.json` を `~/.claude/harness.json` へ symlink する（同名の通常ファイルがあれば飛ばす）
 - `~/.claude/settings.json` に SessionStart hook を追記する。旧版が入れた TaskCompleted hook と `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` は取り除く（#103）
-  - SessionStart：handoff が1件ならその全文、複数なら一覧を、open な `doc:spec` Issue の一覧とともに文脈に入れる（gh が無い・通信できないときは Issue 一覧を省く）。handoff が無ければ旧 PROGRESS.md を後方互換で読む。handoff も PROGRESS.md も無い project では何もしない
+  - SessionStart：handoff が1件ならその全文、複数なら一覧を文脈に入れる（spec の一覧は出さない。spec は skill が harness.json の tickets を読んで探す）。handoff が無ければ旧 PROGRESS.md を後方互換で読む。handoff も PROGRESS.md も無い project では何もしない
 - `~/.claude/CLAUDE.md` のハーネス節を `global/CLAUDE.harness.md` の内容に置き換える（マーカー区間。他の節は変更しない）
 
 hook の登録と CLAUDE.md の節は、repo を直したあと install を再実行するまで反映されない。symlink の中身（skill と hook script）は即座に全 project に効く。install 後は Claude Code を再起動する。
@@ -29,9 +30,19 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 注意：この repo を移動・削除すると symlink が切れ、全 project で skill と hook が使えなくなる。
 
 ## 各 project が持つもの（すべて任意）
-- `.claude/handoff/<name>.md`、`docs/context/`。設計判断は label `doc:spec` の GitHub Issue に置く。旧 `PROGRESS.md` は後方互換で読む
+- `.claude/handoff/<name>.md`、`docs/context/`。project ごとのルールは `.claude/harness.json` に書く（下記）。旧 `PROGRESS.md` は後方互換で読む
 
 これらが無い状態でも skill は動く。
+
+## harness.json（project ごとのルール）
+project ごとのルールを書く。トップレベルのキーがルールの種類で、今は `tickets`（チケット管理の場所と、その中で spec＝設計判断を見分ける方法）だけ。知らないキーは無視する。優先順位は project の `.claude/harness.json` > global の `~/.claude/harness.json`（既定値。正本は `global/harness.json`）> 未設定。`/setupca` で対話で作れる。
+
+```json
+{"tickets":{"system":"github","spec":{"label":"doc:spec"}}}
+{"tickets":{"system":"jira","project":"BATCH","spec":{"label":"spec"}}}
+```
+
+読むのは skill（pickup・design・handoff）と orchd/wake.md。`system` が無いか `null` なら未設定（spec を探さない）。github なら `spec.label` で spec を探す（`gh issue list --label <tickets.spec.label>`）。github 以外（jira など）は一覧取得は未対応。形は `/setupca` が書くときに担保する。
 
 ## この repo のファイル
 
@@ -48,8 +59,10 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 | skills/dispatch/SKILL.md | 次の Agent（Subagent）を呼ぶ手順 | `/dispatch` で呼ぶ | 固定 |
 | skills/handoff/SKILL.md | /clear前に自分の handoff を書き出す手順 | `/handoff` で呼ぶ | 固定 |
 | skills/pickup/SKILL.md | /clear後に読み直して理解を復唱する手順 | `/pickup` で呼ぶ | 固定 |
+| skills/setupca/SKILL.md | project のルールを対話で決めて harness.json を作る手順 | `/setupca` で呼ぶ | 固定 |
 | hooks/harness-session-start.sh | handoff（複数なら一覧）を文脈に入れる | SessionStart hook | 固定 |
 | global/CLAUDE.harness.md | `~/.claude/CLAUDE.md` のハーネス節の正本 | `bin/codingenv install` で展開 | 随時 |
+| global/harness.json | `~/.claude/harness.json`（ルールの既定値）の正本 | `bin/codingenv install` で展開 | 随時 |
 | bin/codingenv | global への展開・drift 検出・取り外し | 手で実行 | 固定 |
 | tools/codex-localreview | Codex CLI でローカルレビューして PR にコメント（bot の quota 切れ時） | `codex-localreview <pr> <worktree>` | 固定 |
 | tools/codex-probe | Codex の復帰を待ち、キュー（`<pr> <worktree>` 行）を順にローカルレビュー | バックグラウンドで実行 | 固定 |
