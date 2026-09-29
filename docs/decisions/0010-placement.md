@@ -19,7 +19,7 @@ ADR-0008 / 0009 は「provider の固定一覧（`policy.providers.allowed`）�
   - aienv の shim は `CLAUDE_CODE_OAUTH_TOKEN` を unset する。よって ADR-0009 の「Worker は token 固定で認証」は成り立たない。Worker は `CLAUDE_CONFIG_DIR` 型の store を使うか、shim を通らずに `claude` を起動する（どちらにするかは実装 PR で決める）。
 - **配置は 2 段の分類問題**。段 1（task 文 → class）は Orchestrator（LLM）。段 2（(class, メタデータ) → (Agent, Computer)）は policy の `rules`（データとして持つ順序付きの決定リスト）を評価する決定的なコード。task ごとには判断しない。v0.0.1 で strategy/cost 方式（`classAgents`・`agentPriority`・strategy・cost・coldStart・preemptible・local-first の特例）を置き換えた。`policy.computers` の属性は記録として残すが place は使わない。
 - 追記（2026-09-28）：orchd は place に加えて pick（Issue を取る）と dispatch（place の runner に渡す）も持つ（ADR-0011 追記）。判断（class の分類）が Orchestrator だけにあることは変わらない。runner の `cloud` は `claude -p <prompt> --cloud <session>` で NS の cloud worker session に送る
-- **place の置き場所は ADR-0011 で `cad` から `orchd`（`orchd place --class <c> [--self ..] [--ns ..]`、exit 0 / 3 = 409 / 4 = 422 / 2 = 400）に移した**。以下の `POST /v1/place` は移す前の記述で、判定の中身は同じ。当初は **`cad` のエンドポイント `POST /v1/place?ns=<ns>` として実装した**。入力は `{"class": ..., "self"?: "<service>/<account>"}`（`policy.classes` に無い・空の class、形式違いの self は 400。他のフィールドは無視）。task の状態を持たない純関数（ADR-0002 / 0008 と整合）。同じ spec と同じ `cad` の値なら同じ答え。`ns` は必須で、無ければ 400（Issue #10）。
+- **place の置き場所は ADR-0011 で `cad` から `orchd`（`orchd place --class <c> [--self ..] [--ns ..]`、exit 0 / 3 = 409 / 4 = 422 / 2 = 400）に移した**。以下の `POST /v1/place` は移す前の記述で、判定の中身は同じ。当初は **`cad` のエンドポイント `POST /v1/place?ns=<ns>` として実装した**。入力は `{"class": ..., "self"?: "<service>/<account>"}`（`policy.classes` に無い・空の class、形式違いの self は 400。他のフィールドは無視）。task の状態を持たない純関数（ADR-0008 と整合）。同じ spec と同じ `cad` の値なら同じ答え。`ns` は必須で、無ければ 400（Issue #10）。
   - `200 {agent, computer, rule, reason[], runner}`：採用した組、採用した rule の番号、落とした候補の理由、Agent のサービスの起動方法（`policy.runners`）
   - `409 {defer_until, reason}`：使用枠の窓だけで塞がった rule があり今は置けない。`cad` は待たない・キューを持たない。Orchestrator は Task を pending のまま `DEFER:` を説明欄に書き、後で再 dispatch する
   - `422 {reason}`：条件を満たす組が無い（起動しない）
@@ -43,7 +43,7 @@ ADR-0008 / 0009 は「provider の固定一覧（`policy.providers.allowed`）�
 - **client は `cad get meta -ns <ns>`**（`cad get <topic> -ns <ns>`）。実行中の `cad` の `GET /v1/meta?ns=`（`/v1/<topic>?ns=`）を 2 秒 timeout で1回叩いて JSON を出すだけ。`-ns` が無ければ exit 2（通信しない）、daemon に届かなければ exit 1。サーバ側も `GET /v1/meta`・`/v1/<topic>` は `ns`（`^[a-z0-9-]+$`）必須で、無ければ 400（`/healthz`・`/v1/events` は対象外）。
 - local の slots は `CAD_SLOTS=5`（policy `maxSlots` 5）の固定上限。稼働中の ws は数えない。メモリの取り合いは macOS に任せる。1 slot = 1 ws（Claude Code セッション1つとその Subagent）。
 - **同時実行**：2つの place が同時に来ると同じ空きを二重に数えうる。lease（関門）は実害が出るまで入れない。
-- **Orchestrator は Claude Code のまま**（Task list と `VERIFIED:` の hook が強制できるのはここだけ、ADR-0002 / 0004）。Codex・opencode・Gemini などは Worker またはレビュアーとして使う。
+- **Orchestrator は Claude Code のまま**。Codex・opencode・Gemini などは Worker またはレビュアーとして使う。
 
 ## 設定はファイル（.agent/policy.json → 各 app のディレクトリ）
 > 追記（2026-09-28, owner 決定）：共有の `.agent/policy.json` は廃止。各 app が自分のディレクトリに設定と状態を持つ。orchd = `orchd/policy.json`（rules・modes・classes・runners・placement、パターン展開用に agents と computer 名の写し）・状態 `orchd/state/`。cad = `cad/config.json`（agents・computers・collect・gate・review・providers）・`cad/config/namespaces.json`（gitignore、例は `namespaces.example.json`）。場所は CWD に依存せず `<APP>_HOME` > 実行ファイルの 1 つ上（`<app>/bin/..`）> CWD で決める。mode ごとに `cadAddr` を持てる（urgent = local の cad、auto = VM の cad）。以下の `.agent/policy.json` は当時の記述。
@@ -87,7 +87,6 @@ aienv を別 repo のまま使うか、この repo に取り込むかは却下�
 - 更新が要る ADR：
   - ADR-0008：`policy.providers.allowed` → Agent × Computer（`pol.computers`）+ `rules` に置き換える。`cad` の API に `POST /v1/place`（書き込み系の2つ目）と `ns` 必須を足す。capacity.go のメモリ式の slots は後で削除（この ADR では実装しない follow-up）
   - ADR-0009：Worker の認証（token 固定 → aienv の store）。spec に `class`・`acceptance`・`permissions`・`constraints.no_prod_write` を足す。provider の選択を `dev-dispatch` から `cad` の place へ移す（`dev-dispatch` は結果を適用するだけ）。spec の placement（strategy 等）は place では使わない
-  - ADR-0002：task の入口を GitHub Issue にする（Issue #10）。内蔵 Task list は Orchestrator セッション内の実行管理
 
 ## 未決
 - aienv のコマンド名（`codingenv aienv` か `caenv` か）と、aienv をこの repo に取り込むか。
@@ -99,4 +98,3 @@ aienv を別 repo のまま使うか、この repo に取り込むかは却下�
 - 同時 place の二重計上で実害（Worker の起動失敗、Mac の詰まり）が出たとき → lease を入れる
 - class の付け替え・再 dispatch が頻発するとき → class の定義か `rules` を見直す
 - 実行記録が溜まり、`est[class]` や rules を実測で決められるようになったとき
-- Orchestrator の強制（Task list・hook）が Claude Code 以外でもできるようになったとき

@@ -1,7 +1,7 @@
 # ADR-0002: タスク管理は Claude Code 内蔵の Task list、main セッションが dispatcher
 
 - 日付：2026-09-20
-- 状態：採用（ADR-0001 を置き換え）
+- 状態：置き換え（→0016）
 
 ## 文脈
 「全タスクを task queue 経由で Subagent に実行させる」の task queue は、Claude Code 内蔵の Task list（`TaskCreate` / `TaskGet` / `TaskList` / `TaskUpdate`）を指していた。ADR-0001 はこれを自作物と誤解して `bin/tq` を作った。

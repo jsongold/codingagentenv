@@ -4,7 +4,7 @@
 - 状態：採用
 
 ## 文脈
-並行セッションが同じ PROGRESS.md を上書きし合う。一方、Task list は project 単位（`CLAUDE_CODE_TASK_LIST_ID`）で全セッションが共有する。handoff だけが1本なので、あるセッションの /handoff が別セッションの文脈を消す。
+並行セッションが同じ PROGRESS.md を上書きし合う。handoff が1本なので、あるセッションの /handoff が別セッションの文脈を消す。
 
 hook が自動で「自分の」handoff を特定することもできない。`/clear` で `session_id` が変わるため、clear 前後のセッションを id で結び付けられない。
 
@@ -14,7 +14,7 @@ hook が自動で「自分の」handoff を特定することもできない。`
 - SessionStart hook は、有効な handoff（未記入テンプレートでないもの）が2件以上なら一覧（名前・最終更新・目的1行）だけを注入し、1件ならその全文（`head -n 60`）を注入する。0件で旧 PROGRESS.md があれば従来どおり注入する。他 project を壊さない後方互換で、ADR-0003 の「skill はファイルが無い状態でも動く」と整合する。
 - どれが「自分の」handoff かは hook では決めない。一覧を出してユーザーが選ぶ。
 - `/handoff` は自分の handoff ファイルだけをコミットする。他セッションの未コミット変更は巻き込まない。
-- Task list は共有のまま。handoff の「現在の状態」に、そのセッションが担当する Task ID を書く。Task list 自体の分離は範囲外。
+- handoff の「現在の状態」に、そのセッションが担当する Issue 番号を書く（Task は GitHub Issue、ADR-0016）。
 - 移行：この repo の PROGRESS.md は `.claude/handoff/default.md` に `git mv` する。他 project は旧 PROGRESS.md をフォールバックで読み、次の /handoff で移行する。
 
 ## 検討して却下した案
@@ -27,5 +27,5 @@ hook が自動で「自分の」handoff を特定することもできない。`
 
 ## 影響
 - 良い影響：並行セッションが互いの handoff を上書きしない。コミットも自分のファイルだけになり、他セッションの変更を巻き込まない。旧 PROGRESS.md だけの project は従来どおり動く
-- 受け入れたトレードオフ：pickup 時にユーザーが名前を選ぶ手間が増える。自動生成の名前の質はモデルの要約次第（変えたいときは `/handoff <name>` で明示する）。Task list は共有のままなので、handoff の Task ID に頼る運用になる
-- 再検討する条件：Task の取り違えが実際に起きたら、Task list 自体の分離を検討する。Claude Code が `/clear` をまたいで安定したセッション識別子を提供するようになったら、名前の手動選択をやめる
+- 受け入れたトレードオフ：pickup 時にユーザーが名前を選ぶ手間が増える。自動生成の名前の質はモデルの要約次第（変えたいときは `/handoff <name>` で明示する）。担当の区別は handoff の Issue 番号に頼る
+- 再検討する条件：Claude Code が `/clear` をまたいで安定したセッション識別子を提供するようになったら、名前の手動選択をやめる

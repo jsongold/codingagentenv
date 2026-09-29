@@ -1,7 +1,7 @@
 # ADR-0006: task 完了時にトークン消費を hook で集計・記録する
 
 - 日付：2026-09-20
-- 状態：採用
+- 状態：置き換え（→0016）
 
 ## 文脈
 task 単位でどれだけトークンを使ったか（main / subagent、model別）を後から分析したい。既存の `hooks/harness-task-completed.sh`（ADR-0004）は TaskCompleted で発火し、`transcript_path`（main セッションの JSONL）を受け取れる（docs/context/token-saving-spec.md #4 で原文確認済み）。
