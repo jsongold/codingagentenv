@@ -155,7 +155,6 @@ func TestPlaceCmd(t *testing.T) {
 		want int
 	}{
 		{[]string{"place", "--class", "nope"}, 2},
-		{[]string{"place"}, 2},
 		{[]string{"place", "--class", "light-edit", "--self", "Claude"}, 2},
 		{[]string{"place", "--class", "light-edit", "--ns", "Bad!"}, 2},
 		{[]string{"place", "--class", "light-edit", "--ns", "other"}, 1}, // cad answers 400
@@ -174,7 +173,7 @@ func TestPlaceCmd(t *testing.T) {
 		u[a] = AgentUsage{FiveHour: soon}
 	}
 	fakeCad(t, u, 2)
-	if out, code := runCmd("place", "--class", "light-edit", "--self", "claude/a12e00a7"); code != 3 || !strings.Contains(out, `"defer_until"`) {
+	if out, code := runCmd("place", "--class", "light-edit", "--self", "claude/a12e00a7"); code != 0 || !strings.Contains(out, `"defer_until"`) || !strings.Contains(out, `"rule": -1`) || !strings.Contains(out, `"runner": {}`) {
 		t.Errorf("defer: %d %s", code, out)
 	}
 	fakeCad(t, seedUsage(), 0)
@@ -184,7 +183,7 @@ func TestPlaceCmd(t *testing.T) {
 	if out, code := runCmd("place", "--class", "light-edit", "--exclude", "gce-spot"); code != 0 || !strings.Contains(out, `"computer": "gce-std"`) || !strings.Contains(out, "computer gce-spot excluded") {
 		t.Errorf("exclude gce-spot -> gce-std: %d %s", code, out)
 	}
-	if out, code := runCmd("place", "--class", "light-edit", "--exclude", "gce-spot,gce-std"); code != 4 || !strings.Contains(out, "no local slot") {
+	if out, code := runCmd("place", "--class", "light-edit", "--exclude", "gce-spot,gce-std"); code != 0 || !strings.Contains(out, "no local slot") || !strings.Contains(out, `"rule": -1`) || !strings.Contains(out, `"runner": {}`) {
 		t.Errorf("no slot: %d %s", code, out)
 	}
 	fakeCad(t, nil, 2) // usage not collected yet: agents are "usage unknown" and still placed
@@ -232,8 +231,9 @@ func TestPolicyFile(t *testing.T) {
 	}
 	for body, want := range map[string]string{
 		`{"agents":[]}`: `no "classes"`,
-		`{"classes":{"x":{}},"runners":{"opencode":{"mode":"process"}}}`: "process needs cmd",
-		`{"classes":{"x":{}},"placement":{"staleUsage":"maybe"}}`:        "want pass or block",
+		`{"classes":{"x":{}},"runners":{"opencode":{"mode":"process"}}}`:                                             "process needs cmd",
+		`{"classes":{"x":{}},"placement":{"staleUsage":"maybe"}}`:                                                    "want pass or block",
+		`{"classes":{"x":{}},"runners":{"opencode@gce-spot":{"mode":"vm","instance":"w","zone":"z","project":"p"}}}`: "vm needs instance, zone, project, image and model",
 	} {
 		os.WriteFile(f, []byte(body), 0o644)
 		if out, code := runCmd("show"); code != 1 || !strings.Contains(out, want) {

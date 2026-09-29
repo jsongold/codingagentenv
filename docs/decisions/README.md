@@ -15,6 +15,7 @@
 | [0012](./0012-singleton-handover.md) | 状態を持つ singleton の引き継ぎは性質で決める。cad は stop-first + usage 保存 + ready 待ち、二重に振り分けてはいけないものは durable execution に載せる | 採用 | 2026-09-28 |
 | [0013](./0013-opencode-worker-vm.md) | opencode の cloud worker は停止した GCE VM 2 台（Spot / standard）を on demand で start し、終わったら VM が自分で止まる。選択は orchd の rule 順、起動できなければ exit 5 で置き直す | 採用 | 2026-09-28 |
 | [0014](./0014-sleep-loop.md) | 起きている間は手元の Orchestrator が orchd を呼び、sleep 中は cad-2 の timer が `orchd tick` を回す（CC cloud worker 優先、無ければ停止 VM の opencode）。sleep 中に LLM の Orchestrator は置かない | 採用 | 2026-09-28 |
+| [0015](./0015-sleep-advance.md) | sleep 中は CCO（CC cloud worker セッション）がプロジェクトの文脈から次にやることを判断して進め、merge まで行う。cad-2 の timer（orchd）は起こすだけ。ai 系ラベルは廃止（ADR-0014 の一部を置き換え） | 採用 | 2026-09-28 |
 
 新しい ADR を追加するには、0000-template.md をコピーして次の番号のファイルを作り、上の表に1行追加する。
 

@@ -14,7 +14,7 @@ import (
 type PlaceSpec struct {
 	Class   string   `json:"class"`
 	Self    string   `json:"self,omitempty"`    // the Orchestrator's own agent, matched by rule agent "self"
-	Exclude []string `json:"exclude,omitempty"` // computers to skip (dispatch said "computer unavailable", exit 5)
+	Exclude []string `json:"exclude,omitempty"` // computers to skip (e.g. one that could not start)
 }
 
 type Placement struct {
@@ -23,6 +23,21 @@ type Placement struct {
 	Rule     int      `json:"rule"`
 	Reason   []string `json:"reason"`
 	Runner   *Runner  `json:"runner,omitempty"` // policy.runners[service of Agent]
+}
+
+// PlaceOutput is what `orchd place` prints on every outcome (placed, deferred, no rule fits, cad not
+// ready): all keys always present so callers branch on runner (== Runner{} when nothing was placed)
+// instead of on exit code. One struct, so the shape can't drift between outcomes.
+type PlaceOutput struct {
+	Agent      string   `json:"agent"`
+	Computer   string   `json:"computer"`
+	Rule       int      `json:"rule"` // -1 when nothing was placed
+	Mode       string   `json:"mode"`
+	ModeSource string   `json:"modeSource"`
+	CadAddr    string   `json:"cadAddr"`
+	Runner     Runner   `json:"runner"`      // Runner{} when nothing was placed
+	Reason     []string `json:"reason"`      // [] when none
+	DeferUntil string   `json:"defer_until"` // RFC3339, "" when none
 }
 
 // place evaluates policy.rules top to bottom; the first rule with a usable agent wins (ADR-0010).
