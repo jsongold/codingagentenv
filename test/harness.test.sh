@@ -24,7 +24,10 @@ harness() { CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" bash "$ROOT/bin/codingenv" "$@
 # harness section written by hand before markers existed.
 FAKE="$TMP/claude"
 mkdir -p "$FAKE/skills/mine"
-echo '{"model":"x","env":{"KEEP":"1"},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"existing"}]}]}}' >"$FAKE/settings.json"
+# It also carries what an older install registered (#103 retired them).
+mkdir -p "$FAKE/hooks"
+ln -s "$ROOT/hooks/harness-task-completed.sh" "$FAKE/hooks/harness-task-completed.sh"
+echo '{"model":"x","env":{"KEEP":"1","CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"existing"}]}],"TaskCompleted":[{"hooks":[{"type":"command","command":"bash \"$HOME/.claude/hooks/harness-task-completed.sh\"","timeout":10}]},{"hooks":[{"type":"command","command":"mine"}]},{"hooks":[{"type":"command","command":"bash \"$HOME/.claude/hooks/harness-task-completed.sh\""},{"type":"command","command":"keep-me"}]}]}}' >"$FAKE/settings.json"
 printf '# Rules\n\n## 行動ルール\n- a\n\n## ハーネス（全プロジェクト共通）\n\n- stale line\n\n## レスポンススタイル\n- b\n' >"$FAKE/CLAUDE.md"
 
 harness status >/dev/null 2>&1
@@ -41,11 +44,12 @@ check "linked command finds the repo" 0 $?
 check "tools are linked" "$ROOT/tools/codex-probe" "$(readlink "$TMP/bin/codex-probe")"
 check "skills are symlinked" "$ROOT/skills/dispatch" "$(readlink "$FAKE/skills/dispatch")"
 check "other skills are untouched" yes "$([ -d "$FAKE/skills/mine" ] && echo yes)"
-check "hook scripts are symlinked" "$ROOT/hooks/harness-task-completed.sh" "$(readlink "$FAKE/hooks/harness-task-completed.sh")"
+check "hook scripts are symlinked" "$ROOT/hooks/harness-session-start.sh" "$(readlink "$FAKE/hooks/harness-session-start.sh")"
+check "retired hook link is removed" no "$([ -L "$FAKE/hooks/harness-task-completed.sh" ] && echo yes || echo no)"
 check "existing hooks are kept" existing "$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$FAKE/settings.json")"
 check "SessionStart registered once" 2 "$(jq '.hooks.SessionStart | length' "$FAKE/settings.json")"
-check "TaskCompleted registered once" 1 "$(jq '.hooks.TaskCompleted | length' "$FAKE/settings.json")"
-check "env is set" 1 "$(jq -r '.env.CLAUDE_CODE_ENABLE_TODO_TOOLS' "$FAKE/settings.json")"
+check "retired TaskCompleted entry is unregistered" '[{"hooks":[{"type":"command","command":"mine"}]},{"hooks":[{"type":"command","command":"keep-me"}]}]' "$(jq -c '.hooks.TaskCompleted' "$FAKE/settings.json")"
+check "retired env is removed" null "$(jq -r '.env.CLAUDE_CODE_ENABLE_TODO_TOOLS' "$FAKE/settings.json")"
 check "other env is kept" 1 "$(jq -r '.env.KEEP' "$FAKE/settings.json")"
 check "unrelated keys are kept" x "$(jq -r '.model' "$FAKE/settings.json")"
 check "hand-written section is replaced" 0 "$(grep -c 'stale line' "$FAKE/CLAUDE.md")"
@@ -53,6 +57,19 @@ check "section appears once" 1 "$(grep -c '^## ハーネス' "$FAKE/CLAUDE.md")"
 check "section comes from the repo" 1 "$(grep -c 'bin/codingenv install' "$FAKE/CLAUDE.md")"
 check "other sections are kept" 2 "$(grep -c -e '^- a$' -e '^- b$' "$FAKE/CLAUDE.md")"
 check "backups are written" yes "$(ls "$FAKE" | grep -q 'settings.json.bak-.*-harness' && echo yes)"
+
+# status reports leftovers of the retired TaskCompleted hook as drift.
+cp "$FAKE/settings.json" "$TMP/settings.clean"
+jq '.hooks.TaskCompleted += [{hooks: [{type: "command", command: "bash \"$HOME/.claude/hooks/harness-task-completed.sh\""}]}]' "$TMP/settings.clean" >"$FAKE/settings.json"
+harness status >/dev/null 2>&1
+check "status detects a retired hook registration" 1 $?
+cp "$TMP/settings.clean" "$FAKE/settings.json"
+ln -s "$ROOT/hooks/harness-task-completed.sh" "$FAKE/hooks/harness-task-completed.sh"
+harness status >/dev/null 2>&1
+check "status detects a retired hook link" 1 $?
+rm "$FAKE/hooks/harness-task-completed.sh"
+harness status >/dev/null
+check "status passes once leftovers are gone" 0 $?
 
 sed -i.orig 's/^- 1ファイル.*$/- edited by hand/' "$FAKE/CLAUDE.md"
 harness status >/dev/null 2>&1
@@ -67,7 +84,7 @@ check "uninstall removes skill links" no "$([ -e "$FAKE/skills/dispatch" ] && ec
 check "uninstall removes hook links" no "$([ -e "$FAKE/hooks/harness-session-start.sh" ] && echo yes || echo no)"
 check "uninstall keeps existing hooks" existing "$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$FAKE/settings.json")"
 check "uninstall drops its SessionStart group" 1 "$(jq '.hooks.SessionStart | length' "$FAKE/settings.json")"
-check "uninstall drops the empty event" null "$(jq '.hooks.TaskCompleted' "$FAKE/settings.json")"
+check "uninstall keeps others' TaskCompleted" 2 "$(jq '.hooks.TaskCompleted | length' "$FAKE/settings.json")"
 check "uninstall drops its env only" '{"KEEP":"1"}' "$(jq -c '.env' "$FAKE/settings.json")"
 check "uninstall removes the section" 0 "$(grep -c '^## ハーネス' "$FAKE/CLAUDE.md")"
 check "uninstall keeps other sections" 2 "$(grep -c -e '^- a$' -e '^- b$' "$FAKE/CLAUDE.md")"
@@ -77,6 +94,16 @@ FAKE="$TMP/fresh"
 harness install >/dev/null
 harness status >/dev/null
 check "install works on an empty directory" 0 $?
+check "fresh install registers no TaskCompleted" null "$(jq '.hooks.TaskCompleted' "$FAKE/settings.json")"
+check "fresh install adds no env" null "$(jq '.env' "$FAKE/settings.json")"
+
+# uninstall still unlinks hook scripts when settings.json is gone.
+rm "$FAKE/settings.json"
+ln -s "$ROOT/hooks/harness-task-completed.sh" "$FAKE/hooks/harness-task-completed.sh"
+harness uninstall >/dev/null
+check "uninstall without settings unlinks hooks" no "$([ -e "$FAKE/hooks/harness-session-start.sh" ] && echo yes || echo no)"
+check "uninstall without settings unlinks retired hooks" no "$([ -L "$FAKE/hooks/harness-task-completed.sh" ] && echo yes || echo no)"
+check "uninstall without settings creates none" no "$([ -e "$FAKE/settings.json" ] && echo yes || echo no)"
 
 # An unrelated file already named harness must not be overwritten.
 FAKE="$TMP/blocked"

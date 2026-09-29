@@ -1,8 +1,8 @@
-# Task spec の例（ADR-0009）。実物は Orchestrator が dispatch 時に .claude/task-specs/<id>.yaml へ生成し、コミットしない。
+# Task spec の例（#96）。実物は Orchestrator が dispatch 時に .claude/task-specs/<id>.yaml へ生成し、コミットしない。
 # ChangeGraph node c4（.claude/changegraph/dev-env-upgrade.yaml）を Worker に渡す場合。
-version: 1
+version: 2                      # v2: taskId（内蔵 Task list の id）を issue（GitHub Issue 番号）に置き換え
 id: dev-env-upgrade-c4          # <changegraph 名>-<node id>。branch・worker labels にも使う
-taskId: "12"                    # 内蔵 Task list の id（1:1）。状態は Task list だけが持つ
+issue: 12                       # Task の GitHub Issue 番号（1:1）。状態は Issue が持つ
 repo: git@github.com:jsongold/codingagentenv.git
 base: origin/main
 branch: feat/cad-workers
@@ -11,14 +11,14 @@ goal: >-
   agent/providers/<name>/list を定期実行（pull）し、結果を /v1/workers と SSE topic workers に出す。
   Mac は Worker からの inbound を受けない。
 context:
-  - docs/decisions/0008-orchestrator-worker-cad.md   # Worker スキーマ、pull 方式
-  - docs/decisions/0009-task-spec-orchestration.md   # provider list の出力形式
+  - "#95"   # Worker スキーマ、pull 方式
+  - "#96"   # provider list の出力形式
   - cad/capacity.go                                  # 既存 collector の書き方に合わせる
 files:                          # 触ってよいファイル（ChangeGraph の files と同じ）
   - cad/workers.go
   - cad/workers_test.go
   - agent/providers/fake/list
-done:                           # Worker が PR 前に、Orchestrator が VERIFIED 前に、それぞれ実行する
+done:                           # Worker が PR 前に、Orchestrator が完了判断の前に、それぞれ実行する
   - (cd cad && go vet ./... && go test -count=1 ./...)
 resources:
   memoryMB: 2048

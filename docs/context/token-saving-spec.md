@@ -1,7 +1,7 @@
 # トークン削減実装のための仕様確定（原文引用）
 
 確認日: 2026-09-20
-方法: `curl -sL https://code.claude.com/docs/en/<page>.md` で markdown 原文を取得し grep で該当箇所を確認（WebFetch の要約は使わない。ADR-0004参照）。
+方法: `curl -sL https://code.claude.com/docs/en/<page>.md` で markdown 原文を取得し grep で該当箇所を確認（WebFetch の要約は使わない）。
 
 ---
 
@@ -90,7 +90,7 @@
 
 ---
 
-## 4. TaskCompleted / SubagentStop の入力 JSON フィールド
+## 4. SubagentStop の入力 JSON フィールド
 
 ### SubagentStop
 
@@ -104,25 +104,6 @@
 > In addition to the common input fields, SubagentStop hooks receive `stop_hook_active`, `agent_id`, `agent_type`, `agent_transcript_path`, and `last_assistant_message`. The `agent_type` field is the value used for matcher filtering. The `transcript_path` is the main session's transcript, while `agent_transcript_path` is the subagent's own transcript stored in a nested `subagents/` folder. The `last_assistant_message` field contains the text content of the subagent's final response, so hooks can access it without parsing the transcript file.
 
 サンプルJSON中の該当キー: `"agent_id": "def456"`, `"agent_type": "Explore"`, `"agent_transcript_path": "~/.claude/projects/.../abc123/subagents/agent-def456.jsonl"`。
-
-### TaskCompleted
-
-**結論**: task を識別するフィールドは `task_id` と `task_subject`（+ 任意で `task_description`, `teammate_name`, `team_name`）。subagent transcript を指すフィールドは無し。
-
-**フィールド**: common input fields に加えて `task_id`, `task_subject`, 任意で `task_description`, `teammate_name`, `team_name`（`team_name` は deprecated）。
-
-**docs URL**: https://code.claude.com/docs/en/hooks.md#taskcompleted
-
-**原文引用**:
-> In addition to the common input fields, TaskCompleted hooks receive `task_id`, `task_subject`, and optionally `task_description`, `teammate_name`, and `team_name`.
-
-| Field | Description |
-|---|---|
-| `task_id` | Identifier of the task being completed |
-| `task_subject` | Title of the task |
-| `task_description` | Detailed description of the task. May be absent |
-| `teammate_name` | Name of the teammate completing the task. May be absent |
-| `team_name` | Deprecated. Session-derived team name; will be removed in a future release |
 
 ---
 

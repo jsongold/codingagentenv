@@ -14,7 +14,7 @@
       { "agent": "opencode/*", "computer": "gce-spot" }, { "agent": "opencode/*", "computer": "gce-std" }
     ] },
     "sleep": { "rules": [
-      { "agent": "claude/*", "computer": "claude-cloud" },
+      { "agent": "claude/a12e00a7", "computer": "claude-cloud" },
       { "agent": "opencode/*", "computer": "gce-spot" }, { "agent": "opencode/*", "computer": "gce-std" }
     ] }
   },

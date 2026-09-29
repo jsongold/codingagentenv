@@ -23,7 +23,7 @@ type Worker struct {
 	StartedAt  time.Time         `json:"startedAt"`
 	LastSeenAt time.Time         `json:"lastSeenAt"`
 	Labels     map[string]string `json:"labels,omitempty"`
-	// ExitCode is set by a provider once a worker has finished (ADR-0009);
+	// ExitCode is set by a provider once a worker has finished (#96);
 	// omitted for still-running workers.
 	ExitCode *int `json:"exitCode,omitempty"`
 }
@@ -48,7 +48,7 @@ func (l WorkerList) changeKey() interface{} {
 }
 
 const (
-	workerPollInterval  = 10 * time.Second // ADR-0008: cad pulls worker state from providers
+	workerPollInterval  = 10 * time.Second // #95: cad pulls worker state from providers
 	workerListTimeout   = 5 * time.Second
 	workerKillGrace     = 2 * time.Second // extra time to force-close pipes if a grandchild still holds them
 	workerFailThreshold = 3               // consecutive failures before a provider's workers flip to "unknown"

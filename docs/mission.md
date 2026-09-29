@@ -17,7 +17,7 @@
 ## 最適化するもの
 1. **コスト**: 定額の枠（サブスク）と無料の資源（ローカル Mac）を先に使い切り、従量課金の資源は必要なときだけ使う。
 2. **稼働率**: 計算資源と使用枠を遊ばせない。空いている枠があるのに task が待っている状態をなくす。
-3. **検証できること**: 振り分けは決定的なルールで行い、結果と理由を記録する。LLM の判断は task の分類に限る（ADR-0010）。
+3. **検証できること**: 振り分けは決定的なルールで行い、結果と理由を記録する。LLM の判断は task の分類に限る（#97）。
 
 ## 詰め合わせの中身
 | ツール | 役割 |
@@ -25,7 +25,7 @@
 | ハーネス（skills / hooks / `bin/codingenv`） | Claude Code を Orchestrator として動かす規則と、/clear をまたぐ文脈の保持 |
 | cad | 事実を集めて配信する（Agent の使用量、Computer の料金など） |
 | orchd | 次の task の実行先を決める |
-| Hatchet | task の永続的な状態、キュー、worker の管理（ADR-0011） |
+| Hatchet | task の永続的な状態、キュー、worker の管理（#98） |
 | worker | Agent の CLI を実行し、PR を出す |
 | GitHub | task の入口（Issue）と、結果の検証（PR と CI） |
 
@@ -36,4 +36,4 @@
 - **サブスクをクラウドで使えるか**: 各サービスの規約と認証方式が、クラウドの worker での利用を許すか。
 - **セキュリティ**: クラウドに置く認証情報、public repo、main の保護、prompt injection。
 
-関連: [ADR-0008](decisions/0008-orchestrator-worker-cad.md) / [ADR-0010](decisions/0010-placement.md) / [ADR-0011](decisions/0011-orchd-hatchet.md)
+関連: [#95](https://github.com/jsongold/codingagentenv/issues/95) / [#97](https://github.com/jsongold/codingagentenv/issues/97) / [#98](https://github.com/jsongold/codingagentenv/issues/98)

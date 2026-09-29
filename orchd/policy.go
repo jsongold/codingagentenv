@@ -65,7 +65,7 @@ func loadPolicy() (Policy, error) {
 		err = json.Unmarshal(b, &p)
 	}
 	if err == nil && len(p.Classes) == 0 {
-		err = errors.New(`no "classes" (want classes{name:{criteria,estPct}} — see ADR-0010)`)
+		err = errors.New(`no "classes" (want classes{name:{criteria,estPct}} — see #97)`)
 	}
 	if s := p.Placement.StaleUsage; err == nil && s != "" && s != "pass" && s != "block" {
 		err = fmt.Errorf("placement.staleUsage %q: want pass or block", s)

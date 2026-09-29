@@ -1,7 +1,4 @@
 {
-  "env": {
-    "CLAUDE_CODE_TASK_LIST_ID": "codingagentenv"
-  },
   "enabledPlugins": {
     "slack@claude-plugins-official": false,
     "frontend-design@claude-plugins-official": false
