@@ -114,7 +114,7 @@ Description=Check for new secrets and a new cad image every 5 minutes
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=5min
+OnCalendar=*:00/5
 
 [Install]
 WantedBy=timers.target
@@ -148,8 +148,8 @@ cat >/etc/systemd/system/orchd-sleep.timer <<UNIT
 Description=Run orchd place --mode sleep | orchd dispatch every 5 minutes while started (sleep loop, ADR-0015)
 
 [Timer]
-OnBootSec=3min
-OnUnitActiveSec=5min
+# 3 min after cad-update (*:00/5, ~1.5 min per run) so ExecCondition does not skip every run
+OnCalendar=*:03/5
 
 [Install]
 WantedBy=timers.target
