@@ -1,39 +1,28 @@
 ---
 name: dispatch
-description: 作業を Task list に分解し、1タスクずつ Subagent に実行させて結果で状態を更新する。複数ステップの実装・調査の依頼を受けたら、自分で手を動かす前に使う。1ファイルの小さな修正や質問への回答には使わない（main が直接やる）。
-argument-hint: "[やりたいこと]"
+description: Task を受け取り、次の Agent（Subagent）を呼ぶ。何も記録しない。Issue・worktree・wave の進行・handoff は main loop（Orchestrator）の仕事。分解・設計・実装もしない。
+argument-hint: "[Task | 依頼]"
 ---
 
-# dispatch — Task list 経由で Subagent に実行させる
+# dispatch — 次の Agent を呼ぶ
 
-main セッションは dispatcher。自分では実装しない。理由：background Subagent は Task tools を持たず、自己申告の completed は検証を素通りする。
-対象は複数ステップの実装・調査だけ。1ファイルの小さな修正と質問への回答は、dispatch せず main が直接やる。
+責任は次の Agent を呼ぶことだけ。何も記録しない。
 
-## 前提チェック
-- `TaskCreate` / `TaskList` / `TaskUpdate` / `TaskGet` が使えること。`~/.claude/settings.json` の `env` に `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` がある前提。
-  使えなければ止まって、その設定と再起動をユーザーに依頼する。代替のキューを自作しない。
-- プロジェクトの `.claude/settings.json` の `env.CLAUDE_CODE_TASK_LIST_ID` が設定されていること。無ければ先に `/pickup` を実行するようユーザーに伝える。
-  未設定だと Task list はセッション単位になり、`/clear` をまたいで残らない。
+- Input：Task（`/taskman` の出力）、またはロジックを含まない依頼
+- Output：Subagent の呼び出し
 
 ## 手順
-1. `TaskList` で既存タスクを確認する。前セッションの in progress が残っていれば、成果物（git log / diff）を見て completed か pending に戻す。
-2. 依頼（$ARGUMENTS）をタスクに分解して `TaskCreate` する。1タスク = 1コミットで完結する大きさ。順序があるものは依存を設定する。
-3. 未ブロックの pending を選び、`TaskUpdate` で in progress にしてから Subagent を起動する。
-   - Subagent は文脈ゼロで始まる。プロンプトに必ず入れる：目的、完了条件（実行できるコマンド）、触ってよいファイル、触ってはいけないもの、関係する ADR（あれば）、報告形式。
-   - 報告形式は定型で指定する（報告は main のコンテキストに残り続ける）。15行以内で、変更ファイル / 実行した検証コマンドと結果（pass・fail と要点1行）/ 指示と違えた点 / 未解決事項 だけ。
-     ログ・diff・ファイル本文を貼らせない。コマンド出力は `tail` や `grep` で絞らせる。調査タスクは結論と根拠のパスだけ返させ、詳細は成果物ファイルに書かせる。
-   - 同じファイルを触るタスクは並列にしない。独立したタスクだけ1メッセージで同時起動する。
-   - Agent 呼び出しごとに `model` を明示する（呼び出し時の指定が agent 定義や環境変数より優先される）。迷ったら1段上を選ぶ。
+1. Input を受け取る。依頼をそのまま受けたときは、分解せず 1 Task として扱う。
+2. Subagent を呼ぶ。
+   - Subagent は文脈ゼロで始まる。プロンプトに Task の本文をそのまま渡し、関係する ADR（あれば）と報告形式を添える。
+   - 報告形式は 15 行以内で、変更ファイル / 実行した検証コマンドと結果 / 指示と違えた点 / 未解決事項 だけ。ログ・diff・ファイル本文を貼らせない。調査タスクは結論と根拠のパスを返させ、詳細は成果物ファイルに書かせる。
+   - Agent 呼び出しごとに `model` を明示する（呼び出し時の指定が agent 定義や環境変数より優先される）。迷ったら 1 段上。
      - `haiku`：転記・整形・機械的な置換。
      - `sonnet`：調査、手順が明確な実装、テスト追加。
      - 指定なし（既定モデル）：設計判断、デバッグ、ADR に触る変更。
    - `CLAUDE_CODE_SUBAGENT_MODEL` で一律に下げない（判断タスクまで劣化する）。
-4. Subagent の報告を鵜呑みにしない。完了条件のコマンドを main で実行して確認する。
-   - 通った：コミット → `TaskUpdate` で description の末尾に `VERIFIED: <実行したコマンド> -> <結果>` を1行追記 → 別の `TaskUpdate` で completed。
-     コマンドで確認できないタスクは `VERIFIED: manual -> <何をどう確認したか>`。この行が無いと TaskCompleted hook が completed を拒否する（ADR-0004）。
-   - 通らない：同じ Subagent に差し戻すか、原因をタスクの説明に追記して pending に戻す。Task list に failed 状態は無いので、失敗理由は説明欄に残す。
-5. pending が無くなるまで 3〜4 を繰り返す。区切りで `/handoff`。
 
 ## やらないこと
-- Subagent に Task list の更新を任せない（background Subagent は Task tools を持たない）。
-- 未検証のまま completed にしない。
+- 記録（Issue の作成、handoff など）、worktree の作成、wave の進行、完了の判断（main loop の仕事）。
+- 分解・設計（`/taskman` の仕事）。
+- 実装・検証・コミット（Subagent の仕事）。

@@ -21,7 +21,8 @@
 ## コマンド
 - テスト：`bash test/hooks.test.sh`、`bash test/harness.test.sh`。lint / 起動：なし
 - global への展開：`bin/codingenv install`（ユーザーが実行する）。drift の確認：`bin/codingenv status`（読み取りのみ。Claude が実行してよい）
-- `/dispatch <やりたいこと>`：Task list に分解して Subagent に実行させる
+- `/taskman <やりたいこと>`：依頼を分類し、必要なら `/design` → `/changegraph` で Task を作る
+- `/dispatch <Task | 依頼>`：次の Agent（Subagent）を呼ぶだけ。Issue・worktree・wave の進行は main loop が行う
 - `/handoff [name]`：/clear 前に .claude/handoff/<name>.md を書き出して（自分のファイルだけ）コミット
 - `/pickup [name]`：/clear 後に文脈を復元して復唱、handoff が複数あれば選ぶ（built-in の `/resume` とは別物）
 - タスク一覧：`Ctrl+T`。実体は `~/.claude/tasks/codingagentenv/`
