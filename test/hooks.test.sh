@@ -142,9 +142,9 @@ echo '{"tickets":{"system":"github"}}' >"$TMP/sp/.claude/harness.json"
 check "github without spec: no spec list" 0 "$(ss startup "$TMP/sp" | grep -c -e '^\[harness\] spec' -e '再提案しない')"
 echo '{"tickets":{"system":"jira","project":"BATCH","spec":{"label":"spec"}}}' >"$TMP/sp/.claude/harness.json"
 OUT=$(ss startup "$TMP/sp")
-check "jira: one line naming the project" 1 "$(printf '%s' "$OUT" | grep -c '^\[harness\] チケット管理: Jira (BATCH)。一覧取得は未対応$')"
+check "jira: one line naming the project" 1 "$(printf '%s' "$OUT" | grep -c '^\[harness\] チケット管理: jira (BATCH)。一覧取得は未対応$')"
 check "jira: gh is not called" 0 "$(printf '%s' "$OUT" | grep -c -e '#9[23]' -e '^\[harness\] spec')"
-check "jira: closing prompt names Jira" 1 "$(printf '%s' "$OUT" | grep -c 'handoff と Jira (BATCH) で残タスク')"
+check "jira: closing prompt names Jira" 1 "$(printf '%s' "$OUT" | grep -c 'handoff と jira (BATCH) で残タスク')"
 echo '{"tickets":{"system":null}}' >"$TMP/sp/.claude/harness.json"
 OUT=$(ss startup "$TMP/sp")
 check "project system null overrides global: no spec" 0 "$(printf '%s' "$OUT" | grep -c -e '^\[harness\] spec' -e '#9[23]' -e '再提案しない')"
@@ -153,9 +153,10 @@ echo '{"other":1}' >"$TMP/sp/.claude/harness.json"
 check "project file without tickets falls back to global" 2 "$(ss startup "$TMP/sp" | grep -c '^- #9[23] spec: ')"
 check "unknown top-level key: no warning" 0 "$(ss startup "$TMP/sp" 2>&1 >/dev/null | grep -c 'warning')"
 echo '{"tickets":{"system":"GitHub"}}' >"$TMP/sp/.claude/harness.json"
-ERR=$(ss startup "$TMP/sp" 2>&1 >/dev/null)
-check "invalid system: one-line warning on stderr" 1 "$(printf '%s\n' "$ERR" | grep -c '^\[harness\] warning: .*harness.json is invalid')"
-check "invalid system: treated as unset" 0 "$(ss startup "$TMP/sp" 2>/dev/null | grep -c -e '^\[harness\] spec' -e '#9[23]' -e '再提案しない')"
+OUT=$(ss startup "$TMP/sp" 2>"$TMP/err")
+check "unknown system: one line, no project" 1 "$(printf '%s' "$OUT" | grep -c '^\[harness\] チケット管理: GitHub。一覧取得は未対応$')"
+check "unknown system: no warning" 0 "$(grep -c 'warning' "$TMP/err")"
+check "unknown system: gh is not called" 0 "$(printf '%s' "$OUT" | grep -c -e '#9[23]' -e '^\[harness\] spec')"
 rm "$TMP/sp/.claude/harness.json" "$HOME/.claude/harness.json"
 OUT=$(ss startup "$TMP/sp")
 check "unset: no spec list" 0 "$(printf '%s' "$OUT" | grep -c -e '^\[harness\] spec' -e '#9[23]' -e '再提案しない')"
@@ -165,5 +166,6 @@ echo '{"tickets":{"system":"github","spec":{"label":"cdir:spec"}}}' >"$TMP/cdir/
 check "CLAUDE_DIR: global harness.json is read from there" 1 "$(CLAUDE_DIR="$TMP/cdir" HARNESS_GH="$TMP/bin/gh-label" ss startup "$TMP/sp" | grep -c '^- #7 label=cdir:spec$')"
 echo 'not json' >"$HOME/.claude/harness.json"
 check "invalid json: treated as unset" 0 "$(ss startup "$TMP/sp" 2>/dev/null | grep -c '^\[harness\] spec')"
+check "invalid json: one-line warning on stderr" 1 "$(ss startup "$TMP/sp" 2>&1 >/dev/null | grep -c '^\[harness\] warning: .*harness.json is not readable JSON')"
 
 exit $FAILED

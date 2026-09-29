@@ -72,29 +72,24 @@ fi
 # Ticket system from harness.json (where tickets live, and how a spec is told
 # apart among them). The project's .claude/harness.json wins over
 # ${CLAUDE_DIR:-~/.claude}/harness.json (CLAUDE_DIR as in bin/codingenv, the
-# global default); the first file with a "tickets" key decides. Prints
-# "<system><TAB><spec label>" for github, "jira<TAB><project>" for jira, or
-# nothing when unset (no "tickets", or system null). An invalid config
-# (broken JSON, unknown system, ...) is treated as unset with a one-line
-# warning on stderr.
+# global default); the first file with a "tickets" key decides. Only what is
+# needed to act is checked, since each environment writes it its own way:
+# prints "github<TAB><spec label or empty>", "other<TAB><system><TAB><project
+# or empty>" for any other system (not validated), or nothing when unset (no
+# "tickets", or system null). Unknown keys are ignored. Only unreadable JSON
+# warns (one line on stderr) and is treated as unset.
 TICKETS_JQ='
-  if type != "object" then error("not a JSON object")
-  elif has("tickets") | not then empty
-  elif .tickets == null then "off"
-  elif (.tickets | type) != "object" then error("tickets must be an object")
-  elif .tickets.system == null then "off"
-  elif (.tickets.spec != null) and ((.tickets.spec.label? | type) != "string") then error("tickets.spec.label must be a string")
-  elif .tickets.system == "github" then "github\t\(.tickets.spec.label // "")"
-  elif .tickets.system == "jira" then
-    if (.tickets.project | type) == "string" and .tickets.project != "" then "jira\t\(.tickets.project)"
-    else error("jira needs tickets.project") end
-  else error("unknown tickets.system \(.tickets.system | tojson); use github, jira or null") end'
+  (if type == "object" and has("tickets") then .tickets else empty end) as $t
+  | ($t | if type == "object" then .system else null end) as $s
+  | if $s == null then "off"
+    elif $s == "github" then "github\t\(($t.spec | objects | .label | strings) // "")"
+    else "other\t\($s | tostring)\t\(($t.project // "") | tostring)" end'
 tickets_conf() {
   local f r
   for f in "$DIR/.claude/harness.json" "${CLAUDE_DIR:-$HOME/.claude}/harness.json"; do
     [ -f "$f" ] || continue
-    if ! r=$(jq -r "$TICKETS_JQ" "$f" 2>&1); then
-      echo "[harness] warning: $f is invalid, tickets treated as unset: $(printf '%s' "$r" | head -n 1)" >&2
+    if ! r=$(jq -r "$TICKETS_JQ" "$f" 2>/dev/null); then
+      echo "[harness] warning: $f is not readable JSON; tickets treated as unset" >&2
       return 0
     fi
     [ -n "$r" ] || continue
@@ -132,18 +127,21 @@ spec_issues() { # label
 }
 
 CONF=$(tickets_conf)
-SYSTEM=${CONF%%	*} VALUE=${CONF#*	}
 TICKETS='GitHub Issues' SPEC_NOTE=''
-case "$SYSTEM" in
-  github)
-    if [ -n "$VALUE" ]; then
-      spec_issues "$VALUE"
+case "$CONF" in
+  github*)
+    LABEL=${CONF#github	}
+    if [ -n "$LABEL" ]; then
+      spec_issues "$LABEL"
       SPEC_NOTE=' spec の置き換え済みの決定と却下した案は再提案しない。'
     fi
     ;;
-  jira)
-    TICKETS="Jira ($VALUE)"
-    echo "[harness] チケット管理: Jira ($VALUE)。一覧取得は未対応"
+  other*)
+    REST=${CONF#other	}
+    SYSTEM=${REST%%	*} PROJECT=${REST#*	}
+    TICKETS=$SYSTEM
+    [ -n "$PROJECT" ] && TICKETS="$SYSTEM ($PROJECT)"
+    echo "[harness] チケット管理: ${TICKETS}。一覧取得は未対応"
     ;;
 esac
 echo "[harness] 作業を始める前に $PICKUP の手順に従うこと：handoff と $TICKETS で残タスクを確認し、「目的・完了条件・次の一手」を3行で復唱する。$SPEC_NOTE"
