@@ -156,6 +156,9 @@ check "unset: no spec list" 0 "$(printf '%s' "$OUT" | grep -c -e '^\[harness\] s
 check "unset: context still injected" 1 "$(printf '%s' "$OUT" | grep -c 'sp work')"
 echo '{"spec":{"store":"files","dir":"docs/decisions"}}' >"$HOME/.claude/harness.json"
 check "global files: lists the files" 2 "$(ss startup "$TMP/sp" | grep -c '^- docs/decisions/')"
+mkdir -p "$TMP/cdir"
+echo '{"spec":{"store":"issues","label":"cdir:spec"}}' >"$TMP/cdir/harness.json"
+check "CLAUDE_DIR: global harness.json is read from there" 1 "$(CLAUDE_DIR="$TMP/cdir" HARNESS_GH="$TMP/bin/gh-label" ss startup "$TMP/sp" | grep -c '^- #7 label=cdir:spec$')"
 echo 'not json' >"$HOME/.claude/harness.json"
 check "invalid json: treated as unset" 0 "$(ss startup "$TMP/sp" | grep -c '^\[harness\] spec')"
 

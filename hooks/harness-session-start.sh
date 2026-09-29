@@ -70,11 +70,12 @@ else
 fi
 
 # Spec store from harness.json: the project's .claude/harness.json wins over
-# ~/.claude/harness.json; the first file with a "spec" key decides. Prints
+# ${CLAUDE_DIR:-~/.claude}/harness.json (CLAUDE_DIR as in bin/codingenv); the
+# first file with a "spec" key decides. Prints
 # the path of that file, or nothing (unset: no spec lookup).
 spec_conf() {
   local f
-  for f in "$DIR/.claude/harness.json" "$HOME/.claude/harness.json"; do
+  for f in "$DIR/.claude/harness.json" "${CLAUDE_DIR:-$HOME/.claude}/harness.json"; do
     jq -e 'has("spec")' "$f" >/dev/null 2>&1 && { echo "$f"; return 0; }
   done
   return 0
