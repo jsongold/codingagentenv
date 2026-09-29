@@ -6,8 +6,8 @@ disable-model-invocation: true
 
 # igosleep — 寝る前に sleep loop を始める
 
-sleep 中は cad-2 の `orchd-sleep.timer` が 5 分ごとに `orchd place --mode sleep | orchd dispatch --placement -` を実行し、CC に枠があれば cloud worker セッション（CCO）へ固定の指示（`orchd/wake.md`）を 1 通送る。何をやるかは CCO がプロジェクトの文脈から決める（ADR-0015）。timer 自体が on/off の切り替えで、namespace は `default` だけ（timer は `--ns` を付けない）。
-cad-2 の操作は `deploy/gcp/README.md` の経路（IAP SSH + `docker exec`）を使う：
+sleep 中は cad-2 の `orchd-sleep.timer` が毎時 :03 に `orchd place --mode sleep | orchd dispatch --placement -` を実行し、CC に枠があれば cloud worker セッション（CCO）へ固定の指示（`orchd/wake.md`）を 1 通送る。何をやるかは CCO がプロジェクトの文脈から決める（spec #102）。timer 自体が on/off の切り替えで、namespace は `default` だけ（timer は `--ns` を付けない）。
+cad-2 の操作は `deploy/gcp/README.md` の経路（IAP SSH + `docker exec`）を使う。Bash の呼び出しごとに shell は新しくなり変数は残らないので、下の 3 行は cad-2 を操作する各コマンドの先頭に毎回付ける：
 
 ```bash
 S="gcloud compute ssh cad-2 --project suggestorder-dev --zone us-central1-a --tunnel-through-iap --"
@@ -35,7 +35,7 @@ F=/data/cad/config/namespaces.json   # timer の orchd が読む登録（contain
        && jq -e '.default.cloudWorkerSession | startswith("session_") or startswith("cse_")' /tmp/igosleep-ns.json >/dev/null \
        && $S "$X sh -c 'cat >$F.tmp && mv $F.tmp $F'" </tmp/igosleep-ns.json
      ```
-2. timer を start し、`active` になったことを確かめる：`$S sudo systemctl start orchd-sleep.timer && $S systemctl is-active orchd-sleep.timer`。`active` でなければ止めて owner に伝える（sleep 中に何も起きない）。reboot すると timer は止まる（`deploy/gcp/README.md` の「sleep loop」）。
+2. timer を start し、`active` になったことを確かめる：`$S sudo systemctl start orchd-sleep.timer && $S systemctl is-active orchd-sleep.timer`。`active` でなければ止めて owner に伝える（sleep 中に何も起きない）。`startup.sh` は timer を enable しないので、cad-2 が夜中に reboot すると sleep が止まる想定（`deploy/gcp/README.md` の「sleep loop」）。
 3. `/handoff` の手順（`skills/handoff/SKILL.md`）で handoff を書き出してコミットする。
 4. 表示して終わる（2 行）：
    - CC 残り枠：`$S "$X cad show usage"` の `claude/*` の行。5H・7D の残り（100 − 使用率）と RESETS。枠が無い間は CCO は起こされない（worker VM の opencode への切り替えは未対応、#78）ので、残りが少なければその旨も書く
