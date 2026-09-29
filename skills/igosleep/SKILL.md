@@ -12,11 +12,12 @@ disable-model-invocation: true
    ```
    ! gcloud compute ssh cad-2 --project suggestorder-dev --zone us-central1-a --tunnel-through-iap -- sudo cat /var/lib/cad/cad/config/namespaces.json   # container の /data/cad/config/namespaces.json
    ```
+   owner が貼った出力を確かめてから次へ進む（出力が無ければ待つ）。`No such file` はファイルが無い扱い。ssh そのものの失敗（IAP・権限のエラー）は登録の有無が分からないので、結果を伝えて止める。
    `default.cloudWorkerSession` が空でなければ 2 へ。空・キーが無い・ファイルが無いときは、owner に「claude.ai/code で GitHub repo（`default.repo`）を選んで新しいセッションを作り、その ID を cad-2 の `namespaces.json` の `default.cloudWorkerSession` に登録して」と頼み、ここで止める（CLI の `claude --cloud` では作らない。bundle になり push できない）。セッションはこの 1 つだけを使う。アカウントごとに持つかは未決（#65）。
 2. sleep に入る（timer を動かす）。reboot で止まらないよう `enable --now`：
    ```
    ! gcloud compute ssh cad-2 --project suggestorder-dev --zone us-central1-a --tunnel-through-iap -- sudo systemctl enable --now orchd-sleep.timer
    ! gcloud compute ssh cad-2 --project suggestorder-dev --zone us-central1-a --tunnel-through-iap -- systemctl is-active orchd-sleep.timer
    ```
-   `active` なら 3 へ。違えば結果を伝えて止める（sleep 中に何も起きない）。
+   すでに active でも、もう一度実行して安全（`enable --now` は何もしない）。owner が貼った出力を確かめ、`active` なら 3 へ。違えば結果を伝えて止める（sleep 中に何も起きない）。
 3. `/handoff` の手順で handoff を書き出してコミットし、「このセッションは `/clear` してよい。起きたら `/iwokeup`」と 1 行で伝えて終わる。
