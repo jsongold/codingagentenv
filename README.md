@@ -47,7 +47,7 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 | .claude/settings.json | Task list の共有 ID のみ | 起動時に自動 | 固定 |
 | skills/taskman/SKILL.md | 依頼を分類して Task を作る手順 | `/taskman` で呼ぶ | 固定 |
 | skills/design/SKILL.md | 境界と Node Graph で設計する手順 | `/taskman` から呼ぶ | 固定 |
-| skills/dispatch/SKILL.md | Task を Issue に登録し Subagent に配送する手順 | `/dispatch` で呼ぶ | 固定 |
+| skills/dispatch/SKILL.md | 次の Agent（Subagent）を呼ぶ手順 | `/dispatch` で呼ぶ | 固定 |
 | skills/handoff/SKILL.md | /clear前に自分の handoff を書き出す手順 | `/handoff` で呼ぶ | 固定 |
 | skills/pickup/SKILL.md | /clear後に読み直して理解を復唱する手順 | `/pickup` で呼ぶ | 固定 |
 | hooks/harness-session-start.sh | handoff（複数なら一覧）を文脈に入れる | SessionStart hook | 固定 |
@@ -61,7 +61,7 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 `/resume` は Claude Code の built-in コマンド（セッション履歴の再開）なので、スキル名には使わない。
 
 ## 運用ループ
-1. `/taskman <やりたいこと>` → Task を作る → `/dispatch` が Issue に登録して Subagent に配送 → Subagent が実装・検証・コミット
+1. `/taskman <やりたいこと>` → Task を作る → main loop が Issue・worktree を用意 → `/dispatch` が Subagent を呼ぶ → Subagent が実装・検証・コミット
 2. 区切りで `/handoff`
 3. `/clear`
 4. `/pickup` → エージェントの復唱を確認・修正 → 作業再開
