@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,8 +17,8 @@ import (
 func fakeShell(t *testing.T, answers map[string]string) *[][]string {
 	t.Helper()
 	calls := &[][]string{}
-	old, oldBg := shell, startBg
-	t.Cleanup(func() { shell, startBg = old, oldBg })
+	old, oldIn := shell, shellIn
+	t.Cleanup(func() { shell, shellIn = old, oldIn })
 	shell = func(dir, name string, args ...string) (string, error) {
 		*calls = append(*calls, append([]string{dir, name}, args...))
 		full := strings.Join(append([]string{name}, args...), " ")
@@ -31,9 +32,12 @@ func fakeShell(t *testing.T, answers map[string]string) *[][]string {
 		}
 		return "", nil
 	}
-	startBg = func(dir, log, name string, args ...string) (int, error) {
-		*calls = append(*calls, append([]string{"BG", dir, log, name}, args...))
-		return 42, nil
+	shellIn = func(stdin io.Reader, name string, args ...string) (string, error) { // calls[i][0] = stdin
+		in := []byte{}
+		if stdin != nil {
+			in, _ = io.ReadAll(stdin)
+		}
+		return shell(string(in), name, args...)
 	}
 	return calls
 }
@@ -106,85 +110,6 @@ func TestPickRepoFromGit(t *testing.T) { // unknown ns: path = git toplevel, rep
 	}
 }
 
-const issueJSON = `{"title":"Fix it","body":"details"}`
-
-func TestDispatchSubagent(t *testing.T) {
-	taskEnv(t, reg)
-	calls := fakeShell(t, map[string]string{"gh issue view": issueJSON, "git -C /src/r rev-parse": "ERR"})
-	code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", `{"agent":"claude/a","runner":{"mode":"subagent"}}`)
-	if code != 0 {
-		t.Fatalf("code %d: %s", code, errs)
-	}
-	if m["runner"] != "subagent" || m["worktree"] != "/src/r-task-7" {
-		t.Errorf("out %v", m)
-	}
-	p, _ := m["prompt"].(string)
-	for _, want := range []string{"o/r の Issue #7", "Fix it", "details", "task/7", "Closes #7"} {
-		if !strings.Contains(p, want) {
-			t.Errorf("prompt lacks %q:\n%s", want, p)
-		}
-	}
-	if got := strings.Join((*calls)[len(*calls)-1][1:], " "); got != "git -C /src/r worktree add -q -b task/7 /src/r-task-7 origin/main" {
-		t.Errorf("worktree: %s", got)
-	}
-}
-
-func TestDispatchProcess(t *testing.T) {
-	taskEnv(t, reg)
-	calls := fakeShell(t, map[string]string{"gh issue view": issueJSON, "git -C /src/r rev-parse": "ERR"})
-	pl := `{"runner":{"mode":"process","cmd":"opencode run --model {model}","model":"m1"}}`
-	code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", pl)
-	if code != 0 || m["started"] != true || m["pid"] != 42.0 || m["worktree"] != "/src/r-task-7" {
-		t.Fatalf("code %d %v %s", code, m, errs)
-	}
-	bg := (*calls)[len(*calls)-1]
-	if got := strings.Join(append([]string{bg[1]}, bg[3:7]...), " "); got != "/src/r-task-7 opencode run --model m1" || !strings.Contains(bg[7], "Closes #7") {
-		t.Errorf("bg call %v", bg)
-	}
-}
-
-func TestDispatchCloud(t *testing.T) {
-	taskEnv(t, reg)
-	t.Setenv("CLAUDE_CLOUD_SESSION", "sess-env") // env wins over the registry
-	calls := fakeShell(t, map[string]string{"gh issue view": issueJSON, "claude -p": `{"result":"ok"}`})
-	code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", `{"runner":{"mode":"cloud","cmd":"claude --cloud"}}`)
-	if code != 0 || m["result"] != "ok" {
-		t.Fatalf("code %d %v %s", code, m, errs)
-	}
-	c := (*calls)[len(*calls)-1]
-	if got := strings.Join(append(slices.Clone(c[1:3]), c[4:]...), " "); got != "claude -p --cloud sess-env --output-format json" || !strings.Contains(c[3], "o/r の Issue #7") {
-		t.Errorf("claude call %v", c)
-	}
-	for _, c := range *calls {
-		if c[1] == "git" {
-			t.Errorf("cloud must not create a local worktree: %v", c)
-		}
-	}
-}
-
-func TestDispatchBadInput(t *testing.T) {
-	taskEnv(t, `{"default":{"repo":"o/r","path":"/src/r"}}`)
-	fakeShell(t, map[string]string{"gh issue view": issueJSON})
-	for _, args := range [][]string{
-		{"--issue", "x", "--placement", `{"runner":{"mode":"subagent"}}`},
-		{"--issue", "7", "--placement", `{`},
-		{"--issue", "7", "--placement", `{"runner":{"mode":"hatchet"}}`},
-		{"--issue", "7", "--placement", `{"runner":{"mode":"cloud"}}`}, // no session anywhere
-	} {
-		if code, _, errs := runTask(t, append([]string{"dispatch"}, args...)...); code != 2 {
-			t.Errorf("%v: code %d (%s)", args, code, errs)
-		}
-	}
-}
-
-func TestDispatchGhFailure(t *testing.T) {
-	taskEnv(t, reg)
-	fakeShell(t, map[string]string{"gh issue view": "ERR"})
-	if code, _, _ := runTask(t, "dispatch", "--issue", "7", "--placement", `{"runner":{"mode":"subagent"}}`); code != 1 {
-		t.Errorf("code %d", code)
-	}
-}
-
 func TestStatus(t *testing.T) {
 	taskEnv(t, reg)
 	calls := fakeShell(t, map[string]string{"gh pr list": `[
@@ -204,13 +129,71 @@ func TestStatus(t *testing.T) {
 	}
 }
 
-func TestDispatchReusesBranchOfEarlierRun(t *testing.T) { // the branch exists (earlier dispatch), the worktree does not
+func TestDispatchSubstitutesCmd(t *testing.T) {
 	taskEnv(t, reg)
-	calls := fakeShell(t, map[string]string{"gh issue view": issueJSON})
-	if code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", `{"runner":{"mode":"subagent"}}`); code != 0 {
+	pf := filepath.Join(t.TempDir(), "wake.md")
+	os.WriteFile(pf, []byte("wake up"), 0o644)
+	calls := fakeShell(t, map[string]string{"claude -p": `{"result":"ok"}`})
+	pl := `{"runner":{"mode":"cloud","cmd":["claude","-p","--cloud","{session}","--model={model}"],"session":"s 1","model":"m","stdin":"` + pf + `"}}`
+	code, m, errs := runTask(t, "dispatch", "--placement", pl)
+	if code != 0 || m["result"] != "ok" {
+		t.Fatalf("code %d %v %s", code, m, errs)
+	}
+	if want := []string{"wake up", "claude", "-p", "--cloud", "s 1", "--model=m"}; len(*calls) != 1 || !slices.Equal((*calls)[0], want) {
+		t.Errorf("calls %q want %q", *calls, want)
+	}
+}
+
+// orchd place prints runner {} when nothing was placed (deferred / no rule fits / cad not ready);
+// dispatch must run nothing and just echo {}, not treat it as an error.
+func TestDispatchRunnerEmptyRunsNothing(t *testing.T) {
+	taskEnv(t, reg)
+	calls := fakeShell(t, nil)
+	for _, pl := range []string{`{"agent":"","runner":{}}`, `{}`} {
+		code, m, errs := runTask(t, "dispatch", "--placement", pl)
+		if code != 0 || len(m) != 0 {
+			t.Errorf("%s: code %d %v (%s)", pl, code, m, errs)
+		}
+	}
+	if len(*calls) != 0 {
+		t.Errorf("nothing may run: %v", *calls)
+	}
+}
+
+func TestDispatchBadInput(t *testing.T) {
+	taskEnv(t, reg)
+	calls := fakeShell(t, nil)
+	for _, pl := range []string{
+		`{"runner":{"cmd":["claude","--cloud","{session}"]}}`,              // missing key
+		`{"runner":{"cmd":["claude","--cloud","{session}"],"session":""}}`, // empty value
+		`{"runner":{"mode":"subagent"}}`,                                   // no cmd
+		`{`,
+	} {
+		if code, _, errs := runTask(t, "dispatch", "--placement", pl); code != 2 {
+			t.Errorf("%s: code %d (%s)", pl, code, errs)
+		}
+	}
+	if code, _, _ := runTask(t, "dispatch", "--issue", "7", "--placement", `{}`); code != 2 {
+		t.Errorf("--issue is gone: code %d", code)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("nothing may run: %v", *calls)
+	}
+}
+
+func TestPlaceSleepFillsSession(t *testing.T) { // cad-2's timer: no --class, session-only registry, no git/gh
+	taskEnv(t, `{"default":{"cloudWorkerSession":"sess-1"}}`)
+	fakeCad(t, seedUsage(), 0)
+	calls := fakeShell(t, nil)
+	code, m, errs := runTask(t, "place", "--mode", "sleep")
+	if code != 0 {
 		t.Fatalf("code %d %s", code, errs)
 	}
-	if got := strings.Join((*calls)[len(*calls)-1][1:], " "); got != "git -C /src/r worktree add -q /src/r-task-7 task/7" {
-		t.Errorf("worktree: %s", got)
+	rn := m["runner"].(map[string]any)
+	if m["computer"] != "claude-cloud" || rn["session"] != "sess-1" || rn["stdin"] != "/app/orchd/wake.md" {
+		t.Errorf("out %v", m)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("no git/gh: %v", *calls)
 	}
 }

@@ -22,7 +22,7 @@ USER root
 COPY --from=build /out/cad /app/cad/bin/cad
 COPY --from=build /out/orchd /app/orchd/bin/orchd
 COPY cad/config.json /app/cad/config.json
-COPY orchd/policy.json /app/orchd/policy.json
+COPY orchd/policy.json orchd/wake.md /app/orchd/
 COPY deploy/entrypoint.sh /app/entrypoint.sh
 # Secret Manager -> /data (deploy/gcp/startup.sh runs it with --entrypoint; needs jq/curl/base64 above).
 COPY deploy/fetch-auth.sh /app/bin/fetch-auth

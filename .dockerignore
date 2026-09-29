@@ -5,6 +5,7 @@
 !orchd/*.go
 !orchd/go.mod
 !orchd/policy.json
+!orchd/wake.md
 !deploy/entrypoint.sh
 !deploy/fetch-auth.sh
 !deploy/worker-run.sh
