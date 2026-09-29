@@ -1,4 +1,4 @@
-# Task spec の例（ADR-0009）。実物は Orchestrator が dispatch 時に .claude/task-specs/<id>.yaml へ生成し、コミットしない。
+# Task spec の例（#96）。実物は Orchestrator が dispatch 時に .claude/task-specs/<id>.yaml へ生成し、コミットしない。
 # ChangeGraph node c4（.claude/changegraph/dev-env-upgrade.yaml）を Worker に渡す場合。
 version: 2                      # v2: taskId（内蔵 Task list の id）を issue（GitHub Issue 番号）に置き換え
 id: dev-env-upgrade-c4          # <changegraph 名>-<node id>。branch・worker labels にも使う
@@ -11,8 +11,8 @@ goal: >-
   agent/providers/<name>/list を定期実行（pull）し、結果を /v1/workers と SSE topic workers に出す。
   Mac は Worker からの inbound を受けない。
 context:
-  - docs/decisions/0008-orchestrator-worker-cad.md   # Worker スキーマ、pull 方式
-  - docs/decisions/0009-task-spec-orchestration.md   # provider list の出力形式
+  - "#95"   # Worker スキーマ、pull 方式
+  - "#96"   # provider list の出力形式
   - cad/capacity.go                                  # 既存 collector の書き方に合わせる
 files:                          # 触ってよいファイル（ChangeGraph の files と同じ）
   - cad/workers.go

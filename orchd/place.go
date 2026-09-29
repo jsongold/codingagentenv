@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// PlaceSpec is what `orchd place` was asked for (ADR-0010, 0011).
+// PlaceSpec is what `orchd place` was asked for (#97, #98).
 type PlaceSpec struct {
 	Class   string   `json:"class"`
 	Self    string   `json:"self,omitempty"`    // the Orchestrator's own agent, matched by rule agent "self"
@@ -40,7 +40,7 @@ type PlaceOutput struct {
 	DeferUntil string   `json:"defer_until"` // RFC3339, "" when none
 }
 
-// place evaluates policy.rules top to bottom; the first rule with a usable agent wins (ADR-0010).
+// place evaluates policy.rules top to bottom; the first rule with a usable agent wins (#97).
 // Pure: same policy, usage, spec and localSlots give the same answer.
 // Returns 200, 409 (some rule was blocked only by usage windows; deferUntil set) or 422
 // (HTTP codes kept from the former cad endpoint; main maps them to exit 0/3/4).

@@ -24,7 +24,7 @@ harness() { CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" bash "$ROOT/bin/codingenv" "$@
 # harness section written by hand before markers existed.
 FAKE="$TMP/claude"
 mkdir -p "$FAKE/skills/mine"
-# It also carries what an older install registered (ADR-0016 retired them).
+# It also carries what an older install registered (#103 retired them).
 mkdir -p "$FAKE/hooks"
 ln -s "$ROOT/hooks/harness-task-completed.sh" "$FAKE/hooks/harness-task-completed.sh"
 echo '{"model":"x","env":{"KEEP":"1","CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"existing"}]}],"TaskCompleted":[{"hooks":[{"type":"command","command":"bash \"$HOME/.claude/hooks/harness-task-completed.sh\"","timeout":10}]},{"hooks":[{"type":"command","command":"mine"}]},{"hooks":[{"type":"command","command":"bash \"$HOME/.claude/hooks/harness-task-completed.sh\""},{"type":"command","command":"keep-me"}]}]}}' >"$FAKE/settings.json"

@@ -5,3 +5,5 @@
 cad/bin/
 cad/state/
 cad/config/namespaces.json
+cad/cad
+orchd/orchd

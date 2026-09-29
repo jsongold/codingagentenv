@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# bootstrap [cmd...] — worker entrypoint (ADR-0008). Clones REPO@BRANCH (from
+# bootstrap [cmd...] — worker entrypoint (#95). Clones REPO@BRANCH (from
 # origin/BASE if BRANCH doesn't exist yet), starts cad on loopback, waits for
-# /healthz, then runs cmd as a child (ADR-0009: not exec'd, so its exit code
+# /healthz, then runs cmd as a child (#96: not exec'd, so its exit code
 # can be captured and reported). With no cmd, prints cad capacity and exits 0.
 # With a cmd, writes {"exitCode","result":"ok"|"fail","reason"} to
 # RESULT_FILE, also prints it as the last stdout line, and exits with the

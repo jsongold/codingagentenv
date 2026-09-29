@@ -1,6 +1,6 @@
 ---
 name: pickup
-description: /clear 後や新セッションの最初に、.claude/handoff/<name>.md・ADR・GitHub Issues を読み直して理解を復唱する。引数 <name> は任意。「前回の続き」と言われたら使う。
+description: /clear 後や新セッションの最初に、.claude/handoff/<name>.md・`doc:spec` Issue・担当 Issue を読み直して理解を復唱する。引数 <name> は任意。「前回の続き」と言われたら使う。
 ---
 
 # pickup — /clear 後の再開
@@ -11,9 +11,9 @@ built-in の `/resume`（セッション履歴の再開）とは別物。こち�
    - 名前あり：`.claude/handoff/<name>.md` を読む。無ければ一覧（`ls -t .claude/handoff`）を見せる。
    - 名前なし・handoff が1件：それを読む。
    - 名前なし・handoff が複数：SessionStart hook が出した一覧（無ければ `ls -t .claude/handoff`）を見せてユーザーに選ばせる。選ぶまで作業を始めない。
-   - 名前なし・handoff が0件：旧 `PROGRESS.md` があればそれを読み、次の `/handoff` で `.claude/handoff/default.md` に移行されると伝える。どちらも無ければ、無いと伝え、`git log` と open な Issue から目的を復元して復唱し、次の区切りで `/handoff` するよう勧める。
-2. `docs/decisions/` があれば ADR を確認する。状態が「置き換え」のものと「却下した案」は再提案しない。無ければ何も言わずに飛ばす。
-   - project の `.claude/settings.json` に旧版が入れた `CLAUDE_CODE_TASK_LIST_ID` が残っていたら、削除するようユーザーに伝える（ADR-0016）。自分では編集しない。
+   - 名前なし・handoff が0件：旧 `PROGRESS.md` があればそれを読み、次の `/handoff` で `.claude/handoff/default.md` に移行されると伝える。どちらも無ければ、無いと伝え、`git log` と open な Issue（`doc:spec` を除く）から目的を復元して復唱し、次の区切りで `/handoff` するよう勧める。
+2. 作業に関係する `doc:spec` Issue（設計判断）を読む。一覧は SessionStart hook が出したもの、無ければ `gh issue list --label doc:spec --state open`。関係するものだけ `gh issue view <番号>` で読む。状態が「置き換え」のものと「却下した案」は再提案しない（置き換えられた spec は close せず open のまま、状態行で示す）。label が無い・gh が使えない project では何も言わずに飛ばす。
+   - project の `.claude/settings.json` に旧版が入れた `CLAUDE_CODE_TASK_LIST_ID` が残っていたら、削除するようユーザーに伝える（#103）。自分では編集しない。
 3. handoff の「現在の状態」にある `Issue: #<番号>` の行だけを担当 Issue とみなし、`gh issue view <番号> --comments` でコメントまで読む。複数あれば1件ずつ読む。
    - `Issue: #<番号>` の形でない ID（旧 Task ID など）は無視し、`gh` に渡さない。`Issue:` 行が無ければ担当 Issue なしとして扱う。
    - `git status` と `git log --oneline -10` で handoff と実態のずれを探す。

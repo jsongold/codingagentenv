@@ -1,5 +1,5 @@
 # Worker image: same image serves the local devcontainer and cloud workers
-# (ADR-0008). Stage 1 builds cad (Go, static). Stage 2 is the runtime: git,
+# (#95). Stage 1 builds cad (Go, static). Stage 2 is the runtime: git,
 # gh, jq, node, Claude Code CLI, cad, and agent/bootstrap.sh. jq is required
 # by this repo's own harness (bin/codingenv install, hooks) when this image
 # doubles as the local devcontainer, and by bootstrap.sh's JSON encoding.

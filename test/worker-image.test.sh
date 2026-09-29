@@ -2,7 +2,7 @@
 # Tests for the worker image (.devcontainer/Dockerfile + agent/bootstrap.sh).
 # Builds the image and runs bootstrap inside it:
 # - resource-limited, to check cad sees the container's cgroup limits, not the host's
-# - with a child command, to check bootstrap reports its exit code (ADR-0009) instead of exec'ing it away
+# - with a child command, to check bootstrap reports its exit code (#96) instead of exec'ing it away
 # - against a local (file://) bare repo, network-free, to check the BRANCH
 #   checkout logic (already checked out by clone, new, and colliding with a
 #   tag of the same name) and that GH_TOKEN never lands in .git/config or

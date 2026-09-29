@@ -2,7 +2,7 @@
 
 マシンに 1 つ常駐する小さなメタデータ daemon（Go、標準ライブラリのみ）。
 agent（Claude / Codex / opencode のアカウント）の使用量などを定期収集して配信する。
-task を「誰に・どこで」やらせるかは [orchd](../orchd/README.md) が cad の値を HTTP で読んで決める。設計は [ADR-0008](../docs/decisions/0008-orchestrator-worker-cad.md) / [ADR-0010](../docs/decisions/0010-placement.md) / [ADR-0011](../docs/decisions/0011-orchd-hatchet.md)。
+task を「誰に・どこで」やらせるかは [orchd](../orchd/README.md) が cad の値を HTTP で読んで決める。設計は [#95](https://github.com/jsongold/codingagentenv/issues/95) / [#97](https://github.com/jsongold/codingagentenv/issues/97) / [#98](https://github.com/jsongold/codingagentenv/issues/98)。
 
 ## 起動
 
@@ -93,6 +93,6 @@ cad get meta -ns default              # 動作確認
 cd cad && go vet ./... && go test -count=1 ./...
 ```
 
-## 再起動・入れ替え時の引き継ぎ（ADR-0011 追記）
+## 再起動・入れ替え時の引き継ぎ（#98 追記）
 
 usage を集めるたびに `<state>/usage-snapshot.json`（state = `CAD_STATE_DIR` > `<app>/state`。`CAD_HOME` があれば `<CAD_HOME>/state`。gitignore）へ一時ファイル → rename で書く。起動時に 24 時間以内の snapshot があれば、全 agent を `stale: true`（`fetchedAt` は元のまま）にしてすぐ `usage` topic に出し、ready になる。最初の本物の収集で上書きされる。
