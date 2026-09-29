@@ -32,7 +32,7 @@
 - Orchestrator のルールの正本は `global/CLAUDE.harness.md`。`skills/` と `hooks/` は symlink なので、編集すると全 project の挙動が即座に変わる
 - Task = GitHub Issue（ADR-0016）。キューを自作しない
 - `hooks/` も global の正本（ADR-0005）。編集は全 project に即座に効くので、変更したら必ず `bash test/hooks.test.sh` を通す
-- Task tools が見えないときは `bin/codingenv status` で展開漏れを確認する。代替手段を作らない
+- Claude Code の仕様は docs の原文で確認する。WebFetch の要約は誤答したことがある
 
 ## コンテキスト圧縮時の指示
 - 圧縮（compact）時は、変更したファイル一覧、テストコマンド、.claude/handoff/<name>.md の「決定事項」を必ず残すこと。
