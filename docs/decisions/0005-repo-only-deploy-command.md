@@ -1,7 +1,7 @@
 # ADR-0005: 編集は repo 内だけ。global への展開は `bin/codingenv` に集約する
 
 - 日付：2026-09-20
-- 状態：採用（ADR-0003 の install 手順と ADR-0004 の `hooks/install.sh` を置き換え。両 ADR の他の決定は有効）
+- 状態：採用（ADR-0003 の install 手順と、旧 `hooks/install.sh` を置き換え）
 
 ## 文脈
 ハーネスは global（`~/.claude/`）で効く（ADR-0003）が、展開の経路がばらばらだった。skill の symlink・env・`~/.claude/CLAUDE.md` のハーネス節は README の手作業、hook だけ `hooks/install.sh`。ハーネス節は正本が repo に無く、global にしか存在しなかった。

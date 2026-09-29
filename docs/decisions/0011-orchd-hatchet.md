@@ -6,7 +6,7 @@
 ## 文脈
 この repo の目的はコーディングをクラウドでスケールさせること。`cad` は ADR-0008 でメタデータの提供に範囲を絞ったが、ADR-0010 で place・policy（classes / rules / runners）・capacity・workers を抱え、事実（収集した値）と判断（どこで何を動かすか）が1つのバイナリに混ざった。
 
-task を複数の Computer に配り、窓が尽きたら後回しにし、失敗したら再実行するには、永続する task の状態とキューが要る。自作は ADR-0001 / 0002 の教訓（再発明）に反する。
+task を複数の Computer に配り、窓が尽きたら後回しにし、失敗したら再実行するには、永続する task の状態とキューが要る。自作は再発明になる（キューを自作しない）。
 
 Hatchet（github.com/hatchet-dev/hatchet、MIT、v0.107.0 2026-09-15、約 8k stars。engine は Go + Postgres、SDK は Go / TS / Python）は次を持つ：永続する task 状態とキュー、key ごとの同時数、worker slots、worker label による affinity（beta）、retry / timeout、cancel、cron / schedule、durable sleep、GitHub webhook の cookbook、dashboard。
 
@@ -46,7 +46,7 @@ hatchet-lite v0.107.0 + postgres 15.6、TS SDK 1.33.2、Node v26。2 つの work
 | 案 | 却下理由 |
 |---|---|
 | `cad` に place を残す | 事実と判断が混ざる。ADR-0008 の範囲（メタデータ）を外れる |
-| task キューを自作する | ADR-0001 / 0002 の教訓。再発明で保守対象が増える |
+| task キューを自作する | 再発明で保守対象が増える |
 | Temporal | 重い（運用・学習コスト） |
 | GitHub Actions を常用のキューにする | 振り分けも usage の判断もできない。Mac 睡眠時の経路としては ADR-0010 のまま残す |
 | Hatchet の rate limit で 5h 窓を表す | rate limit の窓は固定区切りで rolling ではなく、5h の長さを指定できない |
@@ -58,7 +58,6 @@ hatchet-lite v0.107.0 + postgres 15.6、TS SDK 1.33.2、Node v26。2 つの work
   - Computer が増えても worker を足して label を付けるだけで振り分けられる
 - 受け入れたトレードオフ：Postgres の運用。worker affinity が beta。Hatchet への依存
 - 更新が要る ADR：
-  - ADR-0002：task の状態は Hatchet が持つ。内蔵 Task list は Orchestrator セッション内の作業管理に限定する
   - ADR-0008：`cad` の責務を usage の収集・配信に縮小する。「既存 OSS の採用」の却下は再検討条件（満たす OSS が出てきた）に該当した
   - ADR-0010：place の置き場所を `cad` → `orchd` に移す。Mac 睡眠時の GitHub Actions 経路との関係を整理する
 

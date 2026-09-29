@@ -1,7 +1,7 @@
 # トークン削減実装のための仕様確定（原文引用）
 
 確認日: 2026-09-20
-方法: `curl -sL https://code.claude.com/docs/en/<page>.md` で markdown 原文を取得し grep で該当箇所を確認（WebFetch の要約は使わない。ADR-0004参照）。
+方法: `curl -sL https://code.claude.com/docs/en/<page>.md` で markdown 原文を取得し grep で該当箇所を確認（WebFetch の要約は使わない）。
 
 ---
 
