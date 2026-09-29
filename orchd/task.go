@@ -200,15 +200,16 @@ func taskPrompt(repo string, n int, title, body, branch string) string {
 `, repo, n, title, strings.TrimSpace(body), branch, n)
 }
 
-// dispatchCmd hands issue n to the placement's runner (the JSON place printed; "-" = stdin).
+// dispatchCmd hands issue n (or, with --prompt-file, a fixed prompt) to the placement's runner
+// (the JSON place printed; "-" = stdin). --prompt-file only supports runner.mode "cloud" and reads
+// the namespace from the registry only (readNS): the sleep-timer caller (cad-2) has no git/gh checkout.
 func dispatchCmd(args []string, stdin io.Reader, w io.Writer) (int, error) {
-	f, err := taskFlags("dispatch", args, "issue", "placement")
+	f, err := taskFlags("dispatch", args, "issue", "placement", "prompt-file")
 	if err != nil {
 		return 2, err
 	}
-	n, err := strconv.Atoi(*f["issue"])
-	if err != nil || n <= 0 {
-		return 2, fmt.Errorf("--issue %q: want an issue number", *f["issue"])
+	if (*f["issue"] == "") == (*f["prompt-file"] == "") {
+		return 2, fmt.Errorf("dispatch: want exactly one of --issue or --prompt-file")
 	}
 	raw := []byte(*f["placement"])
 	if *f["placement"] == "-" {
@@ -223,6 +224,29 @@ func dispatchCmd(args []string, stdin io.Reader, w io.Writer) (int, error) {
 		return 2, fmt.Errorf("--placement: %v (want the JSON orchd place printed)", err)
 	}
 	rn := pl.Runner
+
+	if *f["prompt-file"] != "" {
+		if rn.Mode != "cloud" {
+			return 2, fmt.Errorf("--prompt-file: runner.mode %q: only cloud is supported", rn.Mode)
+		}
+		prompt, err := os.ReadFile(*f["prompt-file"])
+		if err != nil {
+			return 1, err
+		}
+		ns, err := readNS(*f["ns"])
+		if err != nil {
+			return 1, err
+		}
+		if cloudSession(ns) == "" {
+			return 2, fmt.Errorf("no cloud session for ns %s: set CLAUDE_CLOUD_SESSION or cloudWorkerSession in %s (create one with `claude --cloud`)", *f["ns"], namespacesFile())
+		}
+		return cloudSend(cloudSession(ns), string(prompt), w)
+	}
+
+	n, err := strconv.Atoi(*f["issue"])
+	if err != nil || n <= 0 {
+		return 2, fmt.Errorf("--issue %q: want an issue number", *f["issue"])
+	}
 	if rn.Mode != "subagent" && rn.Mode != "process" && rn.Mode != "cloud" && rn.Mode != "vm" {
 		return 2, fmt.Errorf("--placement: runner.mode %q: want subagent, process, cloud or vm", rn.Mode)
 	}

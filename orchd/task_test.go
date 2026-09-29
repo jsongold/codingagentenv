@@ -204,6 +204,36 @@ func TestStatus(t *testing.T) {
 	}
 }
 
+func TestDispatchPromptFileCloud(t *testing.T) {
+	taskEnv(t, `{"default":{"cloudWorkerSession":"sess-1"}}`) // session only, like cad-2
+	d := t.TempDir()
+	pf := filepath.Join(d, "wake.md")
+	os.WriteFile(pf, []byte("wake up"), 0o644)
+	calls := fakeShell(t, map[string]string{"claude -p": `{"result":"ok"}`})
+	code, m, errs := runTask(t, "dispatch", "--prompt-file", pf, "--placement", `{"runner":{"mode":"cloud"}}`)
+	if code != 0 || m["result"] != "ok" {
+		t.Fatalf("code %d %v %s", code, m, errs)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("want exactly 1 call (no git/gh), got %v", *calls)
+	}
+	c := (*calls)[0]
+	if got := strings.Join(append([]string{c[1], c[2]}, c[4:]...), " "); got != "claude -p --cloud sess-1 --output-format json" || c[3] != "wake up" {
+		t.Errorf("claude call %v", c)
+	}
+}
+
+func TestDispatchPromptFileNonCloud(t *testing.T) {
+	taskEnv(t, `{"default":{"cloudWorkerSession":"sess-1"}}`)
+	d := t.TempDir()
+	pf := filepath.Join(d, "wake.md")
+	os.WriteFile(pf, []byte("wake up"), 0o644)
+	fakeShell(t, nil)
+	if code, _, errs := runTask(t, "dispatch", "--prompt-file", pf, "--placement", `{"runner":{"mode":"subagent"}}`); code != 2 {
+		t.Errorf("code %d (%s)", code, errs)
+	}
+}
+
 func TestDispatchReusesBranchOfEarlierRun(t *testing.T) { // the branch exists (earlier dispatch), the worktree does not
 	taskEnv(t, reg)
 	calls := fakeShell(t, map[string]string{"gh issue view": issueJSON})

@@ -29,15 +29,15 @@ const usageText = `usage:
   orchd pick [--ns default] [--repo o/r] [--path dir]
       claim the oldest open issue labeled ai without wip/ai-failed (adds wip); print {issue:{n,title,body}, classes:[{name,criteria}]}
       or {none, reason}. repo/path: flags > namespace registry > git toplevel of the CWD + gh repo view
-  orchd dispatch --issue <n> --placement <json|-> [--ns default] [--repo o/r] [--path dir]
-      hand issue n to the place output's runner.mode: subagent = create worktree <path>-task-<n> (branch
-      task/<n> off origin/main), print {runner, worktree, prompt}; process = same worktree, start runner.cmd
-      + prompt in the background, print {started, worktree, pid, log}; cloud = claude -p <prompt> --cloud
-      <CLAUDE_CLOUD_SESSION | registry cloudWorkerSession> --output-format json, print its output;
+  orchd dispatch (--issue <n> | --prompt-file <path>) --placement <json|-> [--ns default] [--repo o/r] [--path dir]
+      --issue: hand issue n to the place output's runner.mode: subagent = create worktree <path>-task-<n>
+      (branch task/<n> off origin/main), print {runner, worktree, prompt}; process = same worktree, start
+      runner.cmd + prompt in the background, print {started, worktree, pid, log}; cloud = claude -p <prompt>
+      --cloud <CLAUDE_CLOUD_SESSION | registry cloudWorkerSession> --output-format json, print its output;
       vm = runner.instance must be stopped: set its metadata worker-task and start it (Compute API); the VM
       runs runner.image as opencode-worker-<n> on boot; print {started, instance, zone, project, container, task, startSec}
-  orchd wake [--ns default]
-      mode != sleep: print {skipped:true, mode}, exit 0; mode == sleep: send the fixed wake prompt via dispatch's cloud path, print its output
+      --prompt-file: send that file's content as the prompt via the cloud path only (registry lookup, no
+      git/gh); any other runner.mode exits 2
   orchd status --issue <n> [--pid <pid>] [--ns default] [--repo o/r] [--path dir]
       print {issue, pr, state, running?}: the PR whose body says "Closes #n" (OPEN wins), and with --pid
       whether the dispatched process still runs. One quick gh call; supervisors poll it
@@ -99,8 +99,6 @@ func cmd(args []string, w io.Writer) (int, error) {
 		return pickCmd(args[1:], w)
 	case "dispatch":
 		return dispatchCmd(args[1:], os.Stdin, w)
-	case "wake":
-		return wakeCmd(args[1:], w)
 	case "status":
 		return statusCmd(args[1:], w)
 	case "vm":
