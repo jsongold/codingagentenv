@@ -166,6 +166,6 @@ echo '{"tickets":{"system":"github","spec":{"label":"cdir:spec"}}}' >"$TMP/cdir/
 check "CLAUDE_DIR: global harness.json is read from there" 1 "$(CLAUDE_DIR="$TMP/cdir" HARNESS_GH="$TMP/bin/gh-label" ss startup "$TMP/sp" | grep -c '^- #7 label=cdir:spec$')"
 echo 'not json' >"$HOME/.claude/harness.json"
 check "invalid json: treated as unset" 0 "$(ss startup "$TMP/sp" 2>/dev/null | grep -c '^\[harness\] spec')"
-check "invalid json: one-line warning on stderr" 1 "$(ss startup "$TMP/sp" 2>&1 >/dev/null | grep -c '^\[harness\] warning: .*harness.json is not readable JSON')"
+check "invalid json: silent (nothing on stderr)" "" "$(ss startup "$TMP/sp" 2>&1 >/dev/null)"
 
 exit $FAILED

@@ -72,12 +72,11 @@ fi
 # Ticket system from harness.json (where tickets live, and how a spec is told
 # apart among them). The project's .claude/harness.json wins over
 # ${CLAUDE_DIR:-~/.claude}/harness.json (CLAUDE_DIR as in bin/codingenv, the
-# global default); the first file with a "tickets" key decides. Only what is
-# needed to act is checked, since each environment writes it its own way:
-# prints "github<TAB><spec label or empty>", "other<TAB><system><TAB><project
-# or empty>" for any other system (not validated), or nothing when unset (no
-# "tickets", or system null). Unknown keys are ignored. Only unreadable JSON
-# warns (one line on stderr) and is treated as unset.
+# global default); the first file with a "tickets" key decides. Nothing is
+# validated, since each environment writes it its own way; values are used as
+# read. Prints "github<TAB><spec label or empty>", "other<TAB><system><TAB>
+# <project or empty>" for any other system, or nothing when unset (no
+# "tickets", system null, or a file jq cannot read). Unknown keys are ignored.
 TICKETS_JQ='
   (if type == "object" and has("tickets") then .tickets else empty end) as $t
   | ($t | if type == "object" then .system else null end) as $s
@@ -88,10 +87,7 @@ tickets_conf() {
   local f r
   for f in "$DIR/.claude/harness.json" "${CLAUDE_DIR:-$HOME/.claude}/harness.json"; do
     [ -f "$f" ] || continue
-    if ! r=$(jq -r "$TICKETS_JQ" "$f" 2>/dev/null); then
-      echo "[harness] warning: $f is not readable JSON; tickets treated as unset" >&2
-      return 0
-    fi
+    r=$(jq -r "$TICKETS_JQ" "$f" 2>/dev/null) || return 0
     [ -n "$r" ] || continue
     [ "$r" = off ] || echo "$r"
     return 0

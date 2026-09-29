@@ -42,7 +42,7 @@ project ごとのルールを書く。トップレベルのキーがルールの
 {"tickets":{"system":"jira","project":"BATCH","spec":{"label":"spec"}}}
 ```
 
-`system` が無いか `null` なら未設定（spec を探さない）。見るのは動くのに必須の所だけで、細かいスキーマは決めない（環境ごとに書き方が違うため）。github で spec 一覧を出すには `spec.label` が要る（無ければ黙って出さない）。github 以外の `system`（jira など）は検証せず、SessionStart に「チケット管理: <system> (<project>)。一覧取得は未対応」を 1 行出すだけ。読めない JSON だけは stderr に警告を出して未設定として扱う。
+`system` が無いか `null` なら未設定（spec を探さない）。検証はしない（環境ごとに書き方が違うため、スキーマは決めない）。値は読めたものをそのまま使う：github で `spec.label` があれば spec 一覧を出し、github 以外の `system`（jira など）は SessionStart に「チケット管理: <system> (<project>)。一覧取得は未対応」を 1 行出すだけ。読めない JSON は黙って未設定として扱う。
 
 ## この repo のファイル
 
