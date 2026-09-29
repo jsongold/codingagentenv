@@ -18,9 +18,14 @@ check() { # name, expected, actual
 }
 
 # --- SessionStart ---
-mkdir -p "$TMP/filled/docs/decisions" "$TMP/empty" "$TMP/template"
+mkdir -p "$TMP/filled" "$TMP/empty" "$TMP/template" "$TMP/bin"
 printf '# PROGRESS\n- 最終更新：2026-09-20 11:00\n## 次の一手\n1. do the thing\n' >"$TMP/filled/PROGRESS.md"
-touch "$TMP/filled/docs/decisions/0000-template.md" "$TMP/filled/docs/decisions/0001-foo.md"
+# Fake gh: prints what `gh issue list ... --jq` would, or fails / hangs.
+printf '#!/bin/sh\necho "#92 spec: global harness"\necho "#93 spec: deploy"\n' >"$TMP/bin/gh-ok"
+printf '#!/bin/sh\necho partial; exit 1\n' >"$TMP/bin/gh-fail"
+printf '#!/bin/sh\nsleep 5; echo "#1 late"\n' >"$TMP/bin/gh-slow"
+chmod +x "$TMP/bin/"gh-*
+export HARNESS_GH="$TMP/bin/gh-ok"
 printf '# PROGRESS\n- 最終更新：YYYY-MM-DD HH:MM\n' >"$TMP/template/PROGRESS.md"
 
 ss() { # source, project dir
@@ -29,7 +34,15 @@ ss() { # source, project dir
 
 OUT=$(ss startup "$TMP/filled")
 check "startup injects PROGRESS.md" 1 "$(printf '%s' "$OUT" | grep -c 'do the thing')"
-check "startup lists ADRs without the template" 1 "$(printf '%s' "$OUT" | grep -c 'ADR: 0001-foo.md $')"
+check "startup lists doc:spec Issues" 2 "$(printf '%s' "$OUT" | grep -c '^- #9[23] spec: ')"
+check "no gh: spec list is silent" 0 "$(HARNESS_GH="$TMP/bin/none" ss startup "$TMP/filled" | grep -c '^\[harness\] spec')"
+check "gh failing: spec list is silent" 0 "$(HARNESS_GH="$TMP/bin/gh-fail" ss startup "$TMP/filled" | grep -c -e 'partial' -e '^\[harness\] spec')"
+START=$(date +%s)
+OUT=$(HARNESS_GH="$TMP/bin/gh-slow" HARNESS_SPEC_TIMEOUT=1 ss startup "$TMP/filled")
+check "gh hanging: exits 0" 0 $?
+check "gh hanging: gives up within the timeout" yes "$([ $(($(date +%s) - START)) -le 3 ] && echo yes || echo no)"
+check "gh hanging: spec list is silent" 0 "$(printf '%s' "$OUT" | grep -c 'late')"
+check "gh hanging: handoff still injected" 1 "$(printf '%s' "$OUT" | grep -c 'do the thing')"
 check "startup points at /pickup" 1 "$(printf '%s' "$OUT" | grep -c '/pickup')"
 check "clear injects" 1 "$(ss clear "$TMP/filled" | grep -c 'do the thing')"
 check "compact injects" 1 "$(ss compact "$TMP/filled" | grep -c 'do the thing')"
@@ -53,16 +66,15 @@ mk_handoff "$TMP/h2" alpha "alpha purpose" "2026-09-20 10:00" "alpha secret body
 mk_handoff "$TMP/h2" beta "beta purpose" "2026-09-21 09:00" "beta secret body"
 touch -t 202609200000 "$TMP/h2/.claude/handoff/alpha.md"
 touch -t 202609210000 "$TMP/h2/.claude/handoff/beta.md"
-mkdir -p "$TMP/h2/docs/decisions" && touch "$TMP/h2/docs/decisions/0001-foo.md"
 OUT=$(ss startup "$TMP/h2")
 check "two handoffs: list heading" 1 "$(printf '%s' "$OUT" | grep -c '^\[harness\] handoff 一覧 (session source: startup)$')"
 check "two handoffs: alpha line" 1 "$(printf '%s' "$OUT" | grep -c '^- alpha | 最終更新: 2026-09-20 10:00 | 目的: alpha purpose$')"
 check "two handoffs: beta line" 1 "$(printf '%s' "$OUT" | grep -c '^- beta | 最終更新: 2026-09-21 09:00 | 目的: beta purpose$')"
-check "two handoffs: newest first" "beta alpha" "$(printf '%s' "$OUT" | grep '^- ' | sed 's/^- \([a-z0-9-]*\) .*/\1/' | tr '\n' ' ' | sed 's/ $//')"
+check "two handoffs: newest first" "beta alpha" "$(printf '%s' "$OUT" | grep '^- [a-z0-9-]* | ' | sed 's/^- \([a-z0-9-]*\) .*/\1/' | tr '\n' ' ' | sed 's/ $//')"
 check "two handoffs: body is not injected" 0 "$(printf '%s' "$OUT" | grep -c 'secret body')"
 check "two handoffs: asks for /pickup <name> in the list note" 1 "$(printf '%s' "$OUT" | grep -c '^.harness. 複数の handoff がある。/pickup <name>')"
 check "two handoffs: closing prompt uses /pickup <name>" 1 "$(printf '%s' "$OUT" | grep -c '作業を始める前に /pickup <name> の手順')"
-check "two handoffs: still lists ADRs" 1 "$(printf '%s' "$OUT" | grep -c 'ADR: 0001-foo.md $')"
+check "two handoffs: still lists specs" 2 "$(printf '%s' "$OUT" | grep -c '^- #9[23] spec: ')"
 check "two handoffs: resume is silent" "" "$(ss resume "$TMP/h2")"
 check "two handoffs: fork is silent" "" "$(ss fork "$TMP/h2")"
 

@@ -3,9 +3,9 @@
 **Mission**: コーディングエージェントを 24/7 動かし続け、コストを最小に抑えながら計算資源と AI の使用枠を使い切る（[docs/mission.md](docs/mission.md)）。
 
 /clear 後も文脈を失わず、作業を GitHub Issue 経由で Subagent に実行させるためのハーネス。
-ハーネス本体は global（`~/.claude/`）に置き、各 project はデータだけを持つ（ADR-0003）。テンプレートを各 repo にコピーする方式はやめた。
+ハーネス本体は global（`~/.claude/`）に置き、各 project はデータだけを持つ（#92）。テンプレートを各 repo にコピーする方式はやめた。
 
-## global への展開（ADR-0005）
+## global への展開（#93）
 編集は repo 内だけで行い、`~/.claude/` 配下は直接編集しない。展開はユーザーが次のコマンドで行う。`jq` が必要。
 
 ```sh
@@ -20,8 +20,8 @@ install が行うこと：
 - `bin/codingenv` を `~/.local/bin/codingenv`（`BIN_DIR` で変更可）へ symlink する
 - `tools/*` を同じ `BIN_DIR` へ同名で symlink する（同名の通常ファイルがあればその tool だけ飛ばす）
 - `skills/*` と `hooks/harness-*.sh` を `~/.claude/skills/`、`~/.claude/hooks/` へ symlink する
-- `~/.claude/settings.json` に SessionStart hook を追記する。旧版が入れた TaskCompleted hook と `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` は取り除く（ADR-0016）
-  - SessionStart：handoff が1件ならその全文、複数なら一覧を ADR 一覧とともに文脈に入れる。handoff が無ければ旧 PROGRESS.md を後方互換で読む。handoff も PROGRESS.md も無い project では何もしない
+- `~/.claude/settings.json` に SessionStart hook を追記する。旧版が入れた TaskCompleted hook と `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` は取り除く（#103）
+  - SessionStart：handoff が1件ならその全文、複数なら一覧を、open な `doc:spec` Issue の一覧とともに文脈に入れる（gh が無い・通信できないときは Issue 一覧を省く）。handoff が無ければ旧 PROGRESS.md を後方互換で読む。handoff も PROGRESS.md も無い project では何もしない
 - `~/.claude/CLAUDE.md` のハーネス節を `global/CLAUDE.harness.md` の内容に置き換える（マーカー区間。他の節は変更しない）
 
 hook の登録と CLAUDE.md の節は、repo を直したあと install を再実行するまで反映されない。symlink の中身（skill と hook script）は即座に全 project に効く。install 後は Claude Code を再起動する。
@@ -29,7 +29,7 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 注意：この repo を移動・削除すると symlink が切れ、全 project で skill と hook が使えなくなる。
 
 ## 各 project が持つもの（すべて任意）
-- `.claude/handoff/<name>.md`、`docs/decisions/`、`docs/context/`。旧 `PROGRESS.md` は後方互換で読む
+- `.claude/handoff/<name>.md`、`docs/context/`。設計判断は label `doc:spec` の GitHub Issue に置く。旧 `PROGRESS.md` は後方互換で読む
 
 これらが無い状態でも skill は動く。
 
@@ -40,7 +40,7 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 | CLAUDE.md | 業務の要点・コマンド・他ファイルへの案内 | 起動時・/clear後に自動 | 月 |
 | docs/context/business.md | 業務フロー・ルール・AIが誤解しやすい点 | 必要な時（CLAUDE.mdから案内） | 四半期〜月 |
 | docs/context/glossary.md | 業務用語とコード上の名前の対応 | 必要な時 | 随時 |
-| docs/decisions/0000-template.md | ADR（設計判断と却下した案） | 必要な時 | 決定ごと |
+| .github/ISSUE_TEMPLATE/spec.md | 設計判断（`doc:spec` Issue）のテンプレート | Issue を作る時 | 決定ごと |
 | .claude/handoff/<name>.md | 進行中タスクの引き継ぎ（1セッション1ファイル） | pickupスキルと SessionStart hook | セッションごと |
 | .claude/settings.json | この project の plugin・skill の設定 | 起動時に自動 | 固定 |
 | skills/taskman/SKILL.md | 依頼を分類して Task を作る手順 | `/taskman` で呼ぶ | 固定 |
@@ -63,7 +63,7 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 3. `/clear`
 4. `/pickup` → エージェントの復唱を確認・修正 → 作業再開
 
-## 配置ロジック（ADR-0010）
+## 配置ロジック（#97）
 調整するものはファイルに置く。配置（`classes`・`rules`・`modes`・`runners`）は `orchd/policy.json`、収集対象（`agents`・`computers`・`collect`）は `cad/config.json`。どちらも実行ファイルの場所から見つけるので CWD に依存しない。分類だけ Orchestrator（Claude）が行い、配置は `orchd place`（[orchd/README.md](orchd/README.md)。cad から usage・capacity を HTTP で読む）が policy の `rules`（順序付きの決定リスト、先勝ち）を上から評価して決定的に返す（同じ入力なら同じ出力）。
 
 ```

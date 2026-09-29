@@ -1,7 +1,12 @@
-# ADR-XXXX: <決定のタイトル>
+---
+name: spec（設計判断）
+about: 設計判断と却下した案を残す。label doc:spec
+title: "spec: <決定のタイトル>"
+labels: doc:spec
+---
 
 - 日付：YYYY-MM-DD
-- 状態：提案 / 採用 / 置き換え（→ ADR-YYYY）
+- 状態：提案 / 採用 / 置き換え（→ #<Issue 番号>）
 
 ## 文脈
 <何が問題で、どんな制約があったか>

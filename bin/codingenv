@@ -1,9 +1,9 @@
 #!/bin/bash
 # harness — deploys this repo's harness into ~/.claude. The repo is the only
-# source of truth; nothing under ~/.claude is edited by hand (ADR-0005).
+# source of truth; nothing under ~/.claude is edited by hand (#93).
 #
 #   bin/codingenv install     symlink skills and hooks, register hooks, drop
-#                           retired hooks and env (ADR-0016),
+#                           retired hooks and env (#103),
 #                           sync the harness section of ~/.claude/CLAUDE.md,
 #                           link this command into ~/.local/bin as `codingenv`
 #                           and tools/* into ~/.local/bin under their own names
@@ -31,7 +31,7 @@ SECTION="$ROOT/global/CLAUDE.harness.md"
 BEGIN='<!-- harness:begin (managed by codingagentenv bin/harness; do not edit) -->'
 END='<!-- harness:end -->'
 HEADING='## ハーネス（全プロジェクト共通）'
-# Removed from the harness (ADR-0016); install and uninstall clean them out of
+# Removed from the harness (#103); install and uninstall clean them out of
 # an existing settings.json and hooks directory.
 RETIRED_ENV=CLAUDE_CODE_ENABLE_TODO_TOOLS
 RETIRED_HOOKS='TaskCompleted:harness-task-completed.sh'

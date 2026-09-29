@@ -22,7 +22,7 @@ type UsageWindow struct {
 	RateLimited bool      `json:"rateLimited,omitempty"` // the service says this window is exhausted (opencode)
 }
 
-// AgentUsage is one agent's subscription usage (ADR-0010 window filter). Error is set when the
+// AgentUsage is one agent's subscription usage (#97 window filter). Error is set when the
 // collector could not refresh it; Stale when the value it read is older than 2 intervals.
 type AgentUsage struct {
 	FiveHour  *UsageWindow `json:"fiveHour"` // nil (JSON null): the account has no such window

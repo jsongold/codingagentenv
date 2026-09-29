@@ -54,7 +54,7 @@ func newServer(h *hub, token string) http.Handler {
 	})
 }
 
-// nsRe validates the required ns query parameter (ADR-0010; one namespace per cad for now).
+// nsRe validates the required ns query parameter (#97; one namespace per cad for now).
 var nsRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 // requireNS answers 400 and returns false when ?ns= is missing or malformed.

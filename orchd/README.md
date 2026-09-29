@@ -1,6 +1,6 @@
 # orchd
 
-task を「どの agent に・どの computer で」やらせるか決める（place）小さな CLI（Go、標準ライブラリのみ）。決めた runner を実行する（dispatch）。[ADR-0011](../docs/decisions/0011-orchd-hatchet.md) で `cad` から分けた。判断のロジックは [ADR-0010](../docs/decisions/0010-placement.md)。
+task を「どの agent に・どの computer で」やらせるか決める（place）小さな CLI（Go、標準ライブラリのみ）。決めた runner を実行する（dispatch）。[#98](https://github.com/jsongold/codingagentenv/issues/98) で `cad` から分けた。判断のロジックは [#97](https://github.com/jsongold/codingagentenv/issues/97)。
 
 - `cad` を import しない。usage と capacity は起動中の cad から HTTP（`GET /v1/usage?ns=`、`GET /v1/capacity?ns=`）で読む
 - 後で置き換え・削除する前提。**`rm -rf orchd tools/orchd` で消せる**（cad はそのまま動く）
@@ -35,7 +35,7 @@ tools/orchd dispatch --placement "$json"                      # "$json" = place 
 
 ## MODE
 
-MODE は place が使う rule の一覧を切り替える（[ADR-0010](../docs/decisions/0010-placement.md)）。
+MODE は place が使う rule の一覧を切り替える（[#97](https://github.com/jsongold/codingagentenv/issues/97)）。
 
 - `auto`（既定）：top-level `rules`。local は最後の手段（今は self: Claude cloud → opencode: gce-spot → gce-std → self: local → opencode: local）
 - `urgent`：`modes.urgent.rules`。local の rule を先に、その後に auto の rule（self: local → opencode: local → self: Claude cloud → opencode: gce-spot → gce-std）。`modes.<name>.rules` を足せば mode を増やせる

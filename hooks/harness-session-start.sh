@@ -69,8 +69,28 @@ else
   echo '-----'
 fi
 
-if [ -d "$DIR/docs/decisions" ]; then
-  echo "[harness] ADR: $(ls "$DIR/docs/decisions" | grep -v '^0000-' | tr '\n' ' ')"
-fi
-echo "[harness] 作業を始める前に $PICKUP の手順に従うこと：handoff と GitHub Issues で残タスクを確認し、「目的・完了条件・次の一手」を3行で復唱する。置き換え済みの ADR と却下した案は再提案しない。"
+# Open design specs (Issues labeled doc:spec, #103). Best effort: no gh, no
+# network, no label or a slow answer all print nothing. HARNESS_GH and
+# HARNESS_SPEC_TIMEOUT (seconds) exist for the tests.
+spec_list() {
+  local gh=${HARNESS_GH:-gh} limit=$((${HARNESS_SPEC_TIMEOUT:-3} * 10)) out pid i=0
+  command -v "$gh" >/dev/null 2>&1 || return 0
+  out=$(mktemp 2>/dev/null) || return 0
+  (cd "$DIR" 2>/dev/null || exit 1; exec "$gh" issue list --label doc:spec --state open --limit 50 \
+    --json number,title --jq '.[] | "#\(.number) \(.title)"' >"$out" 2>/dev/null) &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    [ "$i" -ge "$limit" ] && { kill "$pid" 2>/dev/null; : >"$out"; break; }
+    sleep 0.1
+    i=$((i + 1))
+  done
+  wait "$pid" 2>/dev/null || : >"$out"
+  if [ -s "$out" ]; then
+    echo "[harness] spec（doc:spec の open Issue。gh issue view <番号> で読む）:"
+    sed 's/^/- /' "$out"
+  fi
+  rm -f "$out"
+}
+spec_list
+echo "[harness] 作業を始める前に $PICKUP の手順に従うこと：handoff と GitHub Issues で残タスクを確認し、「目的・完了条件・次の一手」を3行で復唱する。doc:spec Issue の置き換え済みの決定と却下した案は再提案しない。"
 exit 0

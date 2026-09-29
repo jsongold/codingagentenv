@@ -14,7 +14,7 @@ argument-hint: "[やりたいこと | #issue]"
 3. 新規と、Input・Output が変わる既存の境界ごとにテンプレートを埋める。
 4. 隣り合う境界の Output と Input が一致しているかを確認する。ずれていたら 2 に戻る。
 5. 最後に Node Graph を Mermaid で書く。境界をノード、データの受け渡しを矢印にし、矢印にはデータの名前を付ける。
-6. 設計を Issue か PR の本文に書く。どちらも無ければ Issue を作る。
+6. 設計を Issue か PR の本文に書く。どちらも無ければ label `doc:spec` を付けて Issue を作る（`gh issue create --label doc:spec`、タイトルは `spec: <内容>`）。
 
 ## テンプレート
     ## 流れ
