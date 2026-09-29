@@ -9,3 +9,5 @@ merge してよい条件（すべて満たす）：
 - P0/P1 がゼロ（依頼直後でコメント未着は「指摘なし」ではない）
 - CI があれば green
 - repo は codingagentenv のみ
+
+作った PR は mcp__Claude_Code_Remote__subscribe_pr_activity で購読する（レビュー・CI・コメントでこのセッションが起きる）。
