@@ -156,8 +156,8 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 			}
 			p.Runner.Session = cloudSession(reg)
 		}
-		if p.Runner.Stdin != "" && !filepath.IsAbs(p.Runner.Stdin) { // policy.json stores it relative to the app dir
-			p.Runner.Stdin = filepath.Join(appDir(), p.Runner.Stdin)
+		if p.Runner.Stdin != "" && !filepath.IsAbs(p.Runner.Stdin) { // policy.json stores it relative to itself
+			p.Runner.Stdin = filepath.Join(filepath.Dir(policyFile()), p.Runner.Stdin)
 		}
 		out.Runner = *p.Runner
 	case http.StatusConflict: // every fitting agent is over a usage window

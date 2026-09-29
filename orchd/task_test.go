@@ -122,10 +122,34 @@ func TestPlaceSleepFillsSession(t *testing.T) { // cad-2's timer: no --class, se
 		t.Fatalf("code %d %s", code, errs)
 	}
 	rn := m["runner"].(map[string]any)
-	if want := filepath.Join(appDir(), "wake.md"); m["computer"] != "claude-cloud" || rn["session"] != "sess-1" || rn["stdin"] != want {
+	if want := filepath.Join(filepath.Dir(policyFile()), "wake.md"); m["computer"] != "claude-cloud" || rn["session"] != "sess-1" || rn["stdin"] != want {
 		t.Errorf("out %v", m)
 	}
 	if len(*calls) != 0 {
 		t.Errorf("no git/gh: %v", *calls)
+	}
+}
+
+// runner.stdin in policy.json is relative to the policy file's own directory, not the CWD or a
+// hardcoded app dir: ORCHD_POLICY pointing elsewhere must resolve stdin next to it.
+func TestPlaceStdinRelativeToPolicyDir(t *testing.T) {
+	taskEnv(t, reg)
+	fakeCad(t, seedUsage(), 0)
+	fakeShell(t, nil)
+	d := t.TempDir()
+	pol, err := os.ReadFile("policy.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pf := filepath.Join(d, "policy.json")
+	os.WriteFile(pf, pol, 0o644)
+	t.Setenv("ORCHD_POLICY", pf)
+	code, m, errs := runTask(t, "place", "--mode", "sleep")
+	if code != 0 {
+		t.Fatalf("code %d %s", code, errs)
+	}
+	rn := m["runner"].(map[string]any)
+	if want := filepath.Join(d, "wake.md"); rn["stdin"] != want {
+		t.Errorf("stdin %v want %s", rn["stdin"], want)
 	}
 }
