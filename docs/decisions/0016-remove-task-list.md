@@ -1,7 +1,7 @@
 # ADR-0016: 内蔵 Task list をやめ、Task は GitHub Issue で管理する
 
 - 日付：2026-09-29
-- 状態：採用
+- 状態：採用（ADR-0002、0004、0006 を置き換え）
 
 ## 文脈
 - これまでは内蔵 Task list（`TaskCreate` / `TaskList` / `TaskUpdate` / `TaskGet`）をタスク管理に使い、`VERIFIED:` 行の無い completed を TaskCompleted hook で拒否し、その hook にトークン消費の記録を載せていた。
