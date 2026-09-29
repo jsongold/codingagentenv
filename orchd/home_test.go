@@ -52,3 +52,9 @@ func TestCadAddr(t *testing.T) {
 		t.Errorf("env: %s", got)
 	}
 }
+
+func TestClaudeConfigDirDefaultIsEmpty(t *testing.T) {
+	if got := claudeConfigDir("claude/default"); got != "" {
+		t.Errorf("claude/default must not get a CLAUDE_CONFIG_DIR: %q", got)
+	}
+}
