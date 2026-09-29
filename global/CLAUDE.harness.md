@@ -20,6 +20,7 @@
 - PR 本文には、その PR で「〜ができること」を箇条書きのチェックリスト（`- [ ] 〜ができる`）で書く。レビュアーが動作確認でチェックを付けられる粒度にする
 - PR のブランチに main を取り込むときは rebase ではなく merge（`git merge origin/main`）。履歴を書き換えないので force push が不要になる。force push はしない
 - main セッションはオーケストレーター専任。実装・gate・merge・CI 待ち・レビュー・調査はすべて Subagent に出し、報告は 10 行以内にさせる
+- Subagent にタスクを渡すときは、使うモデル（例: sonnet / opus / haiku / fable）をユーザーに伝える
 - Subagent は 1 回のツール呼び出しを約 4 分以内に収める（600 秒進捗なしで watchdog に殺される）。長い pytest・CI 待ち・レビューは `run_in_background` で走らせてポーリングする
 - merge 前のチェック（gate）の中身はアプリ依存で、ハーネスは持たない。正は対象 repo の CI（GitHub Actions）、spec の `done` は Worker / Subagent 上の事前確認。重いコマンドの同時実行数はホストの空き容量で決まり、その関門はメタデータアプリ `cad` が担う（Issue #10）。クラウドでは 1 sandbox = 1 run で、並列数 = worker 数。テスト DB は per-run コンテナを作らず、共有 Postgres（`testdb up` / `testdb url <worktree>` で worktree ごとに 1 DB）を使う
 - merge には「実装者とは別のレビュアーによる独立した AI レビュー」と CI green（CI がある repo のみ）が必須。レビュアーは policy の優先順リストから選び、quota 切れなら自動で次にフォールバックする。現行の手段は `ai-review <pr> <worktree> --implementer <name>`（GitHub の Codex bot → `codex-localreview` → Claude の順。復帰待ちは `codex-probe <queue-file>` をバックグラウンドで）。実装者自身のレビューは事前チェック扱いで、merge 条件にはならない
