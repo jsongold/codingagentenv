@@ -30,7 +30,7 @@
   "runners": {
     "claude":   { "mode": "subagent" },
     "claude@claude-cloud": { "mode": "cloud", "cmd": ["claude", "-p", "--cloud", "{session}", "--output-format", "json"],
-      "stdin": "/app/orchd/wake.md" },
+      "stdin": "wake.md" },
     "opencode": { "mode": "process", "cmd": ["opencode", "run", "--model", "{model}"], "model": "opencode-go/deepseek-v4-pro" },
     "opencode@gce-spot": { "mode": "vm", "instance": "worker-spot", "zone": "us-central1-a", "project": "suggestorder-dev",
       "image": "ghcr.io/jsongold/codingagentenv/opencode-worker:main", "model": "opencode-go/deepseek-v4-pro" },

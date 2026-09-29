@@ -190,7 +190,7 @@ func TestPlaceSleepFillsSession(t *testing.T) { // cad-2's timer: no --class, se
 		t.Fatalf("code %d %s", code, errs)
 	}
 	rn := m["runner"].(map[string]any)
-	if m["computer"] != "claude-cloud" || rn["session"] != "sess-1" || rn["stdin"] != "/app/orchd/wake.md" {
+	if want := filepath.Join(appDir(), "wake.md"); m["computer"] != "claude-cloud" || rn["session"] != "sess-1" || rn["stdin"] != want {
 		t.Errorf("out %v", m)
 	}
 	if len(*calls) != 0 {
