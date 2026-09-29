@@ -2,8 +2,8 @@
 # harness — deploys this repo's harness into ~/.claude. The repo is the only
 # source of truth; nothing under ~/.claude is edited by hand (#93).
 #
-#   bin/codingenv install     symlink skills and hooks, register hooks, drop
-#                           retired hooks and env (#103),
+#   bin/codingenv install     symlink skills, hooks and global/harness.json,
+#                           register hooks, drop retired hooks and env (#103),
 #                           sync the harness section of ~/.claude/CLAUDE.md,
 #                           link this command into ~/.local/bin as `codingenv`
 #                           and tools/* into ~/.local/bin under their own names
@@ -27,6 +27,7 @@ CMD=codingenv # name of the command install links into BIN_DIR
 SETTINGS="$CLAUDE_DIR/settings.json"
 MEMORY="$CLAUDE_DIR/CLAUDE.md"
 SECTION="$ROOT/global/CLAUDE.harness.md"
+CONFIG="$ROOT/global/harness.json" # linked as CLAUDE_DIR/harness.json
 # The marker text is matched against the deployed ~/.claude/CLAUDE.md; do not rename it.
 BEGIN='<!-- harness:begin (managed by codingagentenv bin/harness; do not edit) -->'
 END='<!-- harness:end -->'
@@ -116,6 +117,11 @@ install() {
   for entry in $HOOKS; do
     ln -sfn "$ROOT/hooks/${entry#*:}" "$CLAUDE_DIR/hooks/${entry#*:}"
   done
+  if [ -e "$CLAUDE_DIR/harness.json" ] && [ ! -L "$CLAUDE_DIR/harness.json" ]; then
+    echo "skip harness.json: $CLAUDE_DIR/harness.json exists and is not a symlink" >&2
+  else
+    ln -sfn "$CONFIG" "$CLAUDE_DIR/harness.json"
+  fi
 
   [ -f "$SETTINGS" ] || echo '{}' >"$SETTINGS"
   backup "$SETTINGS"
@@ -147,6 +153,7 @@ uninstall() {
     [ "$(readlink "$CLAUDE_DIR/skills/$name" 2>/dev/null)" = "$ROOT/skills/$name" ] && rm "$CLAUDE_DIR/skills/$name"
   done
   unlink_hooks $HOOKS $RETIRED_HOOKS
+  [ "$(readlink "$CLAUDE_DIR/harness.json" 2>/dev/null)" = "$CONFIG" ] && rm "$CLAUDE_DIR/harness.json"
   if [ -f "$SETTINGS" ]; then
     backup "$SETTINGS"
     drop_retired
@@ -176,6 +183,7 @@ status() {
   for name in $SKILLS; do
     report "skill $name" "$(same "$(readlink "$CLAUDE_DIR/skills/$name" 2>/dev/null)" "$ROOT/skills/$name")"
   done
+  report "config harness.json" "$(same "$(readlink "$CLAUDE_DIR/harness.json" 2>/dev/null)" "$CONFIG")"
   for entry in $HOOKS; do
     local script=${entry#*:} event=${entry%%:*}
     report "hook script $script" "$(same "$(readlink "$CLAUDE_DIR/hooks/$script" 2>/dev/null)" "$ROOT/hooks/$script")"

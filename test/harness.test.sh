@@ -45,6 +45,7 @@ check "tools are linked" "$ROOT/tools/codex-probe" "$(readlink "$TMP/bin/codex-p
 check "skills are symlinked" "$ROOT/skills/dispatch" "$(readlink "$FAKE/skills/dispatch")"
 check "other skills are untouched" yes "$([ -d "$FAKE/skills/mine" ] && echo yes)"
 check "hook scripts are symlinked" "$ROOT/hooks/harness-session-start.sh" "$(readlink "$FAKE/hooks/harness-session-start.sh")"
+check "harness.json is symlinked" "$ROOT/global/harness.json" "$(readlink "$FAKE/harness.json")"
 check "retired hook link is removed" no "$([ -L "$FAKE/hooks/harness-task-completed.sh" ] && echo yes || echo no)"
 check "existing hooks are kept" existing "$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$FAKE/settings.json")"
 check "SessionStart registered once" 2 "$(jq '.hooks.SessionStart | length' "$FAKE/settings.json")"
@@ -71,6 +72,12 @@ rm "$FAKE/hooks/harness-task-completed.sh"
 harness status >/dev/null
 check "status passes once leftovers are gone" 0 $?
 
+# status reports a missing harness.json link as drift.
+rm "$FAKE/harness.json"
+harness status >/dev/null 2>&1
+check "status detects a missing harness.json link" 1 $?
+harness install >/dev/null
+
 sed -i.orig 's/^- 1ファイル.*$/- edited by hand/' "$FAKE/CLAUDE.md"
 harness status >/dev/null 2>&1
 check "status detects a hand-edited section" 1 $?
@@ -82,6 +89,7 @@ check "uninstall removes the command link" no "$([ -e "$TMP/bin/codingenv" ] && 
 check "uninstall removes tool links" no "$([ -e "$TMP/bin/codex-probe" ] && echo yes || echo no)"
 check "uninstall removes skill links" no "$([ -e "$FAKE/skills/dispatch" ] && echo yes || echo no)"
 check "uninstall removes hook links" no "$([ -e "$FAKE/hooks/harness-session-start.sh" ] && echo yes || echo no)"
+check "uninstall removes the harness.json link" no "$([ -e "$FAKE/harness.json" ] || [ -L "$FAKE/harness.json" ] && echo yes || echo no)"
 check "uninstall keeps existing hooks" existing "$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$FAKE/settings.json")"
 check "uninstall drops its SessionStart group" 1 "$(jq '.hooks.SessionStart | length' "$FAKE/settings.json")"
 check "uninstall keeps others' TaskCompleted" 2 "$(jq '.hooks.TaskCompleted | length' "$FAKE/settings.json")"
@@ -104,6 +112,17 @@ harness uninstall >/dev/null
 check "uninstall without settings unlinks hooks" no "$([ -e "$FAKE/hooks/harness-session-start.sh" ] && echo yes || echo no)"
 check "uninstall without settings unlinks retired hooks" no "$([ -L "$FAKE/hooks/harness-task-completed.sh" ] && echo yes || echo no)"
 check "uninstall without settings creates none" no "$([ -e "$FAKE/settings.json" ] && echo yes || echo no)"
+
+# A hand-written harness.json is kept: install skips it, uninstall leaves it.
+FAKE="$TMP/ownconf"
+mkdir -p "$FAKE"
+echo '{"spec":{"store":"files","dir":"d"}}' >"$FAKE/harness.json"
+harness install >/dev/null 2>&1
+check "install keeps a regular harness.json" files "$(jq -r .spec.store "$FAKE/harness.json")"
+harness status >/dev/null 2>&1
+check "status reports a regular harness.json as drift" 1 $?
+harness uninstall >/dev/null
+check "uninstall keeps a regular harness.json" yes "$([ -f "$FAKE/harness.json" ] && [ ! -L "$FAKE/harness.json" ] && echo yes)"
 
 # An unrelated file already named harness must not be overwritten.
 FAKE="$TMP/blocked"
