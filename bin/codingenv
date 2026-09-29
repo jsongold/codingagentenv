@@ -39,9 +39,21 @@ RETIRED_HOOKS='TaskCompleted:harness-task-completed.sh'
 
 SKILLS=$(cd "$ROOT/skills" && ls -d */ | tr -d /)
 TOOLS=$(cd "$ROOT/tools" && ls) # linked into BIN_DIR under their own names
-HOOKS='SessionStart:harness-session-start.sh'
+HOOKS='SessionStart:harness-session-start.sh PreToolUse:harness-scope-check.ts'
 
-hook_command() { printf 'bash "$HOME/.claude/hooks/%s"' "$1"; }
+hook_command() {
+  case "$1" in
+    *.ts) printf 'node "$HOME/.claude/hooks/%s"' "$1" ;;
+    *) printf 'bash "$HOME/.claude/hooks/%s"' "$1" ;;
+  esac
+}
+# PreToolUse runs only on Bash, and only when a subcommand starts with gh.
+hook_filter() { # event -> JSON merged into the group / the handler
+  case "$1" in
+    PreToolUse) printf '{"group":{"matcher":"Bash"},"handler":{"if":"Bash(gh *)"}}' ;;
+    *) printf '{"group":{},"handler":{}}' ;;
+  esac
+}
 
 backup() {
   [ -f "$1" ] && cp "$1" "$1.bak-$(date +%Y%m%d-%H%M%S)-harness"
@@ -128,10 +140,11 @@ install() {
   drop_retired
   for entry in $HOOKS; do
     # Append a group unless one already runs the same script.
-    update_settings --arg event "${entry%%:*}" --arg command "$(hook_command "${entry#*:}")" '
+    update_settings --arg event "${entry%%:*}" --arg command "$(hook_command "${entry#*:}")" \
+      --argjson filter "$(hook_filter "${entry%%:*}")" '
       .hooks[$event] //= []
       | if any(.hooks[$event][]?.hooks[]?; .command == $command) then .
-        else .hooks[$event] += [{hooks: [{type: "command", command: $command, timeout: 10}]}]
+        else .hooks[$event] += [$filter.group + {hooks: [{type: "command", command: $command, timeout: 10} + $filter.handler]}]
         end'
   done
 
