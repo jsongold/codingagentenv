@@ -16,7 +16,8 @@
     "sleep": { "rules": [
       { "agent": "claude/*", "computer": "claude-cloud" },
       { "agent": "opencode/*", "computer": "gce-spot" }, { "agent": "opencode/*", "computer": "gce-std" }
-    ] }
+    ] },
+    "awake": { "rules": [] }
   },
   "placement": { "reservePct": 15, "staleUsage": "pass" },
   "classes": {
