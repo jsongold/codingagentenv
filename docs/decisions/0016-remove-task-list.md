@@ -6,11 +6,11 @@
 ## 文脈
 - これまでは内蔵 Task list（`TaskCreate` / `TaskList` / `TaskUpdate` / `TaskGet`）をタスク管理に使い、`VERIFIED:` 行の無い completed を TaskCompleted hook で拒否し、その hook にトークン消費の記録を載せていた。
 - Task list は `~/.claude/tasks/` にあるマシンローカルの状態で、`CLAUDE_CODE_ENABLE_TODO_TOOLS` と project ごとの `CLAUDE_CODE_TASK_LIST_ID` を要する。マシンをまたげず、cloud worker や sleep 中の CCO（ADR-0014、0015）からは見えない。
-- `/dispatch`（PR #90）は Task を GitHub Issue として登録し、Subagent を呼ぶだけになった。Task の入口はすでに Issue（Issue #10）。
+- PR #90 で、Task は `/taskman` が作り、Issue への登録・worktree・wave の進行は main loop（Orchestrator）が行い、`/dispatch` は Agent（Subagent）を呼ぶだけになった。Task の入口はすでに Issue（Issue #10）。
 - ユーザーはローカル依存を減らすため、進捗を GitHub Issues で追うと決めた。
 
 ## 決定
-- Task は GitHub Issue で管理する。Subagent が実装・検証・コミットし、完了の判断は Orchestrator（main）がする。
+- Task は GitHub Issue で管理する。main loop が `/taskman` の Task を Issue に登録してから `/dispatch` に渡す。Subagent が実装・検証・コミットし、完了の判断は Orchestrator（main）がする。
 - 次を廃止する：Task tools の使用、`VERIFIED:` 行の要件、TaskCompleted hook（`hooks/harness-task-completed.sh`）、`CLAUDE_CODE_ENABLE_TODO_TOOLS`、`CLAUDE_CODE_TASK_LIST_ID`。
 - トークン消費の記録も TaskCompleted hook と一緒に廃止し、`.claude/token-usage.jsonl` を削除する。
 - /clear をまたぐ状態は handoff（`.claude/handoff/<name>.md`、ADR-0007）と Issue に残す。handoff には担当する Issue 番号を書く。
