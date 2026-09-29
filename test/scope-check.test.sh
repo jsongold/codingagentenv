@@ -20,7 +20,7 @@ run() {
   code=$?
   echo "$code|$err"
 }
-BLOCK='2|本文に「追加・変更するもの」（例: `- 追加: skill \`/foo\``）を書いてから作る'
+BLOCK='2|本文に「追加・変更するもの」（例: `- 追加: skill /foo`）を書いてから作る'
 
 # Pass
 check "pr create with list in --body" "0|" "$(run 'gh pr create --title t --body "目的：x

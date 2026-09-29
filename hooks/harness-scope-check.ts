@@ -11,7 +11,7 @@ import { resolve } from "node:path";
 const TARGET = /\bgh\s+(issue|pr)\s+create\b/;
 const BODY_FILE = /(?:^|\s)(?:--body-file|-F)(?:=|\s+)(?:"([^"]*)"|'([^']*)'|(\S+))/;
 const SCOPE_LINE = /(?:^|["'])\s*-\s*(追加|変更|削除)[:：]\s*\S+\s+`[^`]+`/m;
-const MESSAGE = "本文に「追加・変更するもの」（例: `- 追加: skill \\`/foo\\``）を書いてから作る";
+const MESSAGE = "本文に「追加・変更するもの」（例: `- 追加: skill /foo`）を書いてから作る";
 
 function body(command: string, cwd: string): string {
   const m = command.match(BODY_FILE);
