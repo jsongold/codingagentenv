@@ -190,10 +190,82 @@ func TestPlaceSleepFillsSession(t *testing.T) { // cad-2's timer: no --class, se
 		t.Fatalf("code %d %s", code, errs)
 	}
 	rn := m["runner"].(map[string]any)
-	if m["computer"] != "claude-cloud" || rn["session"] != "sess-1" || rn["stdin"] != "/app/orchd/wake.md" {
+	dir, _ := filepath.Abs(filepath.Dir(policyFile())) // runner.stdin is always resolved to an absolute path
+	if want := filepath.Join(dir, "wake.md"); m["computer"] != "claude-cloud" || rn["session"] != "sess-1" || rn["stdin"] != want {
 		t.Errorf("out %v", m)
 	}
 	if len(*calls) != 0 {
 		t.Errorf("no git/gh: %v", *calls)
+	}
+}
+
+// runner.cmd's {configDir} (claude@claude-cloud) is filled from the placed claude/<id> agent,
+// mirroring cad's usage-collector mapping (cad/usage.go usageStore).
+func TestPlaceSleepFillsConfigDir(t *testing.T) {
+	taskEnv(t, `{"default":{"cloudWorkerSession":"sess-1"}}`)
+	fakeCad(t, seedUsage(), 0)
+	fakeShell(t, nil)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	code, m, errs := runTask(t, "place", "--mode", "sleep")
+	if code != 0 {
+		t.Fatalf("code %d %s", code, errs)
+	}
+	rn := m["runner"].(map[string]any)
+	if want := filepath.Join(home, ".aienv", ".store", "a12e00a7"); rn["configDir"] != want {
+		t.Errorf("configDir %v want %s", rn["configDir"], want)
+	}
+}
+
+// runner.stdin in policy.json is relative to the policy file's own directory, not the CWD or a
+// hardcoded app dir: ORCHD_POLICY pointing elsewhere must resolve stdin next to it.
+func TestPlaceStdinRelativeToPolicyDir(t *testing.T) {
+	taskEnv(t, reg)
+	fakeCad(t, seedUsage(), 0)
+	fakeShell(t, nil)
+	d := t.TempDir()
+	pol, err := os.ReadFile("policy.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pf := filepath.Join(d, "policy.json")
+	os.WriteFile(pf, pol, 0o644)
+	t.Setenv("ORCHD_POLICY", pf)
+	code, m, errs := runTask(t, "place", "--mode", "sleep")
+	if code != 0 {
+		t.Fatalf("code %d %s", code, errs)
+	}
+	rn := m["runner"].(map[string]any)
+	if want := filepath.Join(d, "wake.md"); rn["stdin"] != want {
+		t.Errorf("stdin %v want %s", rn["stdin"], want)
+	}
+}
+
+// A relative ORCHD_POLICY (so filepath.Dir(policyFile()) is itself relative, e.g. ".") must still
+// resolve runner.stdin to an absolute path: dispatch may run from a different CWD.
+func TestPlaceStdinAbsoluteWithRelativePolicy(t *testing.T) {
+	taskEnv(t, reg)
+	fakeCad(t, seedUsage(), 0)
+	fakeShell(t, nil)
+	d := t.TempDir()
+	pol, err := os.ReadFile("policy.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wake, err := os.ReadFile("wake.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(d, "policy.json"), pol, 0o644)
+	os.WriteFile(filepath.Join(d, "wake.md"), wake, 0o644)
+	t.Chdir(d)
+	t.Setenv("ORCHD_POLICY", "policy.json") // relative: dir is "."
+	code, m, errs := runTask(t, "place", "--mode", "sleep")
+	if code != 0 {
+		t.Fatalf("code %d %s", code, errs)
+	}
+	rn := m["runner"].(map[string]any)
+	if want := filepath.Join(d, "wake.md"); rn["stdin"] != want || !filepath.IsAbs(rn["stdin"].(string)) {
+		t.Errorf("stdin %v want absolute %s", rn["stdin"], want)
 	}
 }
