@@ -4,6 +4,7 @@
 - 1ファイルの小さな修正と質問への回答は main が直接やる
 - Task は GitHub Issue で管理する。Subagent が実装・検証・コミットし、完了の判断は Orchestrator（main）がし、完了と判断したら `gh issue close <番号> --reason completed` で閉じる。1タスク = 1コミット
 - `/clear` 前は `/handoff`、`/clear` 後・新セッションの最初は `/pickup`（built-in の `/resume` とは別物）
+- spec（設計判断）の置き場は harness.json で決める（project の `.claude/harness.json` > `~/.claude/harness.json`。Issues なら label 付きの Issue、files なら dir のファイル）。未設定なら spec を探さない。設定は `/setupca`
 - キューや代替のタスク管理を自作しない。/clear をまたぐ状態は handoff と Issue に残す
 - この節・skill・hook の正本は codingagentenv リポジトリ。`~/.claude/` 側を直接編集せず、リポジトリを直して `bin/codingenv install` で展開する
 - 出力・インターフェースを推測で断言しない。実行結果 / 型定義 / API仕様など実物で確認する

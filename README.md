@@ -1,3 +1,5 @@
+| global/harness.json | `~/.claude/harness.json`（spec の置き場）の正本 | `bin/codingenv install` で展開 | 随時 |
+| skills/setupca/SKILL.md | harness.json を対話で作る手順 | `/setupca` で呼ぶ | 固定 |
 # codingagentenv — 全プロジェクト共通の Claude Code ハーネス
 
 **Mission**: コーディングエージェントを 24/7 動かし続け、コストを最小に抑えながら計算資源と AI の使用枠を使い切る（[docs/mission.md](docs/mission.md)）。
@@ -20,8 +22,9 @@ install が行うこと：
 - `bin/codingenv` を `~/.local/bin/codingenv`（`BIN_DIR` で変更可）へ symlink する
 - `tools/*` を同じ `BIN_DIR` へ同名で symlink する（同名の通常ファイルがあればその tool だけ飛ばす）
 - `skills/*` と `hooks/harness-*.sh` を `~/.claude/skills/`、`~/.claude/hooks/` へ symlink する
+- `global/harness.json` を `~/.claude/harness.json` へ symlink する（同名の通常ファイルがあれば飛ばす）
 - `~/.claude/settings.json` に SessionStart hook を追記する。旧版が入れた TaskCompleted hook と `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` は取り除く（#103）
-  - SessionStart：handoff が1件ならその全文、複数なら一覧を、open な `doc:spec` Issue の一覧とともに文脈に入れる（gh が無い・通信できないときは Issue 一覧を省く）。handoff が無ければ旧 PROGRESS.md を後方互換で読む。handoff も PROGRESS.md も無い project では何もしない
+  - SessionStart：handoff が1件ならその全文、複数なら一覧を、harness.json の spec store の一覧（label 付きの open Issue か dir のファイル）とともに文脈に入れる（未設定なら何も出さない。gh が無い・通信できないときは Issue 一覧を省く）。handoff が無ければ旧 PROGRESS.md を後方互換で読む。handoff も PROGRESS.md も無い project では何もしない
 - `~/.claude/CLAUDE.md` のハーネス節を `global/CLAUDE.harness.md` の内容に置き換える（マーカー区間。他の節は変更しない）
 
 hook の登録と CLAUDE.md の節は、repo を直したあと install を再実行するまで反映されない。symlink の中身（skill と hook script）は即座に全 project に効く。install 後は Claude Code を再起動する。
@@ -29,9 +32,19 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 注意：この repo を移動・削除すると symlink が切れ、全 project で skill と hook が使えなくなる。
 
 ## 各 project が持つもの（すべて任意）
-- `.claude/handoff/<name>.md`、`docs/context/`。設計判断は label `doc:spec` の GitHub Issue に置く。旧 `PROGRESS.md` は後方互換で読む
+- `.claude/handoff/<name>.md`、`docs/context/`。設計判断（spec）の置き場は `.claude/harness.json` で決める（下記）。旧 `PROGRESS.md` は後方互換で読む
 
 これらが無い状態でも skill は動く。
+
+## harness.json（spec の置き場）
+spec（設計判断）の置き場を環境ごとに選ぶ。優先順位は project の `.claude/harness.json` > global の `~/.claude/harness.json`（正本は `global/harness.json`）> 未設定。未設定なら hook も skill も spec を探さない。`/setupca` で対話で作れる。
+
+```json
+{"spec":{"store":"issues","label":"doc:spec"}}
+{"spec":{"store":"files","dir":"docs/decisions"}}
+```
+
+`store` を省略するか `null` にすると spec なし。
 
 ## この repo のファイル
 
