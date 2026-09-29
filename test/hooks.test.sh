@@ -31,7 +31,7 @@ export HARNESS_GH="$TMP/bin/gh-ok"
 # Global harness.json lives under a throwaway HOME, never the real ~/.claude.
 export HOME="$TMP/home"
 mkdir -p "$HOME/.claude"
-echo '{"spec":{"store":"issues","label":"doc:spec"}}' >"$HOME/.claude/harness.json"
+echo '{"tickets":{"system":"github","spec":{"label":"doc:spec"}}}' >"$HOME/.claude/harness.json"
 # The spec list runs only in a git repo with a github.com remote.
 gh_repo() { git init -q "$1" && git -C "$1" remote add origin "${2:-https://github.com/example/repo.git}"; }
 gh_repo "$TMP/filled"
@@ -129,37 +129,41 @@ printf '# handoff\n- 最終更新：YYYY-MM-DD HH:MM\n' >"$TMP/hp/.claude/handof
 OUT=$(ss startup "$TMP/hp")
 check "template-only handoff + PROGRESS.md: falls back to PROGRESS.md" 1 "$(printf '%s' "$OUT" | grep -c 'progress only line')"
 
-# --- SessionStart: spec store from harness.json (project > global > unset) ---
-mkdir -p "$TMP/sp/.claude" "$TMP/sp/docs/decisions"
+# --- SessionStart: tickets from harness.json (project > global > unset) ---
+mkdir -p "$TMP/sp/.claude"
 gh_repo "$TMP/sp"
 printf '# PROGRESS\n- 最終更新：2026-09-20 11:00\n## 次の一手\n1. sp work\n' >"$TMP/sp/PROGRESS.md"
-touch "$TMP/sp/docs/decisions/0001-a.md" "$TMP/sp/docs/decisions/0002-b.md"
 OUT=$(HARNESS_GH="$TMP/bin/gh-label" ss startup "$TMP/sp")
-check "global issues: passes the label to gh" 1 "$(printf '%s' "$OUT" | grep -c '^- #7 label=doc:spec$')"
-check "global issues: no-repropose note" 1 "$(printf '%s' "$OUT" | grep -c '再提案しない')"
-echo '{"spec":{"store":"issues","label":"proj:spec"}}' >"$TMP/sp/.claude/harness.json"
-check "project issues label wins over global" 1 "$(HARNESS_GH="$TMP/bin/gh-label" ss startup "$TMP/sp" | grep -c '^- #7 label=proj:spec$')"
-echo '{"spec":{"store":"files","dir":"docs/decisions"}}' >"$TMP/sp/.claude/harness.json"
+check "global github: passes the spec label to gh" 1 "$(printf '%s' "$OUT" | grep -c '^- #7 label=doc:spec$')"
+check "global github: no-repropose note" 1 "$(printf '%s' "$OUT" | grep -c '再提案しない')"
+echo '{"tickets":{"system":"github","spec":{"label":"proj:spec"}}}' >"$TMP/sp/.claude/harness.json"
+check "project spec label wins over global" 1 "$(HARNESS_GH="$TMP/bin/gh-label" ss startup "$TMP/sp" | grep -c '^- #7 label=proj:spec$')"
+echo '{"tickets":{"system":"github"}}' >"$TMP/sp/.claude/harness.json"
+check "github without spec: no spec list" 0 "$(ss startup "$TMP/sp" | grep -c -e '^\[harness\] spec' -e '再提案しない')"
+echo '{"tickets":{"system":"jira","project":"BATCH","spec":{"label":"spec"}}}' >"$TMP/sp/.claude/harness.json"
 OUT=$(ss startup "$TMP/sp")
-check "project files: lists the files in dir" "- docs/decisions/0001-a.md - docs/decisions/0002-b.md" "$(printf '%s' "$OUT" | grep '^- docs/' | tr '\n' ' ' | sed 's/ $//')"
-check "project files: heading" 1 "$(printf '%s' "$OUT" | grep -c '^\[harness\] spec（docs/decisions のファイル）:$')"
-check "project files: gh is not called" 0 "$(printf '%s' "$OUT" | grep -c '#9[23]')"
-echo '{"spec":{"store":null}}' >"$TMP/sp/.claude/harness.json"
+check "jira: one line naming the project" 1 "$(printf '%s' "$OUT" | grep -c '^\[harness\] チケット管理: Jira (BATCH)。一覧取得は未対応$')"
+check "jira: gh is not called" 0 "$(printf '%s' "$OUT" | grep -c -e '#9[23]' -e '^\[harness\] spec')"
+check "jira: closing prompt names Jira" 1 "$(printf '%s' "$OUT" | grep -c 'handoff と Jira (BATCH) で残タスク')"
+echo '{"tickets":{"system":null}}' >"$TMP/sp/.claude/harness.json"
 OUT=$(ss startup "$TMP/sp")
-check "project store null overrides global: no spec" 0 "$(printf '%s' "$OUT" | grep -c -e '^\[harness\] spec' -e '#9[23]' -e '再提案しない')"
-check "project store null: context still injected" 1 "$(printf '%s' "$OUT" | grep -c 'sp work')"
+check "project system null overrides global: no spec" 0 "$(printf '%s' "$OUT" | grep -c -e '^\[harness\] spec' -e '#9[23]' -e '再提案しない')"
+check "project system null: context still injected" 1 "$(printf '%s' "$OUT" | grep -c 'sp work')"
 echo '{"other":1}' >"$TMP/sp/.claude/harness.json"
-check "project file without spec falls back to global" 2 "$(ss startup "$TMP/sp" | grep -c '^- #9[23] spec: ')"
+check "project file without tickets falls back to global" 2 "$(ss startup "$TMP/sp" | grep -c '^- #9[23] spec: ')"
+check "unknown top-level key: no warning" 0 "$(ss startup "$TMP/sp" 2>&1 >/dev/null | grep -c 'warning')"
+echo '{"tickets":{"system":"GitHub"}}' >"$TMP/sp/.claude/harness.json"
+ERR=$(ss startup "$TMP/sp" 2>&1 >/dev/null)
+check "invalid system: one-line warning on stderr" 1 "$(printf '%s\n' "$ERR" | grep -c '^\[harness\] warning: .*harness.json is invalid')"
+check "invalid system: treated as unset" 0 "$(ss startup "$TMP/sp" 2>/dev/null | grep -c -e '^\[harness\] spec' -e '#9[23]' -e '再提案しない')"
 rm "$TMP/sp/.claude/harness.json" "$HOME/.claude/harness.json"
 OUT=$(ss startup "$TMP/sp")
 check "unset: no spec list" 0 "$(printf '%s' "$OUT" | grep -c -e '^\[harness\] spec' -e '#9[23]' -e '再提案しない')"
 check "unset: context still injected" 1 "$(printf '%s' "$OUT" | grep -c 'sp work')"
-echo '{"spec":{"store":"files","dir":"docs/decisions"}}' >"$HOME/.claude/harness.json"
-check "global files: lists the files" 2 "$(ss startup "$TMP/sp" | grep -c '^- docs/decisions/')"
 mkdir -p "$TMP/cdir"
-echo '{"spec":{"store":"issues","label":"cdir:spec"}}' >"$TMP/cdir/harness.json"
+echo '{"tickets":{"system":"github","spec":{"label":"cdir:spec"}}}' >"$TMP/cdir/harness.json"
 check "CLAUDE_DIR: global harness.json is read from there" 1 "$(CLAUDE_DIR="$TMP/cdir" HARNESS_GH="$TMP/bin/gh-label" ss startup "$TMP/sp" | grep -c '^- #7 label=cdir:spec$')"
 echo 'not json' >"$HOME/.claude/harness.json"
-check "invalid json: treated as unset" 0 "$(ss startup "$TMP/sp" | grep -c '^\[harness\] spec')"
+check "invalid json: treated as unset" 0 "$(ss startup "$TMP/sp" 2>/dev/null | grep -c '^\[harness\] spec')"
 
 exit $FAILED

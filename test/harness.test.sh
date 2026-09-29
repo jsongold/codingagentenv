@@ -116,9 +116,9 @@ check "uninstall without settings creates none" no "$([ -e "$FAKE/settings.json"
 # A hand-written harness.json is kept: install skips it, uninstall leaves it.
 FAKE="$TMP/ownconf"
 mkdir -p "$FAKE"
-echo '{"spec":{"store":"files","dir":"d"}}' >"$FAKE/harness.json"
+echo '{"tickets":{"system":"jira","project":"X"}}' >"$FAKE/harness.json"
 harness install >/dev/null 2>&1
-check "install keeps a regular harness.json" files "$(jq -r .spec.store "$FAKE/harness.json")"
+check "install keeps a regular harness.json" jira "$(jq -r .tickets.system "$FAKE/harness.json")"
 harness status >/dev/null 2>&1
 check "status reports a regular harness.json as drift" 1 $?
 harness uninstall >/dev/null

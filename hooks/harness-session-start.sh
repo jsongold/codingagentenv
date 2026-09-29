@@ -69,14 +69,37 @@ else
   echo '-----'
 fi
 
-# Spec store from harness.json: the project's .claude/harness.json wins over
-# ${CLAUDE_DIR:-~/.claude}/harness.json (CLAUDE_DIR as in bin/codingenv); the
-# first file with a "spec" key decides. Prints
-# the path of that file, or nothing (unset: no spec lookup).
-spec_conf() {
-  local f
+# Ticket system from harness.json (where tickets live, and how a spec is told
+# apart among them). The project's .claude/harness.json wins over
+# ${CLAUDE_DIR:-~/.claude}/harness.json (CLAUDE_DIR as in bin/codingenv, the
+# global default); the first file with a "tickets" key decides. Prints
+# "<system><TAB><spec label>" for github, "jira<TAB><project>" for jira, or
+# nothing when unset (no "tickets", or system null). An invalid config
+# (broken JSON, unknown system, ...) is treated as unset with a one-line
+# warning on stderr.
+TICKETS_JQ='
+  if type != "object" then error("not a JSON object")
+  elif has("tickets") | not then empty
+  elif .tickets == null then "off"
+  elif (.tickets | type) != "object" then error("tickets must be an object")
+  elif .tickets.system == null then "off"
+  elif (.tickets.spec != null) and ((.tickets.spec.label? | type) != "string") then error("tickets.spec.label must be a string")
+  elif .tickets.system == "github" then "github\t\(.tickets.spec.label // "")"
+  elif .tickets.system == "jira" then
+    if (.tickets.project | type) == "string" and .tickets.project != "" then "jira\t\(.tickets.project)"
+    else error("jira needs tickets.project") end
+  else error("unknown tickets.system \(.tickets.system | tojson); use github, jira or null") end'
+tickets_conf() {
+  local f r
   for f in "$DIR/.claude/harness.json" "${CLAUDE_DIR:-$HOME/.claude}/harness.json"; do
-    jq -e 'has("spec")' "$f" >/dev/null 2>&1 && { echo "$f"; return 0; }
+    [ -f "$f" ] || continue
+    if ! r=$(jq -r "$TICKETS_JQ" "$f" 2>&1); then
+      echo "[harness] warning: $f is invalid, tickets treated as unset: $(printf '%s' "$r" | head -n 1)" >&2
+      return 0
+    fi
+    [ -n "$r" ] || continue
+    [ "$r" = off ] || echo "$r"
+    return 0
   done
   return 0
 }
@@ -108,27 +131,20 @@ spec_issues() { # label
   rm -f "$out"
 }
 
-spec_files() { # dir, relative to the project
-  local list
-  list=$(cd "$DIR" 2>/dev/null && find "$1" -maxdepth 1 -type f 2>/dev/null | sort)
-  [ -n "$list" ] || return 0
-  echo "[harness] spec（$1 のファイル）:"
-  printf '%s\n' "$list" | sed 's/^/- /'
-}
-
-CONF=$(spec_conf)
-STORE='' VALUE=''
-if [ -n "$CONF" ]; then
-  STORE=$(jq -r '.spec.store // ""' "$CONF" 2>/dev/null)
-  case "$STORE" in
-    issues) VALUE=$(jq -r '.spec.label // ""' "$CONF" 2>/dev/null) ;;
-    files) VALUE=$(jq -r '.spec.dir // ""' "$CONF" 2>/dev/null) ;;
-  esac
-fi
-SPEC_NOTE=''
-if [ -n "$VALUE" ]; then
-  if [ "$STORE" = issues ]; then spec_issues "$VALUE"; else spec_files "$VALUE"; fi
-  SPEC_NOTE=' spec の置き換え済みの決定と却下した案は再提案しない。'
-fi
-echo "[harness] 作業を始める前に $PICKUP の手順に従うこと：handoff と GitHub Issues で残タスクを確認し、「目的・完了条件・次の一手」を3行で復唱する。$SPEC_NOTE"
+CONF=$(tickets_conf)
+SYSTEM=${CONF%%	*} VALUE=${CONF#*	}
+TICKETS='GitHub Issues' SPEC_NOTE=''
+case "$SYSTEM" in
+  github)
+    if [ -n "$VALUE" ]; then
+      spec_issues "$VALUE"
+      SPEC_NOTE=' spec の置き換え済みの決定と却下した案は再提案しない。'
+    fi
+    ;;
+  jira)
+    TICKETS="Jira ($VALUE)"
+    echo "[harness] チケット管理: Jira ($VALUE)。一覧取得は未対応"
+    ;;
+esac
+echo "[harness] 作業を始める前に $PICKUP の手順に従うこと：handoff と $TICKETS で残タスクを確認し、「目的・完了条件・次の一手」を3行で復唱する。$SPEC_NOTE"
 exit 0
