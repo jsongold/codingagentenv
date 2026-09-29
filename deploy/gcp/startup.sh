@@ -120,31 +120,32 @@ OnUnitActiveSec=5min
 WantedBy=timers.target
 UNIT
 
-# Sleep loop (ADR-0015): every 5 minutes run `orchd wake` inside the cad container to wake the cloud worker
-# session. orchd decides whether to act: a no-op (exit 0, {"skipped":true,...}) unless `orchd mode set sleep`;
-# exit 3 = deferred (cad not ready), retried on the next run, so SuccessExitStatus=3 keeps the unit from being
-# marked failed. The task's container is cad.1.<task id>, so it is looked up by the swarm service label (as in
-# the README); no running task (mid update/rollback) is also a defer (exit 3). docker exec runs as the image's
-# user (cad) with its env (HOME=/data, ORCHD_STATE_DIR, ...). ExecCondition skips the run (exit 1 = condition not
-# met, not a failure; systemd.service "ExecCondition=") while cad-update.service is running, since that replaces
-# the container; see cad-update.service for the other half. The timer starts at boot+3min so the first runs do
-# not coincide with cad-update.timer's boot+2min. In the unit, $$ is systemd's literal $ (systemd.service
-# "Command lines"); \$ keeps this heredoc from expanding it.
+# Sleep loop (ADR-0015): every 5 minutes run `orchd place --mode sleep | orchd dispatch --placement -` inside
+# the cad container. The timer itself is the sleep switch (README: `systemctl start`/`stop orchd-sleep.timer`);
+# it is (re)created here on every boot but never enabled/started, so a reboot leaves sleep off until started
+# again. place's own exit codes (3 deferred, 4 no rule fits) do not reach systemd through the pipe -- dispatch's
+# exit is what the unit sees -- so SuccessExitStatus=3 below only covers this script's own container-lookup
+# defer, not a defer from place. The task's container is cad.1.<task id>, so it is looked up by the swarm
+# service label (as in the README); no running task (mid update/rollback) is also a defer (exit 3). docker exec
+# runs as the image's user (cad) with its env (HOME=/data, ORCHD_STATE_DIR, ...). ExecCondition skips the run
+# (exit 1 = condition not met, not a failure; systemd.service "ExecCondition=") while cad-update.service is
+# running, since that replaces the container; see cad-update.service for the other half. In the unit, $$ is
+# systemd's literal $ (systemd.service "Command lines"); \$ keeps this heredoc from expanding it.
 cat >/etc/systemd/system/orchd-sleep.service <<UNIT
 [Unit]
-Description=Sleep loop: orchd wake in the cad container (no-op unless the orchd mode is sleep)
+Description=Sleep loop: orchd place --mode sleep | orchd dispatch --placement - in the cad container
 After=docker.service
 
 [Service]
 Type=oneshot
 SuccessExitStatus=3
 ExecCondition=/bin/sh -c 'case "\$\$(systemctl is-active cad-update.service)" in activating|deactivating) echo "orchd-sleep: cad-update running; skipped"; exit 1;; esac'
-ExecStart=/bin/sh -c 'c=\$\$(/usr/bin/docker ps -q -f label=com.docker.swarm.service.name=cad -f status=running | head -n 1); [ -n "\$\$c" ] || { echo "orchd-sleep: no running cad container; deferred"; exit 3; }; exec /usr/bin/docker exec "\$\$c" /app/orchd/bin/orchd wake'
+ExecStart=/bin/sh -c 'c=\$\$(/usr/bin/docker ps -q -f label=com.docker.swarm.service.name=cad -f status=running | head -n 1); [ -n "\$\$c" ] || { echo "orchd-sleep: no running cad container; deferred"; exit 3; }; exec /usr/bin/docker exec "\$\$c" /bin/sh -c "/app/orchd/bin/orchd place --mode sleep | /app/orchd/bin/orchd dispatch --placement -"'
 UNIT
 
 cat >/etc/systemd/system/orchd-sleep.timer <<UNIT
 [Unit]
-Description=Run orchd wake every 5 minutes (sleep loop, ADR-0015)
+Description=Run orchd place --mode sleep | orchd dispatch every 5 minutes while started (sleep loop, ADR-0015)
 
 [Timer]
 OnBootSec=3min
@@ -155,4 +156,6 @@ WantedBy=timers.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable --now cad-update.timer orchd-sleep.timer
+systemctl enable --now cad-update.timer
+# orchd-sleep.timer is intentionally not enabled/started here: the timer itself is the sleep on/off switch
+# (README "sleep loop"), started by the owner before sleeping and stopped on waking.
