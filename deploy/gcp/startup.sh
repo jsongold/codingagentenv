@@ -120,7 +120,7 @@ OnCalendar=*:00/5
 WantedBy=timers.target
 UNIT
 
-# Sleep loop (ADR-0015): every 5 minutes run `orchd place --mode sleep | orchd dispatch --placement -` inside
+# Sleep loop (ADR-0015): every hour (:03) run `orchd place --mode sleep | orchd dispatch --placement -` inside
 # the cad container. The timer itself is the sleep switch (README: `systemctl start`/`stop orchd-sleep.timer`);
 # it is (re)created here on every boot but never enabled/started, so a reboot leaves sleep off until started
 # again. place's own exit codes (3 deferred, 4 no rule fits) do not reach systemd through the pipe -- dispatch's
@@ -145,11 +145,11 @@ UNIT
 
 cat >/etc/systemd/system/orchd-sleep.timer <<UNIT
 [Unit]
-Description=Run orchd place --mode sleep | orchd dispatch every 5 minutes while started (sleep loop, ADR-0015)
+Description=Run orchd place --mode sleep | orchd dispatch every hour while started (sleep loop, ADR-0015)
 
 [Timer]
-# 3 min after cad-update (*:00/5, ~1.5 min per run) so ExecCondition does not skip every run
-OnCalendar=*:03/5
+# hourly at :03, between cad-update runs (*:00/5, ~1.5 min each) so ExecCondition does not skip it
+OnCalendar=*:03
 
 [Install]
 WantedBy=timers.target
