@@ -69,14 +69,25 @@ else
   echo '-----'
 fi
 
-# Open design specs (Issues labeled doc:spec, #103). Best effort: no gh, no
-# network, no label or a slow answer all print nothing. HARNESS_GH and
-# HARNESS_SPEC_TIMEOUT (seconds) exist for the tests.
-spec_list() {
+# Spec store from harness.json: the project's .claude/harness.json wins over
+# ~/.claude/harness.json; the first file with a "spec" key decides. Prints
+# the path of that file, or nothing (unset: no spec lookup).
+spec_conf() {
+  local f
+  for f in "$DIR/.claude/harness.json" "$HOME/.claude/harness.json"; do
+    jq -e 'has("spec")' "$f" >/dev/null 2>&1 && { echo "$f"; return 0; }
+  done
+  return 0
+}
+
+# Open spec Issues (#103). Best effort: no gh, no network, no label or a slow
+# answer all print nothing. HARNESS_GH and HARNESS_SPEC_TIMEOUT (seconds)
+# exist for the tests.
+spec_issues() { # label
   local gh=${HARNESS_GH:-gh} limit=$((${HARNESS_SPEC_TIMEOUT:-3} * 10)) out pid i=0
   command -v "$gh" >/dev/null 2>&1 || return 0
   out=$(mktemp 2>/dev/null) || return 0
-  (cd "$DIR" 2>/dev/null || exit 1; exec "$gh" issue list --label doc:spec --state open --limit 50 \
+  (cd "$DIR" 2>/dev/null || exit 1; exec "$gh" issue list --label "$1" --state open --limit 50 \
     --json number,title --jq '.[] | "#\(.number) \(.title)"' >"$out" 2>/dev/null) &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
@@ -86,11 +97,33 @@ spec_list() {
   done
   wait "$pid" 2>/dev/null || : >"$out"
   if [ -s "$out" ]; then
-    echo "[harness] spec（doc:spec の open Issue。gh issue view <番号> で読む）:"
+    echo "[harness] spec（label $1 の open Issue。gh issue view <番号> で読む）:"
     sed 's/^/- /' "$out"
   fi
   rm -f "$out"
 }
-spec_list
-echo "[harness] 作業を始める前に $PICKUP の手順に従うこと：handoff と GitHub Issues で残タスクを確認し、「目的・完了条件・次の一手」を3行で復唱する。doc:spec Issue の置き換え済みの決定と却下した案は再提案しない。"
+
+spec_files() { # dir, relative to the project
+  local list
+  list=$(cd "$DIR" 2>/dev/null && find "$1" -maxdepth 1 -type f 2>/dev/null | sort)
+  [ -n "$list" ] || return 0
+  echo "[harness] spec（$1 のファイル）:"
+  printf '%s\n' "$list" | sed 's/^/- /'
+}
+
+CONF=$(spec_conf)
+STORE='' VALUE=''
+if [ -n "$CONF" ]; then
+  STORE=$(jq -r '.spec.store // ""' "$CONF" 2>/dev/null)
+  case "$STORE" in
+    issues) VALUE=$(jq -r '.spec.label // ""' "$CONF" 2>/dev/null) ;;
+    files) VALUE=$(jq -r '.spec.dir // ""' "$CONF" 2>/dev/null) ;;
+  esac
+fi
+SPEC_NOTE=''
+if [ -n "$VALUE" ]; then
+  if [ "$STORE" = issues ]; then spec_issues "$VALUE"; else spec_files "$VALUE"; fi
+  SPEC_NOTE=' spec の置き換え済みの決定と却下した案は再提案しない。'
+fi
+echo "[harness] 作業を始める前に $PICKUP の手順に従うこと：handoff と GitHub Issues で残タスクを確認し、「目的・完了条件・次の一手」を3行で復唱する。$SPEC_NOTE"
 exit 0
