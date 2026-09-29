@@ -187,7 +187,11 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 			p.Runner.ConfigDir = claudeConfigDir(p.Agent)
 		}
 		if p.Runner.Stdin != "" && !filepath.IsAbs(p.Runner.Stdin) { // policy.json stores it relative to itself
-			p.Runner.Stdin = filepath.Join(filepath.Dir(policyFile()), p.Runner.Stdin)
+			dir, err := filepath.Abs(filepath.Dir(policyFile())) // policyFile()/appDir() can be relative (e.g. ".")
+			if err != nil {
+				return 1, err
+			}
+			p.Runner.Stdin = filepath.Join(dir, p.Runner.Stdin)
 		}
 		out.Runner = *p.Runner
 	case http.StatusConflict: // every fitting agent is over a usage window
