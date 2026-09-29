@@ -69,44 +69,18 @@ else
   echo '-----'
 fi
 
-# Ticket system from harness.json (where tickets live, and how a spec is told
-# apart among them). The project's .claude/harness.json wins over
-# ${CLAUDE_DIR:-~/.claude}/harness.json (CLAUDE_DIR as in bin/codingenv, the
-# global default); the first file with a "tickets" key decides. Nothing is
-# validated, since each environment writes it its own way; values are used as
-# read. Prints "github<TAB><spec label or empty>", "other<TAB><system><TAB>
-# <project or empty>" for any other system, or nothing when unset (no
-# "tickets", system null, or a file jq cannot read). Unknown keys are ignored.
-TICKETS_JQ='
-  (if type == "object" and has("tickets") then .tickets else empty end) as $t
-  | ($t | if type == "object" then .system else null end) as $s
-  | if $s == null then "off"
-    elif $s == "github" then "github\t\(($t.spec | objects | .label | strings) // "")"
-    else "other\t\($s | tostring)\t\(($t.project // "") | tostring)" end'
-tickets_conf() {
-  local f r
-  for f in "$DIR/.claude/harness.json" "${CLAUDE_DIR:-$HOME/.claude}/harness.json"; do
-    [ -f "$f" ] || continue
-    r=$(jq -r "$TICKETS_JQ" "$f" 2>/dev/null) || return 0
-    [ -n "$r" ] || continue
-    [ "$r" = off ] || echo "$r"
-    return 0
-  done
-  return 0
-}
-
-# Open spec Issues (#103). Best effort: no gh, no network, no label or a slow
-# answer all print nothing. HARNESS_GH and HARNESS_SPEC_TIMEOUT (seconds)
-# exist for the tests.
+# Open design specs (Issues labeled doc:spec, #103). Best effort: no gh, no
+# network, no label or a slow answer all print nothing. HARNESS_GH and
+# HARNESS_SPEC_TIMEOUT (seconds) exist for the tests.
 # gh goes over the network, so it runs only on startup / clear (compact keeps
 # the session going) and only in a git repo with a github.com remote.
-spec_issues() { # label
+spec_list() {
   local gh=${HARNESS_GH:-gh} limit=$((${HARNESS_SPEC_TIMEOUT:-3} * 10)) out pid i=0
   [ "$SOURCE" = compact ] && return 0
   git -C "$DIR" remote -v 2>/dev/null | grep -q 'github\.com[:/]' || return 0
   command -v "$gh" >/dev/null 2>&1 || return 0
   out=$(mktemp 2>/dev/null) || return 0
-  (cd "$DIR" 2>/dev/null || exit 1; exec "$gh" issue list --label "$1" --state open --limit 50 \
+  (cd "$DIR" 2>/dev/null || exit 1; exec "$gh" issue list --label doc:spec --state open --limit 50 \
     --json number,title --jq '.[] | "#\(.number) \(.title)"' >"$out" 2>/dev/null) &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
@@ -116,29 +90,11 @@ spec_issues() { # label
   done
   wait "$pid" 2>/dev/null || : >"$out"
   if [ -s "$out" ]; then
-    echo "[harness] spec（label $1 の open Issue。gh issue view <番号> で読む）:"
+    echo "[harness] spec（doc:spec の open Issue。gh issue view <番号> で読む）:"
     sed 's/^/- /' "$out"
   fi
   rm -f "$out"
 }
-
-CONF=$(tickets_conf)
-TICKETS='GitHub Issues' SPEC_NOTE=''
-case "$CONF" in
-  github*)
-    LABEL=${CONF#github	}
-    if [ -n "$LABEL" ]; then
-      spec_issues "$LABEL"
-      SPEC_NOTE=' spec の置き換え済みの決定と却下した案は再提案しない。'
-    fi
-    ;;
-  other*)
-    REST=${CONF#other	}
-    SYSTEM=${REST%%	*} PROJECT=${REST#*	}
-    TICKETS=$SYSTEM
-    [ -n "$PROJECT" ] && TICKETS="$SYSTEM ($PROJECT)"
-    echo "[harness] チケット管理: ${TICKETS}。一覧取得は未対応"
-    ;;
-esac
-echo "[harness] 作業を始める前に $PICKUP の手順に従うこと：handoff と $TICKETS で残タスクを確認し、「目的・完了条件・次の一手」を3行で復唱する。$SPEC_NOTE"
+spec_list
+echo "[harness] 作業を始める前に $PICKUP の手順に従うこと：handoff と GitHub Issues で残タスクを確認し、「目的・完了条件・次の一手」を3行で復唱する。doc:spec Issue の置き換え済みの決定と却下した案は再提案しない。"
 exit 0

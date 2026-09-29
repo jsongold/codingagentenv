@@ -22,7 +22,7 @@ install が行うこと：
 - `skills/*` と `hooks/harness-*.sh` を `~/.claude/skills/`、`~/.claude/hooks/` へ symlink する
 - `global/harness.json` を `~/.claude/harness.json` へ symlink する（同名の通常ファイルがあれば飛ばす）
 - `~/.claude/settings.json` に SessionStart hook を追記する。旧版が入れた TaskCompleted hook と `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` は取り除く（#103）
-  - SessionStart：handoff が1件ならその全文、複数なら一覧を、harness.json の tickets に従って spec の一覧（github なら spec の label 付きの open Issue。github 以外は「一覧取得は未対応」の 1 行）とともに文脈に入れる（未設定なら何も出さない。gh が無い・通信できないときは Issue 一覧を省く）。handoff が無ければ旧 PROGRESS.md を後方互換で読む。handoff も PROGRESS.md も無い project では何もしない
+  - SessionStart：handoff が1件ならその全文、複数なら一覧を、open な `doc:spec` Issue の一覧とともに文脈に入れる（gh が無い・通信できないときは Issue 一覧を省く）。handoff が無ければ旧 PROGRESS.md を後方互換で読む。handoff も PROGRESS.md も無い project では何もしない
 - `~/.claude/CLAUDE.md` のハーネス節を `global/CLAUDE.harness.md` の内容に置き換える（マーカー区間。他の節は変更しない）
 
 hook の登録と CLAUDE.md の節は、repo を直したあと install を再実行するまで反映されない。symlink の中身（skill と hook script）は即座に全 project に効く。install 後は Claude Code を再起動する。
@@ -42,7 +42,7 @@ project ごとのルールを書く。トップレベルのキーがルールの
 {"tickets":{"system":"jira","project":"BATCH","spec":{"label":"spec"}}}
 ```
 
-`system` が無いか `null` なら未設定（spec を探さない）。検証はしない（環境ごとに書き方が違うため、スキーマは決めない）。値は読めたものをそのまま使う：github で `spec.label` があれば spec 一覧を出し、github 以外の `system`（jira など）は SessionStart に「チケット管理: <system> (<project>)。一覧取得は未対応」を 1 行出すだけ。読めない JSON は黙って未設定として扱う。
+読むのは skill（pickup・design・handoff）と orchd/wake.md。`system` が無いか `null` なら未設定（spec を探さない）。github なら `spec.label` で spec を探す（`gh issue list --label <tickets.spec.label>`）。github 以外（jira など）は一覧取得は未対応。形は `/setupca` が書くときに担保する。
 
 ## この repo のファイル
 

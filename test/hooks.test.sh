@@ -25,13 +25,7 @@ printf '#!/bin/sh\necho "#92 spec: global harness"\necho "#93 spec: deploy"\n' >
 printf '#!/bin/sh\necho partial; exit 1\n' >"$TMP/bin/gh-fail"
 printf '#!/bin/sh\nsleep 5; echo "#1 late"\n' >"$TMP/bin/gh-slow"
 chmod +x "$TMP/bin/"gh-*
-printf '#!/bin/sh\necho "#7 label=$4"\n' >"$TMP/bin/gh-label"
-chmod +x "$TMP/bin/gh-label"
 export HARNESS_GH="$TMP/bin/gh-ok"
-# Global harness.json lives under a throwaway HOME, never the real ~/.claude.
-export HOME="$TMP/home"
-mkdir -p "$HOME/.claude"
-echo '{"tickets":{"system":"github","spec":{"label":"doc:spec"}}}' >"$HOME/.claude/harness.json"
 # The spec list runs only in a git repo with a github.com remote.
 gh_repo() { git init -q "$1" && git -C "$1" remote add origin "${2:-https://github.com/example/repo.git}"; }
 gh_repo "$TMP/filled"
@@ -128,44 +122,5 @@ rm "$TMP/hp/.claude/handoff/solo.md"
 printf '# handoff\n- 最終更新：YYYY-MM-DD HH:MM\n' >"$TMP/hp/.claude/handoff/tpl.md"
 OUT=$(ss startup "$TMP/hp")
 check "template-only handoff + PROGRESS.md: falls back to PROGRESS.md" 1 "$(printf '%s' "$OUT" | grep -c 'progress only line')"
-
-# --- SessionStart: tickets from harness.json (project > global > unset) ---
-mkdir -p "$TMP/sp/.claude"
-gh_repo "$TMP/sp"
-printf '# PROGRESS\n- 最終更新：2026-09-20 11:00\n## 次の一手\n1. sp work\n' >"$TMP/sp/PROGRESS.md"
-OUT=$(HARNESS_GH="$TMP/bin/gh-label" ss startup "$TMP/sp")
-check "global github: passes the spec label to gh" 1 "$(printf '%s' "$OUT" | grep -c '^- #7 label=doc:spec$')"
-check "global github: no-repropose note" 1 "$(printf '%s' "$OUT" | grep -c '再提案しない')"
-echo '{"tickets":{"system":"github","spec":{"label":"proj:spec"}}}' >"$TMP/sp/.claude/harness.json"
-check "project spec label wins over global" 1 "$(HARNESS_GH="$TMP/bin/gh-label" ss startup "$TMP/sp" | grep -c '^- #7 label=proj:spec$')"
-echo '{"tickets":{"system":"github"}}' >"$TMP/sp/.claude/harness.json"
-check "github without spec: no spec list" 0 "$(ss startup "$TMP/sp" | grep -c -e '^\[harness\] spec' -e '再提案しない')"
-echo '{"tickets":{"system":"jira","project":"BATCH","spec":{"label":"spec"}}}' >"$TMP/sp/.claude/harness.json"
-OUT=$(ss startup "$TMP/sp")
-check "jira: one line naming the project" 1 "$(printf '%s' "$OUT" | grep -c '^\[harness\] チケット管理: jira (BATCH)。一覧取得は未対応$')"
-check "jira: gh is not called" 0 "$(printf '%s' "$OUT" | grep -c -e '#9[23]' -e '^\[harness\] spec')"
-check "jira: closing prompt names Jira" 1 "$(printf '%s' "$OUT" | grep -c 'handoff と jira (BATCH) で残タスク')"
-echo '{"tickets":{"system":null}}' >"$TMP/sp/.claude/harness.json"
-OUT=$(ss startup "$TMP/sp")
-check "project system null overrides global: no spec" 0 "$(printf '%s' "$OUT" | grep -c -e '^\[harness\] spec' -e '#9[23]' -e '再提案しない')"
-check "project system null: context still injected" 1 "$(printf '%s' "$OUT" | grep -c 'sp work')"
-echo '{"other":1}' >"$TMP/sp/.claude/harness.json"
-check "project file without tickets falls back to global" 2 "$(ss startup "$TMP/sp" | grep -c '^- #9[23] spec: ')"
-check "unknown top-level key: no warning" 0 "$(ss startup "$TMP/sp" 2>&1 >/dev/null | grep -c 'warning')"
-echo '{"tickets":{"system":"GitHub"}}' >"$TMP/sp/.claude/harness.json"
-OUT=$(ss startup "$TMP/sp" 2>"$TMP/err")
-check "unknown system: one line, no project" 1 "$(printf '%s' "$OUT" | grep -c '^\[harness\] チケット管理: GitHub。一覧取得は未対応$')"
-check "unknown system: no warning" 0 "$(grep -c 'warning' "$TMP/err")"
-check "unknown system: gh is not called" 0 "$(printf '%s' "$OUT" | grep -c -e '#9[23]' -e '^\[harness\] spec')"
-rm "$TMP/sp/.claude/harness.json" "$HOME/.claude/harness.json"
-OUT=$(ss startup "$TMP/sp")
-check "unset: no spec list" 0 "$(printf '%s' "$OUT" | grep -c -e '^\[harness\] spec' -e '#9[23]' -e '再提案しない')"
-check "unset: context still injected" 1 "$(printf '%s' "$OUT" | grep -c 'sp work')"
-mkdir -p "$TMP/cdir"
-echo '{"tickets":{"system":"github","spec":{"label":"cdir:spec"}}}' >"$TMP/cdir/harness.json"
-check "CLAUDE_DIR: global harness.json is read from there" 1 "$(CLAUDE_DIR="$TMP/cdir" HARNESS_GH="$TMP/bin/gh-label" ss startup "$TMP/sp" | grep -c '^- #7 label=cdir:spec$')"
-echo 'not json' >"$HOME/.claude/harness.json"
-check "invalid json: treated as unset" 0 "$(ss startup "$TMP/sp" 2>/dev/null | grep -c '^\[harness\] spec')"
-check "invalid json: silent (nothing on stderr)" "" "$(ss startup "$TMP/sp" 2>&1 >/dev/null)"
 
 exit $FAILED
