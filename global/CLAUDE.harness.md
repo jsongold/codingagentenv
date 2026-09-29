@@ -24,3 +24,13 @@
 - Subagent は 1 回のツール呼び出しを約 4 分以内に収める（600 秒進捗なしで watchdog に殺される）。長い pytest・CI 待ち・レビューは `run_in_background` で走らせてポーリングする
 - merge 前のチェック（gate）の中身はアプリ依存で、ハーネスは持たない。正は対象 repo の CI（GitHub Actions）、spec の `done` は Worker / Subagent 上の事前確認。重いコマンドの同時実行数はホストの空き容量で決まり、その関門はメタデータアプリ `cad` が担う（Issue #10）。クラウドでは 1 sandbox = 1 run で、並列数 = worker 数。テスト DB は per-run コンテナを作らず、共有 Postgres（`testdb up` / `testdb url <worktree>` で worktree ごとに 1 DB）を使う
 - merge には「実装者とは別のレビュアーによる独立した AI レビュー」と CI green（CI がある repo のみ）が必須。レビュアーは policy の優先順リストから選び、quota 切れなら自動で次にフォールバックする。現行の手段は `ai-review <pr> <worktree> --implementer <name>`（GitHub の Codex bot → `codex-localreview` → Claude の順。復帰待ちは `codex-probe <queue-file>` をバックグラウンドで）。実装者自身のレビューは事前チェック扱いで、merge 条件にはならない
+
+## コード設計（全プロジェクト共通）
+
+- 対象はコード。DB スキーマとインフラは対象外
+- コンセプト：できる限りすべてを関数として表す。どの境界も「Input を受け取り Output を返すもの」とみなし、全体はその連なり（`X → a → x → b → y → c → z`）で表す。後から読んだ人が、データの出どころと行き先を追えるようにする
+- 境界とは、名前を付けて他から呼ばれる・参照されるもの（関数・モジュール・クラス・CLI など）。ロジックを含むものを作るときは、先に設計を書く。境界ごとに次を書く
+  - 責任：概要 / Scope
+  - Input / Output（隣り合う境界の Output と Input を一致させる）
+- 設計の最後に必ず Node Graph を Mermaid で載せる。境界をノード、データの受け渡しを矢印にする
+- 設計は PR か Issue の本文に書く。手順とテンプレートは `/design` にある
