@@ -8,7 +8,7 @@ argument-hint: "[global | project]"
 
 harness.json は project ごとのルールを書くファイル（project の `.claude/harness.json` > global の既定値 `global/harness.json`）。今のルールは `tickets` だけ。読む側は検証しないので、正しい形はここで書くことで担保する。
 
-チケット管理の場所と spec の見分け方を対話で聞き、答えを下のスキーマに入れて書く。ほかのキーは消さない。global を書いたら `bin/codingenv install` をユーザーに依頼する。
+チケット管理の場所と spec の見分け方を対話で聞き、答えを下のスキーマに入れて書く。ほかのキーは消さない。global の正本は repo の `global/harness.json` で、書くのはこちら（`~/.claude/harness.json` は symlink なので直接書かない）。書いたら `bin/codingenv install` をユーザーに依頼する。
 
 | キー | 意味 | 読む側 |
 |---|---|---|
