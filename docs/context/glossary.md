@@ -9,4 +9,5 @@
 | Orchestrator | main セッションの役割。Task を作って Subagent を呼び、完了を判断する。自分では実装しない | `skills/taskman`, `skills/dispatch` | Subagent（実装担当） |
 | Subagent | Agent tool で起動する background エージェント。実装・検証・コミットを行う | `Agent` tool | agent teams の teammate (別セッション) |
 | handoff | /clear 前に .claude/handoff/<name>.md を書き出してコミットする skill | `/handoff` | pickup（反対の処理） |
+| harness.json | project ごとのルールを書くファイル。今は `tickets`（チケット管理の場所と spec の見分け方）だけ。project の `.claude/harness.json` > `~/.claude/harness.json` | `global/harness.json`, `/setupca` | settings.json（Claude Code の設定） |
 | pickup | /clear 後に .claude/handoff/<name>.md・spec・担当 Issue を読み直して復唱する skill | `/pickup` | built-in `/resume` (セッション履歴の再開) |
