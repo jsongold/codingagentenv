@@ -1,6 +1,6 @@
 ---
 name: igosleep
-description: owner が寝る前に sleep loop を始める。cad-2 の登録簿に cloud worker セッション（CCO）があるか確かめ、cad-2 の `orchd-sleep.timer` を start し、/handoff して、Claude Code の残り枠と timer の次回実行を表示する。「寝る」「sleep にして」と言われたら使う。
+description: owner が寝る前に sleep loop を始める。cad-2 の登録簿に cloud worker セッション（CCO）があるか確かめ、cad-2 の `orchd-sleep.timer` を start し、/handoff して、Claude Code の残り枠と timer の次回実行を表示する。cad-2 の timer を動かす操作なので、owner が `/igosleep` と打ったときだけ使う（自然文では起動しない）。
 disable-model-invocation: true
 ---
 
