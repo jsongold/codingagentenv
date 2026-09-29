@@ -9,7 +9,8 @@ task を「どの agent に・どの computer で」やらせるか決める（p
 
 ```bash
 tools/orchd place --class gate-heavy --self claude/a12e00a7   # [--ns default] [--mode <m>] [--exclude gce-spot,...]。--class 省略可
-# {"agent":"claude/a12e00a7","computer":"claude-cloud","rule":0,"reason":null,"runner":{"mode":"cloud","cmd":["claude","-p","--cloud","{session}","--output-format","json"],"stdin":"/app/orchd/wake.md","session":"<id>"},"mode":"auto","modeSource":"default","cadAddr":"127.0.0.1:17878"}
+# {"agent":"claude/a12e00a7","computer":"claude-cloud","rule":0,"mode":"auto","modeSource":"default","cadAddr":"127.0.0.1:17878","runner":{"mode":"cloud","cmd":["claude","-p","--cloud","{session}","--output-format","json"],"stdin":"/app/orchd/wake.md","session":"<id>"},"reason":[],"defer_until":""}
+# 配置できなかったとき（deferred / 合う rule なし / cad 未 ready）も同じキー全部を出す：rule:-1, runner:{}, reason に理由, defer_until はあれば RFC3339
 tools/orchd show [rules|classes|runners]                     # 引数なし = 3 つとも
 tools/orchd dispatch --placement "$json"                      # "$json" = place の出力（- で stdin）。runner.cmd の {key} を runner の同名 field で置換して実行（shell なし）、runner.stdin を stdin に流す
 ```
@@ -20,13 +21,11 @@ tools/orchd dispatch --placement "$json"                      # "$json" = place 
 
 | code | 意味 | stdout |
 |---|---|---|
-| 0 | 配置できた | `{agent, computer, rule, reason, runner, mode, modeSource, cadAddr}` |
+| 0 | 配置できた、または配置できなかった（窓で全滅・合う rule なし・cad 未 ready）。runner が `{}` なら何も配置していない | `{agent, computer, rule, mode, modeSource, cadAddr, runner, reason, defer_until}`（全キー常に出る。配置できなかったときは `rule:-1`, `runner:{}`。窓で全滅／cad 未 ready は `defer_until` に RFC3339） |
 | 1 | cad に届かない（接続失敗は 2 秒おきに 3 回再試行してから）・cad のエラー・policy ファイルが壊れている | なし（stderr に理由） |
 | 2 | 入力が不正（class・mode 不明、`--self` / `--ns` の形式違い、不明なコマンド） | なし（stderr に usage） |
-| 3 | 窓で全滅（旧 409）。`defer_until` = 最も早く空く時刻。または cad が未 ready（`GET /healthz?ready` が 503。再起動直後など）で reason `cad not ready`、`defer_until` = 今 + 2 分 | `{defer_until, reason}` |
-| 4 | 合う rule なし（旧 422。local の slot 無しなど） | `{reason}` |
 
-`dispatch`：0 = 成功、1 = 実行したコマンドの失敗、2 = 入力が不正（`--placement`、runner に cmd が無い・`{key}` の値が無い）。
+`dispatch`：0 = 成功（runner が `{}` でも 0 で何も実行せず `{}` を出す）、1 = 実行したコマンドの失敗、2 = 入力が不正（`--placement`、runner にキーはあるが cmd が無い・`{key}` の値が無い）。
 
 - cloud の session：`place` が runner.cmd に `{session}` があれば `CLAUDE_CLOUD_SESSION` > namespace 登録（`ORCHD_NAMESPACES` > `cad/config/namespaces.json`）の `cloudWorkerSession`（owner が `claude --cloud` で 1 度作る）を `runner.session` に入れる。無ければ dispatch が exit 2
 

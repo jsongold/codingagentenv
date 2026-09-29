@@ -25,6 +25,21 @@ type Placement struct {
 	Runner   *Runner  `json:"runner,omitempty"` // policy.runners[service of Agent]
 }
 
+// PlaceOutput is what `orchd place` prints on every outcome (placed, deferred, no rule fits, cad not
+// ready): all keys always present so callers branch on runner (== Runner{} when nothing was placed)
+// instead of on exit code. One struct, so the shape can't drift between outcomes.
+type PlaceOutput struct {
+	Agent      string   `json:"agent"`
+	Computer   string   `json:"computer"`
+	Rule       int      `json:"rule"` // -1 when nothing was placed
+	Mode       string   `json:"mode"`
+	ModeSource string   `json:"modeSource"`
+	CadAddr    string   `json:"cadAddr"`
+	Runner     Runner   `json:"runner"`      // Runner{} when nothing was placed
+	Reason     []string `json:"reason"`      // [] when none
+	DeferUntil string   `json:"defer_until"` // RFC3339, "" when none
+}
+
 // place evaluates policy.rules top to bottom; the first rule with a usable agent wins (ADR-0010).
 // Pure: same policy, usage, spec and localSlots give the same answer.
 // Returns 200, 409 (some rule was blocked only by usage windows; deferUntil set) or 422

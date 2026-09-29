@@ -76,6 +76,22 @@ func TestDispatchSubstitutesCmd(t *testing.T) {
 	}
 }
 
+// orchd place prints runner {} when nothing was placed (deferred / no rule fits / cad not ready);
+// dispatch must run nothing and just echo {}, not treat it as an error.
+func TestDispatchRunnerEmptyRunsNothing(t *testing.T) {
+	taskEnv(t, reg)
+	calls := fakeShell(t, nil)
+	for _, pl := range []string{`{"agent":"","runner":{}}`, `{}`} {
+		code, m, errs := runTask(t, "dispatch", "--placement", pl)
+		if code != 0 || len(m) != 0 {
+			t.Errorf("%s: code %d %v (%s)", pl, code, m, errs)
+		}
+	}
+	if len(*calls) != 0 {
+		t.Errorf("nothing may run: %v", *calls)
+	}
+}
+
 func TestDispatchBadInput(t *testing.T) {
 	taskEnv(t, reg)
 	calls := fakeShell(t, nil)
