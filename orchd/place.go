@@ -14,7 +14,7 @@ import (
 type PlaceSpec struct {
 	Class   string   `json:"class"`
 	Self    string   `json:"self,omitempty"`    // the Orchestrator's own agent, matched by rule agent "self"
-	Exclude []string `json:"exclude,omitempty"` // computers to skip (dispatch said "computer unavailable", exit 5)
+	Exclude []string `json:"exclude,omitempty"` // computers to skip (e.g. one that could not start)
 }
 
 type Placement struct {

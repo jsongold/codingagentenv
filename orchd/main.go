@@ -18,9 +18,11 @@ import (
 )
 
 const usageText = `usage:
-  orchd place --class <c> [--self <service/account>] [--ns default] [--mode <m>] [--exclude <computer>[,...]]
+  orchd place [--class <c>] [--self <service/account>] [--ns default] [--mode <m>] [--exclude <computer>[,...]]
       print {agent, computer, rule, reason, runner, mode, modeSource, cadAddr}: the first rule of the
-      mode's rule list with a usable agent (rule = index in that list); rules on --exclude computers are skipped
+      mode's rule list with a usable agent (rule = index in that list); rules on --exclude computers are skipped.
+      No --class: no per-class usage estimate. runner.session (when runner.cmd uses {session}) =
+      CLAUDE_CLOUD_SESSION > the namespace registry's cloudWorkerSession
   orchd mode set <m> [--ns <ns>] [--by <who>]   persist a mode (no --ns = all namespaces)
   orchd mode clear [--ns <ns>]                  remove that mode file
   orchd mode show [--ns <ns>]                   print the effective mode and where it came from
@@ -29,15 +31,9 @@ const usageText = `usage:
   orchd pick [--ns default] [--repo o/r] [--path dir]
       claim the oldest open issue labeled ai without wip/ai-failed (adds wip); print {issue:{n,title,body}, classes:[{name,criteria}]}
       or {none, reason}. repo/path: flags > namespace registry > git toplevel of the CWD + gh repo view
-  orchd dispatch (--issue <n> | --prompt-file <path>) --placement <json|-> [--ns default] [--repo o/r] [--path dir]
-      --issue: hand issue n to the place output's runner.mode: subagent = create worktree <path>-task-<n>
-      (branch task/<n> off origin/main), print {runner, worktree, prompt}; process = same worktree, start
-      runner.cmd + prompt in the background, print {started, worktree, pid, log}; cloud = claude -p <prompt>
-      --cloud <CLAUDE_CLOUD_SESSION | registry cloudWorkerSession> --output-format json, print its output;
-      vm = runner.instance must be stopped: set its metadata worker-task and start it (Compute API); the VM
-      runs runner.image as opencode-worker-<n> on boot; print {started, instance, zone, project, container, task, startSec}
-      --prompt-file: send that file's content as the prompt via the cloud path only (registry lookup, no
-      git/gh); any other runner.mode exits 2
+  orchd dispatch --placement <json|->
+      run the place output's runner: each {key} in runner.cmd (argv, no shell) = the runner's same-named
+      field, runner.stdin (a path) piped in; print the command's stdout. No runner.cmd / missing {key} = exit 2
   orchd status --issue <n> [--pid <pid>] [--ns default] [--repo o/r] [--path dir]
       print {issue, pr, state, running?}: the PR whose body says "Closes #n" (OPEN wins), and with --pid
       whether the dispatched process still runs. One quick gh call; supervisors poll it
@@ -48,21 +44,19 @@ const usageText = `usage:
   stale usage (cad restarted from its snapshot): policy placement.staleUsage "pass" (default; placed
       as if unknown, reason "<agent>: usage stale") or "block" (skipped)
 files (CWD-independent): app dir = $ORCHD_HOME > dir above orchd's bin/ (if it has policy.json) > .
-  policy: ORCHD_POLICY > <app>/policy.json; state: ORCHD_STATE_DIR > <app>/state (dispatch logs: task-<n>.log)
+  policy: ORCHD_POLICY > <app>/policy.json; state: ORCHD_STATE_DIR > <app>/state
   namespaces: ORCHD_NAMESPACES > <app>/../cad/config/namespaces.json > its .example.json
 env: ORCHD_MODE; CAD_ADDR (> mode cadAddr > top-level cadAddr for auto > 127.0.0.1:7878), CAD_TOKEN;
   vm: ORCHD_COMPUTE_URL (Compute API base), GCE_METADATA_HOST (token; off GCE: gcloud auth print-access-token)
 exit codes:
   0  placed / picked (also when none) / dispatched (or shown)
-  1  cad unreachable (after 3 retries 2s apart) / cad error / bad policy file / gh, git, claude failed /
+  1  cad unreachable (after 3 retries 2s apart) / cad error / bad policy file / gh, git or the dispatched command failed /
      vm status: Compute API call failed (e.g. no access token, instance not found)
-  2  bad input (unknown class or mode, bad --self or --ns, bad --issue or --placement, no cloud session,
-     unknown command)
+  2  bad input (unknown class or mode, bad --self or --ns, bad --issue or --placement, runner without cmd
+     or a {key} without value, unknown command)
   3  deferred: every fitting agent is over a usage window, or cad is not ready
      (GET /healthz?ready = 503, e.g. just restarted; defer_until = now+2m); prints {defer_until, reason}
   4  no rule fits; prints {reason}
-  5  dispatch (vm): computer unavailable (busy = not stopped, start failed e.g. no Spot capacity, API error);
-     re-place with --exclude <that computer>
 `
 
 var (
@@ -136,7 +130,7 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 		return 1, err
 	}
 	switch _, ok := pol.Classes[*class]; {
-	case !ok:
+	case *class != "" && !ok: // no --class: no per-class estimate, just a usable agent
 		return 2, fmt.Errorf("--class %q: want one of %v", *class, slices.Sorted(maps.Keys(pol.Classes)))
 	case *self != "" && !agentRe.MatchString(*self):
 		return 2, fmt.Errorf("--self %q: want <service>/<account>", *self)
@@ -170,6 +164,13 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 	p, status, until := place(pol, usableUsage(usage, time.Now()), PlaceSpec{Class: *class, Self: *self, Exclude: strings.Split(*exclude, ",")}, capacity.Slots)
 	switch status {
 	case http.StatusOK:
+		if strings.Contains(strings.Join(p.Runner.Cmd, " "), "{session}") { // registry only: no git/gh
+			reg, err := readNS(*ns)
+			if err != nil {
+				return 1, err
+			}
+			p.Runner.Session = cloudSession(reg)
+		}
 		return 0, printJSON(w, struct {
 			Placement
 			Mode       string `json:"mode"`

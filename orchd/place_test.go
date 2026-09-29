@@ -155,7 +155,6 @@ func TestPlaceCmd(t *testing.T) {
 		want int
 	}{
 		{[]string{"place", "--class", "nope"}, 2},
-		{[]string{"place"}, 2},
 		{[]string{"place", "--class", "light-edit", "--self", "Claude"}, 2},
 		{[]string{"place", "--class", "light-edit", "--ns", "Bad!"}, 2},
 		{[]string{"place", "--class", "light-edit", "--ns", "other"}, 1}, // cad answers 400
