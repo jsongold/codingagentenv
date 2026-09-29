@@ -15,7 +15,7 @@ ADR-0008 で Orchestrator（ローカルの main セッション）と Worker（
 ## 決定
 - **task spec は Orchestrator と Worker の契約**。Task（GitHub Issue）1件につき spec 1件（1:1、`issue` を持つ）。キューではない。状態は spec に書かない。
 - **形式は YAML**。Orchestrator が dispatch 時に `.claude/task-specs/<id>.yaml` へ生成する。コミットしない（ChangeGraph と同じ扱い）。例は `agent/task-spec.example.yaml`。
-- **フィールド**（`version: 1`）
+- **フィールド**（`version: 2`。v1 の `taskId` を `issue` に置き換えた）
 
   | フィールド | 意味 |
   |---|---|
@@ -46,7 +46,7 @@ ADR-0008 で Orchestrator（ローカルの main セッション）と Worker（
 5. 実装：`claude -p`（headless。`claude --help` で `-p/--print`・`--model`・`--output-format`・`--max-budget-usd`・`--permission-mode` の存在は確認済み。組み合わせと権限設定は未検証）に spec から組み立てたプロンプトを渡す。
 6. `done[]` を実行し、その後に `files[]` の範囲を確認する。対象は merge base からの変更全体：コミット済み（`git diff --name-only <base>...HEAD`）＋未コミット・未追跡（`git status --porcelain`）。`files[]` 外が1つでもあれば失敗。全部通ったら push して PR を作る。通らなければ PR を出さない。どちらの場合も結果を記録してから終わる（後述の「結果の伝え方」）。
 7. Orchestrator：PR のブランチを worktree に取り、`done[]` を実行し、PR の diff（`gh pr diff --name-only` 相当）で `files[]` の範囲を確認し直す（PR の diff が正）。
-8. ai-review（実装者 `agent.model` を除外、quota で自動フォールバック）→ 承認 + CI green（CI があれば）→ merge → Issue を閉じる。
+8. ai-review（実装者 `agent.model` を除外、quota で自動フォールバック）→ 承認 + CI green（CI があれば）→ merge → `gh issue close <issue> --reason completed`。
 
 ### Worker のライフサイクル
 - 起動：`start` が返した worker id を Orchestrator が Issue にコメントする。状態は Orchestrator 側の `cad` が各 provider の `list` をポーリングして集める（pull、ADR-0008）。Worker 内の `cad` は loopback 限定で、外からは読まない。Worker から Mac へは push しない。

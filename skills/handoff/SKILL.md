@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 引数 `<name>` は handoff の名前（任意）。kebab-case（`[a-z0-9-]`）以外は拒否して聞き直す。
 
-1. handoff の担当 Issue（`gh issue view <番号>`）と `git status` / `git log --oneline -10` で現状を確認する。
+1. handoff の担当 Issue（`gh issue view <番号> --comments`）と `git status` / `git log --oneline -10` で現状を確認する。
 2. 保存先 `.claude/handoff/<name>.md` を決める。ディレクトリが無ければ作る。
    - 名前あり：そのまま使う。
    - 名前なし：この会話で `/pickup <name>` か `/handoff <name>` を実行済み、または SessionStart hook が注入した handoff の続きの作業をしていたなら、その名前を再利用する。そうでなければ、セッションの目的から kebab-case で2〜4語の名前を作る。既存の handoff と衝突したら `-2`、`-3` と付ける。他の handoff は上書きしない。決めた名前を1行で伝える。
@@ -17,7 +17,7 @@ disable-model-invocation: true
    最終更新 / 目的 / 完了条件 / 決定事項（理由つき） / 却下した案 / 現在の状態 / 次の一手 / 注意・未解決の質問
    - 最終更新は絶対日時で書く。
    - 「決定事項」「却下した案」は理由つき。詳細を ADR に書いて参照するのは、プロジェクトに `docs/decisions/` がある場合だけ。無ければ理由は handoff ファイルに残す。
-   - 「現在の状態」に「このセッションが担当する Issue 番号」を書く。Issue は project の全セッションで共有されるため。
+   - 「現在の状態」に、このセッションが担当する Issue を `Issue: #<番号>` の形で1件1行で書く。無ければ `Issue: なし`。Issue は project の全セッションで共有されるため。他の形の ID は書かない。
    - 「次の一手」は、文脈ゼロの新セッションがそのまま実行できる具体さで書く。
    - 会話にしか無い情報（ユーザーの訂正、未解決の質問）を必ず拾う。
 4. 自分の handoff ファイルだけをコミットする（`git add <path>` と `git commit <path>`。旧 `PROGRESS.md` を移行したときは `PROGRESS.md` の削除も同じコミットに含める）。他セッションの未コミット変更は巻き込まない。それらは commit せず、「注意・未解決の質問」に「未コミットの他変更あり」とだけ書く。

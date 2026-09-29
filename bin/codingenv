@@ -52,18 +52,30 @@ update_settings() { # jq filter, then jq args
   mv "$SETTINGS.tmp" "$SETTINGS"
 }
 
-unregister_hooks() { # event:script entries; drops our link, groups and empty events
+unlink_hooks() { # event:script entries; removes our symlinks only
   for entry in "$@"; do
     [ "$(readlink "$CLAUDE_DIR/hooks/${entry#*:}" 2>/dev/null)" = "$ROOT/hooks/${entry#*:}" ] && rm "$CLAUDE_DIR/hooks/${entry#*:}"
+  done
+  return 0
+}
+
+# Drops only our nested hook; a group goes only when its hooks array is left
+# empty, and an event only when no group is left.
+unregister_hooks() { # event:script entries
+  for entry in "$@"; do
     update_settings --arg event "${entry%%:*}" --arg command "$(hook_command "${entry#*:}")" '
       if .hooks[$event] then
-        .hooks[$event] |= map(select(any(.hooks[]?; .command == $command) | not))
+        .hooks[$event] |= map(
+          if (.hooks | type) == "array" then
+            .hooks |= map(select(.command != $command)) | select(.hooks != [])
+          else . end)
         | if .hooks[$event] == [] then del(.hooks[$event]) else . end
       else . end'
   done
 }
 
 drop_retired() {
+  unlink_hooks $RETIRED_HOOKS
   update_settings --arg key "$RETIRED_ENV" 'del(.env[$key]) | if .env == {} then del(.env) else . end'
   unregister_hooks $RETIRED_HOOKS
 }
@@ -134,6 +146,7 @@ uninstall() {
   for name in $SKILLS; do
     [ "$(readlink "$CLAUDE_DIR/skills/$name" 2>/dev/null)" = "$ROOT/skills/$name" ] && rm "$CLAUDE_DIR/skills/$name"
   done
+  unlink_hooks $HOOKS $RETIRED_HOOKS
   if [ -f "$SETTINGS" ]; then
     backup "$SETTINGS"
     drop_retired
@@ -168,6 +181,12 @@ status() {
     report "hook script $script" "$(same "$(readlink "$CLAUDE_DIR/hooks/$script" 2>/dev/null)" "$ROOT/hooks/$script")"
     report "hook registered $event" "$(jq -r --arg event "$event" --arg command "$(hook_command "$script")" \
       'if any(.hooks[$event][]?.hooks[]?; .command == $command) then "yes" else "no" end' "$SETTINGS" 2>/dev/null || echo no)"
+  done
+  for entry in $RETIRED_HOOKS; do
+    local script=${entry#*:} event=${entry%%:*}
+    report "retired hook script $script removed" "$([ "$(readlink "$CLAUDE_DIR/hooks/$script" 2>/dev/null)" = "$ROOT/hooks/$script" ] && echo no || echo yes)"
+    report "retired hook $event unregistered" "$(jq -r --arg event "$event" --arg command "$(hook_command "$script")" \
+      'if any(.hooks[$event][]?.hooks[]?; .command == $command) then "no" else "yes" end' "$SETTINGS" 2>/dev/null || echo yes)"
   done
   report "env $RETIRED_ENV removed" "$(same "$(jq -r --arg key "$RETIRED_ENV" '.env[$key] // ""' "$SETTINGS" 2>/dev/null)" "")"
 

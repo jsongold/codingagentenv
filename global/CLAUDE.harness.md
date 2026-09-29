@@ -2,7 +2,7 @@
 
 - 複数ステップの実装・調査は `/taskman` で Task を作り、`/dispatch` で Subagent に配送する。main は自分では実装しない
 - 1ファイルの小さな修正と質問への回答は main が直接やる
-- Task は GitHub Issue で管理する。Subagent が実装・検証・コミットし、完了の判断は Orchestrator（main）がする。1タスク = 1コミット
+- Task は GitHub Issue で管理する。Subagent が実装・検証・コミットし、完了の判断は Orchestrator（main）がし、完了と判断したら `gh issue close <番号> --reason completed` で閉じる。1タスク = 1コミット
 - `/clear` 前は `/handoff`、`/clear` 後・新セッションの最初は `/pickup`（built-in の `/resume` とは別物）
 - キューや代替のタスク管理を自作しない。/clear をまたぐ状態は handoff と Issue に残す
 - この節・skill・hook の正本は codingagentenv リポジトリ。`~/.claude/` 側を直接編集せず、リポジトリを直して `bin/codingenv install` で展開する

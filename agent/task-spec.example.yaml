@@ -1,6 +1,6 @@
 # Task spec の例（ADR-0009）。実物は Orchestrator が dispatch 時に .claude/task-specs/<id>.yaml へ生成し、コミットしない。
 # ChangeGraph node c4（.claude/changegraph/dev-env-upgrade.yaml）を Worker に渡す場合。
-version: 1
+version: 2                      # v2: taskId（内蔵 Task list の id）を issue（GitHub Issue 番号）に置き換え
 id: dev-env-upgrade-c4          # <changegraph 名>-<node id>。branch・worker labels にも使う
 issue: 12                       # Task の GitHub Issue 番号（1:1）。状態は Issue が持つ
 repo: git@github.com:jsongold/codingagentenv.git
