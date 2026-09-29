@@ -19,8 +19,10 @@ import (
 
 const usageText = `usage:
   orchd place [--class <c>] [--self <service/account>] [--ns default] [--mode <m>] [--exclude <computer>[,...]]
-      print {agent, computer, rule, reason, runner, mode, modeSource, cadAddr}: the first rule of the
-      mode's rule list with a usable agent (rule = index in that list); rules on --exclude computers are skipped.
+      always prints all of {agent, computer, rule, mode, modeSource, cadAddr, runner, reason, defer_until},
+      every outcome (placed / deferred / no rule fits / cad not ready), exit 0. rule = index in the mode's
+      rule list, -1 when nothing was placed. runner = Runner{} (no keys) when nothing was placed, else the
+      first rule with a usable agent's runner. reason: [] when none. defer_until: RFC3339, "" when none.
       No --class: no per-class usage estimate. runner.session (when runner.cmd uses {session}) =
       CLAUDE_CLOUD_SESSION > the namespace registry's cloudWorkerSession
   orchd mode set <m> [--ns <ns>] [--by <who>]   persist a mode (no --ns = all namespaces)
@@ -33,7 +35,8 @@ const usageText = `usage:
       or {none, reason}. repo/path: flags > namespace registry > git toplevel of the CWD + gh repo view
   orchd dispatch --placement <json|->
       run the place output's runner: each {key} in runner.cmd (argv, no shell) = the runner's same-named
-      field, runner.stdin (a path) piped in; print the command's stdout. No runner.cmd / missing {key} = exit 2
+      field, runner.stdin (a path) piped in; print the command's stdout. runner {} (nothing was placed):
+      print {} and exit 0, run nothing. runner with keys but no cmd, or missing {key}: exit 2
   orchd status --issue <n> [--pid <pid>] [--ns default] [--repo o/r] [--path dir]
       print {issue, pr, state, running?}: the PR whose body says "Closes #n" (OPEN wins), and with --pid
       whether the dispatched process still runs. One quick gh call; supervisors poll it
@@ -49,14 +52,12 @@ files (CWD-independent): app dir = $ORCHD_HOME > dir above orchd's bin/ (if it h
 env: ORCHD_MODE; CAD_ADDR (> mode cadAddr > top-level cadAddr for auto > 127.0.0.1:7878), CAD_TOKEN;
   vm: ORCHD_COMPUTE_URL (Compute API base), GCE_METADATA_HOST (token; off GCE: gcloud auth print-access-token)
 exit codes:
-  0  placed / picked (also when none) / dispatched (or shown)
+  0  place (always, including deferred / no rule fits / cad not ready: check runner == {}) / picked
+     (also when none) / dispatched (including runner {}, which runs nothing) / shown
   1  cad unreachable (after 3 retries 2s apart) / cad error / bad policy file / gh, git or the dispatched command failed /
      vm status: Compute API call failed (e.g. no access token, instance not found)
-  2  bad input (unknown class or mode, bad --self or --ns, bad --issue or --placement, runner without cmd
-     or a {key} without value, unknown command)
-  3  deferred: every fitting agent is over a usage window, or cad is not ready
-     (GET /healthz?ready = 503, e.g. just restarted; defer_until = now+2m); prints {defer_until, reason}
-  4  no rule fits; prints {reason}
+  2  bad input (unknown class or mode, bad --self or --ns, bad --issue or --placement, runner with keys
+     but no cmd, or a {key} without value, unknown command)
 `
 
 var (
@@ -145,11 +146,14 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 		return 2, err
 	}
 	addr := cadAddr(pol, mode)
+	out := PlaceOutput{Rule: -1, Mode: mode, ModeSource: modeSource, CadAddr: addr, Reason: []string{}}
 	switch ready, err := cadReady(addr); {
 	case err != nil:
 		return 1, err
 	case !ready: // cad restarted and has no usage yet: try again shortly instead of placing blind
-		return 3, printJSON(w, map[string]interface{}{"defer_until": time.Now().Add(cadNotReadyDefer).UTC(), "reason": []string{"cad not ready"}})
+		out.Reason = []string{"cad not ready"}
+		out.DeferUntil = time.Now().Add(cadNotReadyDefer).UTC().Format(time.RFC3339)
+		return 0, printJSON(w, out)
 	}
 	var usage map[string]AgentUsage
 	var capacity struct {
@@ -162,8 +166,13 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 		return 1, err
 	}
 	p, status, until := place(pol, usableUsage(usage, time.Now()), PlaceSpec{Class: *class, Self: *self, Exclude: strings.Split(*exclude, ",")}, capacity.Slots)
+	out.Agent, out.Computer = p.Agent, p.Computer
+	if p.Reason != nil {
+		out.Reason = p.Reason
+	}
 	switch status {
 	case http.StatusOK:
+		out.Rule = p.Rule
 		if strings.Contains(strings.Join(p.Runner.Cmd, " "), "{session}") { // registry only: no git/gh
 			reg, err := readNS(*ns)
 			if err != nil {
@@ -171,16 +180,11 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 			}
 			p.Runner.Session = cloudSession(reg)
 		}
-		return 0, printJSON(w, struct {
-			Placement
-			Mode       string `json:"mode"`
-			ModeSource string `json:"modeSource"`
-			CadAddr    string `json:"cadAddr"`
-		}{p, mode, modeSource, addr})
-	case http.StatusConflict:
-		return 3, printJSON(w, map[string]interface{}{"defer_until": until, "reason": p.Reason})
-	}
-	return 4, printJSON(w, map[string]interface{}{"reason": p.Reason})
+		out.Runner = *p.Runner
+	case http.StatusConflict: // every fitting agent is over a usage window
+		out.DeferUntil = until.UTC().Format(time.RFC3339)
+	} // else: no rule fits (422) - out already has rule -1, runner {}, defer_until ""
+	return 0, printJSON(w, out)
 }
 
 // cadGet decodes cad's GET /v1/<topic>?ns= into v. 404 = not collected yet: v stays empty,

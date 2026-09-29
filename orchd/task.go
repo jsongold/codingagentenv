@@ -198,14 +198,20 @@ func dispatchCmd(args []string, stdin io.Reader, w io.Writer) (int, error) {
 	var pl struct {
 		Runner json.RawMessage `json:"runner"`
 	}
-	var rn Runner
-	var rec map[string]any
 	err := json.Unmarshal(raw, &pl)
-	if err == nil {
-		err = errors.Join(json.Unmarshal(pl.Runner, &rn), json.Unmarshal(pl.Runner, &rec))
-	}
 	if err != nil {
 		return 2, fmt.Errorf("--placement: %v (want the JSON orchd place printed)", err)
+	}
+	if len(pl.Runner) == 0 { // "runner" key missing entirely: same as runner {}
+		pl.Runner = []byte("{}")
+	}
+	var rn Runner
+	var rec map[string]any
+	if err := errors.Join(json.Unmarshal(pl.Runner, &rn), json.Unmarshal(pl.Runner, &rec)); err != nil {
+		return 2, fmt.Errorf("--placement: %v (want the JSON orchd place printed)", err)
+	}
+	if len(rec) == 0 { // nothing was placed (orchd place: runner {}): nothing to run
+		return 0, printJSON(w, map[string]any{})
 	}
 	if len(rn.Cmd) == 0 {
 		return 2, errors.New("--placement: runner has no cmd")

@@ -38,7 +38,7 @@ type Class struct {
 // record's same-named field (dispatch substitutes and execs it, piping the file Stdin in). Mode says how
 // the Orchestrator treats it ("subagent", "process", "cloud", "vm"); dispatch does not read it.
 type Runner struct {
-	Mode     string   `json:"mode"`
+	Mode     string   `json:"mode,omitempty"` // omitempty: an empty Runner{} (no rule fit) must marshal as {}
 	Cmd      []string `json:"cmd,omitempty"`
 	Stdin    string   `json:"stdin,omitempty"`   // path piped to Cmd's stdin
 	Session  string   `json:"session,omitempty"` // filled by place: the cloud worker session ({session})
