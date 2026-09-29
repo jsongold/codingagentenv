@@ -14,8 +14,8 @@ argument-hint: "[やりたいこと | #issue]"
 3. 新規と、Input・Output が変わる既存の境界ごとにテンプレートを埋める。
 4. 隣り合う境界の Output と Input が一致しているかを確認する。ずれていたら 2 に戻る。
 5. 最後に Node Graph を Mermaid で書く。境界をノード、データの受け渡しを矢印にし、矢印にはデータの名前を付ける。
-6. 設計を Issue か PR の本文に書く。本文の冒頭に `目的：<1〜2行>` を置く。どちらも無ければ label `doc:spec` を付けて Issue を作る（`gh issue create --label doc:spec`、タイトルは `spec: <内容>`）。
-   - 既存の `doc:spec` Issue を置き換えるときは、古い Issue を close せず open のまま、本文の状態行を「置き換え（→ #<新しい Issue>）」に直す。新しい Issue の状態行にも「（#<古い Issue> を置き換え）」と書く。
+6. 設計を Issue か PR の本文に書く。本文の冒頭に `目的：<1〜2行>` を置く。どちらも無ければ harness.json の tickets に従って spec のチケットを作る（github のときは `gh issue create --label <tickets.spec.label>`、タイトルは `spec: <内容>`）。tickets が未設定で、関係する Issue も PR も無いときは、設計を会話に出してユーザーに渡す。
+   - 既存の spec を置き換えるときは、古いチケットを close せず open のまま、本文の状態行を「置き換え（→ #<新しいチケット>）」に直す。新しいチケットの状態行にも「（#<古いチケット> を置き換え）」と書く。
 
 ## テンプレート
     ## 流れ
