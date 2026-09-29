@@ -38,15 +38,16 @@ type Class struct {
 // record's same-named field (dispatch substitutes and execs it, piping the file Stdin in). Mode says how
 // the Orchestrator treats it ("subagent", "process", "cloud", "vm"); dispatch does not read it.
 type Runner struct {
-	Mode     string   `json:"mode,omitempty"` // omitempty: an empty Runner{} (no rule fit) must marshal as {}
-	Cmd      []string `json:"cmd,omitempty"`
-	Stdin    string   `json:"stdin,omitempty"`   // path piped to Cmd's stdin
-	Session  string   `json:"session,omitempty"` // filled by place: the cloud worker session ({session})
-	Model    string   `json:"model,omitempty"`
-	Instance string   `json:"instance,omitempty"` // mode vm: one instance name, or a comma-separated list (1-3, same kind; vm.go picks a stopped one)
-	Zone     string   `json:"zone,omitempty"`
-	Project  string   `json:"project,omitempty"`
-	Image    string   `json:"image,omitempty"`
+	Mode      string   `json:"mode,omitempty"` // omitempty: an empty Runner{} (no rule fit) must marshal as {}
+	Cmd       []string `json:"cmd,omitempty"`
+	Stdin     string   `json:"stdin,omitempty"`     // path piped to Cmd's stdin
+	Session   string   `json:"session,omitempty"`   // filled by place: the cloud worker session ({session})
+	ConfigDir string   `json:"configDir,omitempty"` // filled by place: CLAUDE_CONFIG_DIR for a claude/<id> agent ({configDir})
+	Model     string   `json:"model,omitempty"`
+	Instance  string   `json:"instance,omitempty"` // mode vm: one instance name, or a comma-separated list (1-3, same kind; vm.go picks a stopped one)
+	Zone      string   `json:"zone,omitempty"`
+	Project   string   `json:"project,omitempty"`
+	Image     string   `json:"image,omitempty"`
 }
 
 // Rule: agents matching Agent (path.Match over Agents; "self" = the spec's self) run on Computer, for the listed classes (none = any).
