@@ -14,7 +14,7 @@ bin/codingenv status      # 展開漏れ・drift の検出（読み取りのみ�
 bin/codingenv uninstall   # install が入れたものだけを取り除く
 ```
 
-初回だけ `bin/codingenv install` と打つ。以降は install が `~/.local/bin/codingenv` へ symlink を張るので、どこからでも `codingenv install|status|uninstall` で呼べる。`~/.local/bin` が PATH に無ければ install が警告する。同名の通常ファイルがあれば上書きせず失敗する。
+初回に `bin/codingenv install` と打つ。skill / tool / hook の中身の変更は symlink 経由でそのまま効くが、`skills/` などに新しいディレクトリやファイルが増えたときは `codingenv install` をもう一度実行する（install はその時点の一覧で symlink を張る。`codingenv status` の `MISSING` で分かる）。install は `~/.local/bin/codingenv` へ symlink を張るので、どこからでも `codingenv install|status|uninstall` で呼べる。`~/.local/bin` が PATH に無ければ install が警告する。同名の通常ファイルがあれば上書きせず失敗する。
 
 install が行うこと：
 - `bin/codingenv` を `~/.local/bin/codingenv`（`BIN_DIR` で変更可）へ symlink する
