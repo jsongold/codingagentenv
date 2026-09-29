@@ -72,8 +72,12 @@ fi
 # Open design specs (Issues labeled doc:spec, #103). Best effort: no gh, no
 # network, no label or a slow answer all print nothing. HARNESS_GH and
 # HARNESS_SPEC_TIMEOUT (seconds) exist for the tests.
+# gh goes over the network, so it runs only on startup / clear (compact keeps
+# the session going) and only in a git repo with a github.com remote.
 spec_list() {
   local gh=${HARNESS_GH:-gh} limit=$((${HARNESS_SPEC_TIMEOUT:-3} * 10)) out pid i=0
+  [ "$SOURCE" = compact ] && return 0
+  git -C "$DIR" remote -v 2>/dev/null | grep -q 'github\.com[:/]' || return 0
   command -v "$gh" >/dev/null 2>&1 || return 0
   out=$(mktemp 2>/dev/null) || return 0
   (cd "$DIR" 2>/dev/null || exit 1; exec "$gh" issue list --label doc:spec --state open --limit 50 \
