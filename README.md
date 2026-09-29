@@ -48,7 +48,6 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 | skills/dispatch/SKILL.md | Task list に分解して Subagent に実行させる手順 | `/dispatch` で呼ぶ | 固定 |
 | skills/handoff/SKILL.md | /clear前に自分の handoff を書き出す手順 | `/handoff` で呼ぶ | 固定 |
 | skills/pickup/SKILL.md | /clear後に読み直して理解を復唱する手順 | `/pickup` で呼ぶ | 固定 |
-| skills/orchestrate/SKILL.md | NS の Orchestrator が `ai` Issue を orchd pick → place → dispatch で実行させる手順 | `/orchestrate` で呼ぶ | 固定 |
 | hooks/harness-session-start.sh | handoff（複数なら一覧）を文脈に入れる | SessionStart hook | 固定 |
 | hooks/harness-task-completed.sh | 未検証の completed を拒否する | TaskCompleted hook | 固定 |
 | global/CLAUDE.harness.md | `~/.claude/CLAUDE.md` のハーネス節の正本 | `bin/codingenv install` で展開 | 随時 |
@@ -89,8 +88,7 @@ tools/cad get usage -ns dev                                  # 1 topic（usage /
 tools/cad show [collect|agents|computers|policy]              # 引数なし = policy 全体
 tools/orchd show [rules|classes|runners]                     # 配置の設定（orchd が読む）
 tools/orchd place --class gate-heavy --self claude/a12e00a7  # 配置を JSON で返す
-tools/orchd pick --ns default                                 # ai Issue を 1 件取る（wip を付ける）
-tools/orchd dispatch --issue 7 --placement "$json"            # placement の runner に渡す
+tools/orchd dispatch --placement "$json"                      # placement の runner を実行する
 tools/cad add agent claude/3f9a1c0e
 tools/cad add computer gce-spot --file gce.json [--replace]  # または stdin / -
 tools/cad rm agent|computer <key>

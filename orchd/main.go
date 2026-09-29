@@ -23,36 +23,22 @@ const usageText = `usage:
       mode's rule list with a usable agent (rule = index in that list); rules on --exclude computers are skipped.
       No --class: no per-class usage estimate. runner.session (when runner.cmd uses {session}) =
       CLAUDE_CLOUD_SESSION > the namespace registry's cloudWorkerSession
-  orchd mode set <m> [--ns <ns>] [--by <who>]   persist a mode (no --ns = all namespaces)
-  orchd mode clear [--ns <ns>]                  remove that mode file
-  orchd mode show [--ns <ns>]                   print the effective mode and where it came from
-      mode precedence: --mode > <state>/mode/<ns>.json > <state>/mode/_global.json > ORCHD_MODE > auto
-      "auto" = policy.rules (local is the last resort); others = policy.modes.<m>.rules (urgent = local-first)
-  orchd pick [--ns default] [--repo o/r] [--path dir]
-      claim the oldest open issue labeled ai without wip/ai-failed (adds wip); print {issue:{n,title,body}, classes:[{name,criteria}]}
-      or {none, reason}. repo/path: flags > namespace registry > git toplevel of the CWD + gh repo view
+      mode precedence: --mode > ORCHD_MODE > auto ("auto" = policy.rules, local is the last resort;
+      others = policy.modes.<m>.rules, urgent = local-first)
   orchd dispatch --placement <json|->
       run the place output's runner: each {key} in runner.cmd (argv, no shell) = the runner's same-named
       field, runner.stdin (a path) piped in; print the command's stdout. No runner.cmd / missing {key} = exit 2
-  orchd status --issue <n> [--pid <pid>] [--ns default] [--repo o/r] [--path dir]
-      print {issue, pr, state, running?}: the PR whose body says "Closes #n" (OPEN wins), and with --pid
-      whether the dispatched process still runs. One quick gh call; supervisors poll it
-  orchd vm status --instance <i> --zone <z> --project <p>
-      print {instance, status}: one instances.get (Compute API, no gcloud). For a monitor Subagent to tell a
-      preempted/finished vm runner (TERMINATED, no PR yet) from one still working (skills/orchestrate)
   orchd show [rules|classes|runners]    print policy sections (no arg = all three)
   stale usage (cad restarted from its snapshot): policy placement.staleUsage "pass" (default; placed
       as if unknown, reason "<agent>: usage stale") or "block" (skipped)
 files (CWD-independent): app dir = $ORCHD_HOME > dir above orchd's bin/ (if it has policy.json) > .
   policy: ORCHD_POLICY > <app>/policy.json; state: ORCHD_STATE_DIR > <app>/state
   namespaces: ORCHD_NAMESPACES > <app>/../cad/config/namespaces.json > its .example.json
-env: ORCHD_MODE; CAD_ADDR (> mode cadAddr > top-level cadAddr for auto > 127.0.0.1:7878), CAD_TOKEN;
-  vm: ORCHD_COMPUTE_URL (Compute API base), GCE_METADATA_HOST (token; off GCE: gcloud auth print-access-token)
+env: ORCHD_MODE; CAD_ADDR (> mode cadAddr > top-level cadAddr for auto > 127.0.0.1:7878), CAD_TOKEN
 exit codes:
-  0  placed / picked (also when none) / dispatched (or shown)
-  1  cad unreachable (after 3 retries 2s apart) / cad error / bad policy file / gh, git or the dispatched command failed /
-     vm status: Compute API call failed (e.g. no access token, instance not found)
-  2  bad input (unknown class or mode, bad --self or --ns, bad --issue or --placement, runner without cmd
+  0  placed / dispatched (or shown)
+  1  cad unreachable (after 3 retries 2s apart) / cad error / bad policy file / the dispatched command failed
+  2  bad input (unknown class or mode, bad --self or --ns, bad --placement, runner without cmd
      or a {key} without value, unknown command)
   3  deferred: every fitting agent is over a usage window, or cad is not ready
      (GET /healthz?ready = 503, e.g. just restarted; defer_until = now+2m); prints {defer_until, reason}
@@ -87,16 +73,8 @@ func cmd(args []string, w io.Writer) (int, error) {
 		return 0, nil
 	case "place":
 		return placeCmd(args[1:], w)
-	case "mode":
-		return modeCmd(args[1:], w)
-	case "pick":
-		return pickCmd(args[1:], w)
 	case "dispatch":
 		return dispatchCmd(args[1:], os.Stdin, w)
-	case "status":
-		return statusCmd(args[1:], w)
-	case "vm":
-		return vmCmd(args[1:], w)
 	case "show":
 		if len(args) > 2 {
 			return 2, errors.New("show takes at most one section")
@@ -137,10 +115,7 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 	case !nsRe.MatchString(*ns):
 		return 2, fmt.Errorf("--ns %q: want %s", *ns, nsRe)
 	}
-	mode, modeSource, err := resolveMode(*modeFlag, *ns)
-	if err != nil {
-		return 1, err
-	}
+	mode, modeSource := resolveMode(*modeFlag)
 	if pol.Rules, err = modeRules(pol, mode); err != nil {
 		return 2, err
 	}

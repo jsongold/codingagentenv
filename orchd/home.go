@@ -32,7 +32,7 @@ func policyFile() string {
 	return filepath.Join(appDir(), "policy.json")
 }
 
-// stateDir: ORCHD_STATE_DIR > <appDir>/state (gitignored; holds mode/<ns>.json).
+// stateDir: ORCHD_STATE_DIR > <appDir>/state (gitignored).
 func stateDir() string {
 	if d := os.Getenv("ORCHD_STATE_DIR"); d != "" {
 		return d

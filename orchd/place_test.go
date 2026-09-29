@@ -231,8 +231,9 @@ func TestPolicyFile(t *testing.T) {
 	}
 	for body, want := range map[string]string{
 		`{"agents":[]}`: `no "classes"`,
-		`{"classes":{"x":{}},"runners":{"opencode":{"mode":"process"}}}`: "process needs cmd",
-		`{"classes":{"x":{}},"placement":{"staleUsage":"maybe"}}`:        "want pass or block",
+		`{"classes":{"x":{}},"runners":{"opencode":{"mode":"process"}}}`:                                             "process needs cmd",
+		`{"classes":{"x":{}},"placement":{"staleUsage":"maybe"}}`:                                                    "want pass or block",
+		`{"classes":{"x":{}},"runners":{"opencode@gce-spot":{"mode":"vm","instance":"w","zone":"z","project":"p"}}}`: "vm needs instance, zone, project, image and model",
 	} {
 		os.WriteFile(f, []byte(body), 0o644)
 		if out, code := runCmd("show"); code != 1 || !strings.Contains(out, want) {
