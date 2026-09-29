@@ -13,4 +13,3 @@ merge してよい条件（すべて満たす）：
 - repo は codingagentenv のみ
 
 作った PR は mcp__Claude_Code_Remote__subscribe_pr_activity で購読する（レビュー・CI・コメントでこのセッションが起きる）。
-進行中の PR が無く文脈が重くなっていれば、/clear してよい。必要な状態は GitHub 上にある。
