@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -154,6 +155,9 @@ func placeCmd(args []string, w io.Writer) (int, error) {
 				return 1, err
 			}
 			p.Runner.Session = cloudSession(reg)
+		}
+		if p.Runner.Stdin != "" && !filepath.IsAbs(p.Runner.Stdin) { // policy.json stores it relative to the app dir
+			p.Runner.Stdin = filepath.Join(appDir(), p.Runner.Stdin)
 		}
 		out.Runner = *p.Runner
 	case http.StatusConflict: // every fitting agent is over a usage window

@@ -9,7 +9,7 @@ task を「どの agent に・どの computer で」やらせるか決める（p
 
 ```bash
 tools/orchd place --class gate-heavy --self claude/a12e00a7   # [--ns default] [--mode <m>] [--exclude gce-spot,...]。--class 省略可
-# {"agent":"claude/a12e00a7","computer":"claude-cloud","rule":0,"mode":"auto","modeSource":"default","cadAddr":"127.0.0.1:17878","runner":{"mode":"cloud","cmd":["claude","-p","--cloud","{session}","--output-format","json"],"stdin":"/app/orchd/wake.md","session":"<id>"},"reason":[],"defer_until":""}
+# {"agent":"claude/a12e00a7","computer":"claude-cloud","rule":0,"mode":"auto","modeSource":"default","cadAddr":"127.0.0.1:17878","runner":{"mode":"cloud","cmd":["claude","-p","--cloud","{session}","--output-format","json"],"stdin":"/path/to/orchd/wake.md","session":"<id>"},"reason":[],"defer_until":""}
 # 配置できなかったとき（deferred / 合う rule なし / cad 未 ready）も同じキー全部を出す：rule:-1, runner:{}, reason に理由, defer_until はあれば RFC3339
 tools/orchd show [rules|classes|runners]                     # 引数なし = 3 つとも
 tools/orchd dispatch --placement "$json"                      # "$json" = place の出力（- で stdin）。runner.cmd の {key} を runner の同名 field で置換して実行（shell なし）、runner.stdin を stdin に流す
