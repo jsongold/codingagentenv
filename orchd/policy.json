@@ -12,6 +12,10 @@
       { "agent": "self", "computer": "local" }, { "agent": "opencode/*", "computer": "local" },
       { "agent": "self", "computer": "claude-cloud" },
       { "agent": "opencode/*", "computer": "gce-spot" }, { "agent": "opencode/*", "computer": "gce-std" }
+    ] },
+    "sleep": { "rules": [
+      { "agent": "claude/a12e00a7", "computer": "claude-cloud" },
+      { "agent": "opencode/*", "computer": "gce-spot" }, { "agent": "opencode/*", "computer": "gce-std" }
     ] }
   },
   "placement": { "reservePct": 15, "staleUsage": "pass" },
@@ -25,8 +29,9 @@
   },
   "runners": {
     "claude":   { "mode": "subagent" },
-    "claude@claude-cloud": { "mode": "cloud", "cmd": "claude --cloud" },
-    "opencode": { "mode": "process", "cmd": "opencode run --model {model}", "model": "opencode-go/deepseek-v4-pro" },
+    "claude@claude-cloud": { "mode": "cloud", "cmd": ["env", "CLAUDE_CONFIG_DIR={configDir}", "claude", "-p", "--cloud", "{session}", "--output-format", "json"],
+      "stdin": "wake.md" },
+    "opencode": { "mode": "process", "cmd": ["opencode", "run", "--model", "{model}"], "model": "opencode-go/deepseek-v4-pro" },
     "opencode@gce-spot": { "mode": "vm", "instance": "worker-spot", "zone": "us-central1-a", "project": "suggestorder-dev",
       "image": "ghcr.io/jsongold/codingagentenv/opencode-worker:main", "model": "opencode-go/deepseek-v4-pro" },
     "opencode@gce-std": { "mode": "vm", "instance": "worker-std", "zone": "us-central1-a", "project": "suggestorder-dev",

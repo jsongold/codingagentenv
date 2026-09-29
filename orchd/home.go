@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 var executable = os.Executable // tests fake it
@@ -32,7 +33,19 @@ func policyFile() string {
 	return filepath.Join(appDir(), "policy.json")
 }
 
-// stateDir: ORCHD_STATE_DIR > <appDir>/state (gitignored; holds mode/<ns>.json).
+// claudeConfigDir: CLAUDE_CONFIG_DIR for a claude/<id> agent, mirroring cad's usage collector
+// (cad/usage.go usageStore, agent claude/<id> -> config dir $HOME/.aienv/.store/<id>; "default" ->
+// the plain ~/.claude.json, i.e. no CLAUDE_CONFIG_DIR). No dir expresses "default", so it returns ""
+// and dispatch refuses the {configDir} template instead of pointing claude at the wrong place.
+func claudeConfigDir(agent string) string {
+	home, _ := os.UserHomeDir()
+	if id := strings.TrimPrefix(agent, "claude/"); id != "default" {
+		return filepath.Join(home, ".aienv", ".store", id)
+	}
+	return ""
+}
+
+// stateDir: ORCHD_STATE_DIR > <appDir>/state (gitignored).
 func stateDir() string {
 	if d := os.Getenv("ORCHD_STATE_DIR"); d != "" {
 		return d

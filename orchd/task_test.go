@@ -4,22 +4,27 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 )
 
-// fakeShell answers a command by the answers key it starts with ("<name> <args...>") and records every call.
+// fakeShell answers a command by the answers key it starts with ("<name> <args...>") and records every call
+// (calls[i][0] = stdin).
 func fakeShell(t *testing.T, answers map[string]string) *[][]string {
 	t.Helper()
 	calls := &[][]string{}
-	old, oldBg := shell, startBg
-	t.Cleanup(func() { shell, startBg = old, oldBg })
-	shell = func(dir, name string, args ...string) (string, error) {
-		*calls = append(*calls, append([]string{dir, name}, args...))
+	old := shellIn
+	t.Cleanup(func() { shellIn = old })
+	shellIn = func(stdin io.Reader, name string, args ...string) (string, error) {
+		in := []byte{}
+		if stdin != nil {
+			in, _ = io.ReadAll(stdin)
+		}
+		*calls = append(*calls, append([]string{string(in), name}, args...))
 		full := strings.Join(append([]string{name}, args...), " ")
 		for key, a := range answers {
 			if strings.HasPrefix(full, key) {
@@ -30,10 +35,6 @@ func fakeShell(t *testing.T, answers map[string]string) *[][]string {
 			}
 		}
 		return "", nil
-	}
-	startBg = func(dir, log, name string, args ...string) (int, error) {
-		*calls = append(*calls, append([]string{"BG", dir, log, name}, args...))
-		return 42, nil
 	}
 	return calls
 }
@@ -60,157 +61,143 @@ func runTask(t *testing.T, args ...string) (int, map[string]any, string) {
 	return code, m, errb.String()
 }
 
-func TestPickOldestWithoutWip(t *testing.T) {
+func TestDispatchSubstitutesCmd(t *testing.T) {
 	taskEnv(t, reg)
-	calls := fakeShell(t, map[string]string{"gh issue list": `[
-		{"number":3,"title":"t3","body":"b3","createdAt":"2026-09-03T00:00:00Z","labels":[{"name":"ai"}]},
-		{"number":0,"title":"t0","body":"b0","createdAt":"2026-08-01T00:00:00Z","labels":[{"name":"ai-failed"}]},
-		{"number":1,"title":"t1","body":"b1","createdAt":"2026-09-01T00:00:00Z","labels":[{"name":"wip"}]},
-		{"number":2,"title":"t2","body":"b2","createdAt":"2026-09-02T00:00:00Z","labels":[]}]`})
-	code, m, errs := runTask(t, "pick")
-	if code != 0 {
-		t.Fatalf("code %d: %s", code, errs)
-	}
-	if is := m["issue"].(map[string]any); is["n"] != 2.0 || is["title"] != "t2" || is["body"] != "b2" {
-		t.Errorf("issue %v", is)
-	}
-	cs := m["classes"].([]any)
-	if c := cs[0].(map[string]any); c["name"] == "" || c["criteria"] == "" || len(cs) < 2 {
-		t.Errorf("classes %v", cs)
-	}
-	if !slices.Contains((*calls)[0], "-label:wip -label:ai-failed sort:created-asc") {
-		t.Errorf("list must filter claimed issues server-side: %v", (*calls)[0])
-	}
-	if got := strings.Join((*calls)[1][1:], " "); got != "gh issue edit 2 --repo o/r --add-label wip" {
-		t.Errorf("claim: %s", got)
-	}
-}
-
-func TestPickNone(t *testing.T) {
-	taskEnv(t, reg)
-	calls := fakeShell(t, map[string]string{"gh issue list": `[{"number":1,"createdAt":"x","labels":[{"name":"wip"}]}]`})
-	if code, m, _ := runTask(t, "pick"); code != 0 || m["none"] != true || len(*calls) != 1 {
-		t.Errorf("code %d %v calls %v", code, m, *calls)
-	}
-}
-
-func TestPickRepoFromGit(t *testing.T) { // unknown ns: path = git toplevel, repo = gh repo view there
-	taskEnv(t, `{}`)
-	calls := fakeShell(t, map[string]string{"git rev-parse --show-toplevel": "/w/x\n", "gh repo view": "me/x\n", "gh issue list": "[]"})
-	runTask(t, "pick", "--ns", "other")
-	if c := (*calls)[1]; c[0] != "/w/x" || c[1] != "gh" {
-		t.Errorf("repo view call %v", c)
-	}
-	if got := strings.Join((*calls)[2][1:6], " "); got != "gh issue list --repo me/x" {
-		t.Errorf("list call %s", got)
-	}
-}
-
-const issueJSON = `{"title":"Fix it","body":"details"}`
-
-func TestDispatchSubagent(t *testing.T) {
-	taskEnv(t, reg)
-	calls := fakeShell(t, map[string]string{"gh issue view": issueJSON, "git -C /src/r rev-parse": "ERR"})
-	code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", `{"agent":"claude/a","runner":{"mode":"subagent"}}`)
-	if code != 0 {
-		t.Fatalf("code %d: %s", code, errs)
-	}
-	if m["runner"] != "subagent" || m["worktree"] != "/src/r-task-7" {
-		t.Errorf("out %v", m)
-	}
-	p, _ := m["prompt"].(string)
-	for _, want := range []string{"o/r の Issue #7", "Fix it", "details", "task/7", "Closes #7"} {
-		if !strings.Contains(p, want) {
-			t.Errorf("prompt lacks %q:\n%s", want, p)
-		}
-	}
-	if got := strings.Join((*calls)[len(*calls)-1][1:], " "); got != "git -C /src/r worktree add -q -b task/7 /src/r-task-7 origin/main" {
-		t.Errorf("worktree: %s", got)
-	}
-}
-
-func TestDispatchProcess(t *testing.T) {
-	taskEnv(t, reg)
-	calls := fakeShell(t, map[string]string{"gh issue view": issueJSON, "git -C /src/r rev-parse": "ERR"})
-	pl := `{"runner":{"mode":"process","cmd":"opencode run --model {model}","model":"m1"}}`
-	code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", pl)
-	if code != 0 || m["started"] != true || m["pid"] != 42.0 || m["worktree"] != "/src/r-task-7" {
-		t.Fatalf("code %d %v %s", code, m, errs)
-	}
-	bg := (*calls)[len(*calls)-1]
-	if got := strings.Join(append([]string{bg[1]}, bg[3:7]...), " "); got != "/src/r-task-7 opencode run --model m1" || !strings.Contains(bg[7], "Closes #7") {
-		t.Errorf("bg call %v", bg)
-	}
-}
-
-func TestDispatchCloud(t *testing.T) {
-	taskEnv(t, reg)
-	t.Setenv("CLAUDE_CLOUD_SESSION", "sess-env") // env wins over the registry
-	calls := fakeShell(t, map[string]string{"gh issue view": issueJSON, "claude -p": `{"result":"ok"}`})
-	code, m, errs := runTask(t, "dispatch", "--issue", "7", "--placement", `{"runner":{"mode":"cloud","cmd":"claude --cloud"}}`)
+	pf := filepath.Join(t.TempDir(), "wake.md")
+	os.WriteFile(pf, []byte("wake up"), 0o644)
+	calls := fakeShell(t, map[string]string{"claude -p": `{"result":"ok"}`})
+	pl := `{"runner":{"mode":"cloud","cmd":["claude","-p","--cloud","{session}","--model={model}"],"session":"s 1","model":"m","stdin":"` + pf + `"}}`
+	code, m, errs := runTask(t, "dispatch", "--placement", pl)
 	if code != 0 || m["result"] != "ok" {
 		t.Fatalf("code %d %v %s", code, m, errs)
 	}
-	c := (*calls)[len(*calls)-1]
-	if got := strings.Join(append(slices.Clone(c[1:3]), c[4:]...), " "); got != "claude -p --cloud sess-env --output-format json" || !strings.Contains(c[3], "o/r の Issue #7") {
-		t.Errorf("claude call %v", c)
+	if want := []string{"wake up", "claude", "-p", "--cloud", "s 1", "--model=m"}; len(*calls) != 1 || !slices.Equal((*calls)[0], want) {
+		t.Errorf("calls %q want %q", *calls, want)
 	}
-	for _, c := range *calls {
-		if c[1] == "git" {
-			t.Errorf("cloud must not create a local worktree: %v", c)
+}
+
+// orchd place prints runner {} when nothing was placed (deferred / no rule fits / cad not ready);
+// dispatch must run nothing and just echo {}, not treat it as an error.
+func TestDispatchRunnerEmptyRunsNothing(t *testing.T) {
+	taskEnv(t, reg)
+	calls := fakeShell(t, nil)
+	for _, pl := range []string{`{"agent":"","runner":{}}`, `{}`} {
+		code, m, errs := runTask(t, "dispatch", "--placement", pl)
+		if code != 0 || len(m) != 0 {
+			t.Errorf("%s: code %d %v (%s)", pl, code, m, errs)
 		}
+	}
+	if len(*calls) != 0 {
+		t.Errorf("nothing may run: %v", *calls)
 	}
 }
 
 func TestDispatchBadInput(t *testing.T) {
-	taskEnv(t, `{"default":{"repo":"o/r","path":"/src/r"}}`)
-	fakeShell(t, map[string]string{"gh issue view": issueJSON})
-	for _, args := range [][]string{
-		{"--issue", "x", "--placement", `{"runner":{"mode":"subagent"}}`},
-		{"--issue", "7", "--placement", `{`},
-		{"--issue", "7", "--placement", `{"runner":{"mode":"hatchet"}}`},
-		{"--issue", "7", "--placement", `{"runner":{"mode":"cloud"}}`}, // no session anywhere
+	taskEnv(t, reg)
+	calls := fakeShell(t, nil)
+	for _, pl := range []string{
+		`{"runner":{"cmd":["claude","--cloud","{session}"]}}`,              // missing key
+		`{"runner":{"cmd":["claude","--cloud","{session}"],"session":""}}`, // empty value
+		`{"runner":{"mode":"subagent"}}`,                                   // no cmd
+		`{`,
 	} {
-		if code, _, errs := runTask(t, append([]string{"dispatch"}, args...)...); code != 2 {
-			t.Errorf("%v: code %d (%s)", args, code, errs)
+		if code, _, errs := runTask(t, "dispatch", "--placement", pl); code != 2 {
+			t.Errorf("%s: code %d (%s)", pl, code, errs)
 		}
 	}
-}
-
-func TestDispatchGhFailure(t *testing.T) {
-	taskEnv(t, reg)
-	fakeShell(t, map[string]string{"gh issue view": "ERR"})
-	if code, _, _ := runTask(t, "dispatch", "--issue", "7", "--placement", `{"runner":{"mode":"subagent"}}`); code != 1 {
-		t.Errorf("code %d", code)
+	if code, _, _ := runTask(t, "dispatch", "--issue", "7", "--placement", `{}`); code != 2 {
+		t.Errorf("--issue is gone: code %d", code)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("nothing may run: %v", *calls)
 	}
 }
 
-func TestStatus(t *testing.T) {
-	taskEnv(t, reg)
-	calls := fakeShell(t, map[string]string{"gh pr list": `[
-		{"url":"u/9","state":"OPEN","body":"Closes #70"},
-		{"url":"u/8","state":"CLOSED","body":"Closes #7"},
-		{"url":"u/10","state":"OPEN","body":"fix: x\n\ncloses #7"}]`})
-	code, m, errs := runTask(t, "status", "--issue", "7", "--pid", strconv.Itoa(os.Getpid()))
-	if code != 0 || m["pr"] != "u/10" || m["state"] != "OPEN" || m["running"] != true {
-		t.Fatalf("code %d %v %s", code, m, errs)
-	}
-	if got := strings.Join((*calls)[0][1:], " "); !strings.Contains(got, "--search Closes #7") {
-		t.Errorf("call %s", got)
-	}
-	fakeShell(t, map[string]string{"gh pr list": `[{"url":"u/9","state":"OPEN","body":"Closes #70"}]`})
-	if _, m, _ := runTask(t, "status", "--issue", "7"); m["pr"] != nil || m["state"] != nil {
-		t.Errorf("no PR: %v", m)
-	}
-}
-
-func TestDispatchReusesBranchOfEarlierRun(t *testing.T) { // the branch exists (earlier dispatch), the worktree does not
-	taskEnv(t, reg)
-	calls := fakeShell(t, map[string]string{"gh issue view": issueJSON})
-	if code, _, errs := runTask(t, "dispatch", "--issue", "7", "--placement", `{"runner":{"mode":"subagent"}}`); code != 0 {
+func TestPlaceSleepFillsSession(t *testing.T) { // cad-2's timer: no --class, session-only registry, no git/gh
+	taskEnv(t, `{"default":{"cloudWorkerSession":"sess-1"}}`)
+	fakeCad(t, seedUsage(), 0)
+	calls := fakeShell(t, nil)
+	code, m, errs := runTask(t, "place", "--mode", "sleep")
+	if code != 0 {
 		t.Fatalf("code %d %s", code, errs)
 	}
-	if got := strings.Join((*calls)[len(*calls)-1][1:], " "); got != "git -C /src/r worktree add -q /src/r-task-7 task/7" {
-		t.Errorf("worktree: %s", got)
+	rn := m["runner"].(map[string]any)
+	dir, _ := filepath.Abs(filepath.Dir(policyFile())) // runner.stdin is always resolved to an absolute path
+	if want := filepath.Join(dir, "wake.md"); m["computer"] != "claude-cloud" || rn["session"] != "sess-1" || rn["stdin"] != want {
+		t.Errorf("out %v", m)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("no git/gh: %v", *calls)
+	}
+}
+
+// runner.cmd's {configDir} (claude@claude-cloud) is filled from the placed claude/<id> agent,
+// mirroring cad's usage-collector mapping (cad/usage.go usageStore).
+func TestPlaceSleepFillsConfigDir(t *testing.T) {
+	taskEnv(t, `{"default":{"cloudWorkerSession":"sess-1"}}`)
+	fakeCad(t, seedUsage(), 0)
+	fakeShell(t, nil)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	code, m, errs := runTask(t, "place", "--mode", "sleep")
+	if code != 0 {
+		t.Fatalf("code %d %s", code, errs)
+	}
+	rn := m["runner"].(map[string]any)
+	if want := filepath.Join(home, ".aienv", ".store", "a12e00a7"); rn["configDir"] != want {
+		t.Errorf("configDir %v want %s", rn["configDir"], want)
+	}
+}
+
+// runner.stdin in policy.json is relative to the policy file's own directory, not the CWD or a
+// hardcoded app dir: ORCHD_POLICY pointing elsewhere must resolve stdin next to it.
+func TestPlaceStdinRelativeToPolicyDir(t *testing.T) {
+	taskEnv(t, reg)
+	fakeCad(t, seedUsage(), 0)
+	fakeShell(t, nil)
+	d := t.TempDir()
+	pol, err := os.ReadFile("policy.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pf := filepath.Join(d, "policy.json")
+	os.WriteFile(pf, pol, 0o644)
+	t.Setenv("ORCHD_POLICY", pf)
+	code, m, errs := runTask(t, "place", "--mode", "sleep")
+	if code != 0 {
+		t.Fatalf("code %d %s", code, errs)
+	}
+	rn := m["runner"].(map[string]any)
+	if want := filepath.Join(d, "wake.md"); rn["stdin"] != want {
+		t.Errorf("stdin %v want %s", rn["stdin"], want)
+	}
+}
+
+// A relative ORCHD_POLICY (so filepath.Dir(policyFile()) is itself relative, e.g. ".") must still
+// resolve runner.stdin to an absolute path: dispatch may run from a different CWD.
+func TestPlaceStdinAbsoluteWithRelativePolicy(t *testing.T) {
+	taskEnv(t, reg)
+	fakeCad(t, seedUsage(), 0)
+	fakeShell(t, nil)
+	d := t.TempDir()
+	pol, err := os.ReadFile("policy.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wake, err := os.ReadFile("wake.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(d, "policy.json"), pol, 0o644)
+	os.WriteFile(filepath.Join(d, "wake.md"), wake, 0o644)
+	t.Chdir(d)
+	t.Setenv("ORCHD_POLICY", "policy.json") // relative: dir is "."
+	code, m, errs := runTask(t, "place", "--mode", "sleep")
+	if code != 0 {
+		t.Fatalf("code %d %s", code, errs)
+	}
+	rn := m["runner"].(map[string]any)
+	if want := filepath.Join(d, "wake.md"); rn["stdin"] != want || !filepath.IsAbs(rn["stdin"].(string)) {
+		t.Errorf("stdin %v want absolute %s", rn["stdin"], want)
 	}
 }

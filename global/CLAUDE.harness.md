@@ -9,6 +9,8 @@
 - この節・skill・hook の正本は codingagentenv リポジトリ。`~/.claude/` 側を直接編集せず、リポジトリを直して `bin/codingenv install` で展開する
 - 出力・インターフェースを推測で断言しない。実行結果 / 型定義 / API仕様など実物で確認する
 - テストは小さい単位で都度実行する。最後にまとめてテストしない
+- 最初から機能に厚みを持たせない。機能・実装・テストは最低限動くもの（少し足りないくらい）から始め、必要が見えてから足す
+- README は最低限だけ書く：これが何か、使い方。背景が特殊な場合のみ 1 行程度で添える
 - 並列開発（worktree 5〜10 本）が前提。コンフリクトを起こさない分割を厳守する
   - 1 PR = 1 つの変更。差分は目安 400 行以内（テスト・lock ファイル除く）。超えそうなら PR を分ける
   - ファイルは 1 ファイル 1 責務で細かく分ける。既存の大きいファイルに書き足すより、新しいファイルを足す
@@ -18,6 +20,7 @@
 - PR 本文には、その PR で「〜ができること」を箇条書きのチェックリスト（`- [ ] 〜ができる`）で書く。レビュアーが動作確認でチェックを付けられる粒度にする
 - PR のブランチに main を取り込むときは rebase ではなく merge（`git merge origin/main`）。履歴を書き換えないので force push が不要になる。force push はしない
 - main セッションはオーケストレーター専任。実装・gate・merge・CI 待ち・レビュー・調査はすべて Subagent に出し、報告は 10 行以内にさせる
+- Subagent にタスクを渡すときは、使うモデル（例: sonnet / opus / haiku / fable）をユーザーに伝える
 - Subagent は 1 回のツール呼び出しを約 4 分以内に収める（600 秒進捗なしで watchdog に殺される）。長い pytest・CI 待ち・レビューは `run_in_background` で走らせてポーリングする
 - merge 前のチェック（gate）の中身はアプリ依存で、ハーネスは持たない。正は対象 repo の CI（GitHub Actions）、spec の `done` は Worker / Subagent 上の事前確認。重いコマンドの同時実行数はホストの空き容量で決まり、その関門はメタデータアプリ `cad` が担う（Issue #10）。クラウドでは 1 sandbox = 1 run で、並列数 = worker 数。テスト DB は per-run コンテナを作らず、共有 Postgres（`testdb up` / `testdb url <worktree>` で worktree ごとに 1 DB）を使う
 - merge には「実装者とは別のレビュアーによる独立した AI レビュー」と CI green（CI がある repo のみ）が必須。レビュアーは policy の優先順リストから選び、quota 切れなら自動で次にフォールバックする。現行の手段は `ai-review <pr> <worktree> --implementer <name>`（GitHub の Codex bot → `codex-localreview` → Claude の順。復帰待ちは `codex-probe <queue-file>` をバックグラウンドで）。実装者自身のレビューは事前チェック扱いで、merge 条件にはならない
