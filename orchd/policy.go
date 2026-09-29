@@ -34,17 +34,20 @@ type Class struct {
 	EstPct   float64 `json:"estPct"`
 }
 
-// Runner: "subagent" (a Task subagent of the Orchestrator), "process" (run Cmd; {model} is Model),
-// "cloud" (the Orchestrator starts a cloud session with Cmd, e.g. claude --cloud) or "vm" (start the GCE
-// instance Instance and run Image there with Model, see vm.go).
+// Runner is everything needed to launch on one destination: Cmd is an argv template whose {key} is the
+// record's same-named field (dispatch substitutes and execs it, piping the file Stdin in). Mode says how
+// the Orchestrator treats it ("subagent", "process", "cloud", "vm"); dispatch does not read it.
 type Runner struct {
-	Mode     string `json:"mode"`
-	Cmd      string `json:"cmd,omitempty"`
-	Model    string `json:"model,omitempty"`
-	Instance string `json:"instance,omitempty"` // mode vm: one instance name, or a comma-separated list (1-3, same kind; vm.go picks a stopped one)
-	Zone     string `json:"zone,omitempty"`
-	Project  string `json:"project,omitempty"`
-	Image    string `json:"image,omitempty"`
+	Mode      string   `json:"mode,omitempty"` // omitempty: an empty Runner{} (no rule fit) must marshal as {}
+	Cmd       []string `json:"cmd,omitempty"`
+	Stdin     string   `json:"stdin,omitempty"`     // path piped to Cmd's stdin
+	Session   string   `json:"session,omitempty"`   // filled by place: the cloud worker session ({session})
+	ConfigDir string   `json:"configDir,omitempty"` // filled by place: CLAUDE_CONFIG_DIR for a claude/<id> agent ({configDir})
+	Model     string   `json:"model,omitempty"`
+	Instance  string   `json:"instance,omitempty"` // mode vm: one instance name, or a comma-separated list (1-3, same kind; vm.go picks a stopped one)
+	Zone      string   `json:"zone,omitempty"`
+	Project   string   `json:"project,omitempty"`
+	Image     string   `json:"image,omitempty"`
 }
 
 // Rule: agents matching Agent (path.Match over Agents; "self" = the spec's self) run on Computer, for the listed classes (none = any).
@@ -72,7 +75,7 @@ func loadPolicy() (Policy, error) {
 		case err != nil:
 		case r.Mode == "vm" && (r.Instance == "" || r.Zone == "" || r.Project == "" || r.Image == "" || r.Model == ""):
 			err = fmt.Errorf("runners.%s: vm needs instance, zone, project, image and model", s)
-		case r.Mode != "subagent" && r.Mode != "vm" && r.Cmd == "":
+		case r.Mode != "subagent" && r.Mode != "vm" && len(r.Cmd) == 0:
 			err = fmt.Errorf("runners.%s: %s needs cmd", s, r.Mode)
 		case r.Mode != "subagent" && r.Mode != "process" && r.Mode != "cloud" && r.Mode != "vm":
 			err = fmt.Errorf("runners.%s: mode must be subagent, process, cloud or vm", s)

@@ -26,7 +26,7 @@ func TestPlaceDefersWhenCadNotReady(t *testing.T) {
 	defer srv.Close()
 	t.Setenv("CAD_ADDR", strings.TrimPrefix(srv.URL, "http://"))
 	out, code := runCmd("place", "--class", "light-edit", "--self", "claude/a12e00a7")
-	if code != 3 || !strings.Contains(out, "cad not ready") || !strings.Contains(out, "defer_until") {
+	if code != 0 || !strings.Contains(out, "cad not ready") || !strings.Contains(out, "defer_until") || !strings.Contains(out, `"runner": {}`) {
 		t.Fatalf("%d %s", code, out)
 	}
 }
