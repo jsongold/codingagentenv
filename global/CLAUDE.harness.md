@@ -1,6 +1,6 @@
 ## ハーネス（全プロジェクト共通）
 
-- 複数ステップの実装・調査は `/dispatch` を通す。main は Task list に分解して Subagent に実行させ、自分では実装しない
+- 複数ステップの実装・調査は `/taskman` で Task を作り、`/dispatch` で Subagent に配送する。main は自分では実装しない
 - 1ファイルの小さな修正と質問への回答は main が直接やる
 - Subagent の報告は main が完了条件のコマンドで検証してから completed にする。1タスク = 1コミット
 - completed にする前に、task の description に `VERIFIED: <実行したコマンド> -> <結果>` を別の `TaskUpdate` で追記する。無いと TaskCompleted hook が拒否する
