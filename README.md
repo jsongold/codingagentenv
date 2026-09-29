@@ -1,5 +1,3 @@
-| global/harness.json | `~/.claude/harness.json`（spec の置き場）の正本 | `bin/codingenv install` で展開 | 随時 |
-| skills/setupca/SKILL.md | harness.json を対話で作る手順 | `/setupca` で呼ぶ | 固定 |
 # codingagentenv — 全プロジェクト共通の Claude Code ハーネス
 
 **Mission**: コーディングエージェントを 24/7 動かし続け、コストを最小に抑えながら計算資源と AI の使用枠を使い切る（[docs/mission.md](docs/mission.md)）。
@@ -61,8 +59,10 @@ spec（設計判断）の置き場を環境ごとに選ぶ。優先順位は pro
 | skills/dispatch/SKILL.md | 次の Agent（Subagent）を呼ぶ手順 | `/dispatch` で呼ぶ | 固定 |
 | skills/handoff/SKILL.md | /clear前に自分の handoff を書き出す手順 | `/handoff` で呼ぶ | 固定 |
 | skills/pickup/SKILL.md | /clear後に読み直して理解を復唱する手順 | `/pickup` で呼ぶ | 固定 |
+| skills/setupca/SKILL.md | harness.json を対話で作る手順 | `/setupca` で呼ぶ | 固定 |
 | hooks/harness-session-start.sh | handoff（複数なら一覧）を文脈に入れる | SessionStart hook | 固定 |
 | global/CLAUDE.harness.md | `~/.claude/CLAUDE.md` のハーネス節の正本 | `bin/codingenv install` で展開 | 随時 |
+| global/harness.json | `~/.claude/harness.json`（spec の置き場）の正本 | `bin/codingenv install` で展開 | 随時 |
 | bin/codingenv | global への展開・drift 検出・取り外し | 手で実行 | 固定 |
 | tools/codex-localreview | Codex CLI でローカルレビューして PR にコメント（bot の quota 切れ時） | `codex-localreview <pr> <worktree>` | 固定 |
 | tools/codex-probe | Codex の復帰を待ち、キュー（`<pr> <worktree>` 行）を順にローカルレビュー | バックグラウンドで実行 | 固定 |
