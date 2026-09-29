@@ -26,4 +26,4 @@ argument-hint: "[やりたいこと | #issue] [auto=true|false]"
 ## やらないこと
 - 設計の中身を決める（`/design` の仕事）。
 - Task への分割（`/changegraph` の仕事）。
-- 登録・配送（`/dispatch` の仕事）。
+- Issue への登録（main loop の仕事）と配送（`/dispatch` の仕事）。

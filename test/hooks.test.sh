@@ -32,6 +32,9 @@ export HARNESS_GH="$TMP/bin/gh-ok"
 export HOME="$TMP/home"
 mkdir -p "$HOME/.claude"
 echo '{"spec":{"store":"issues","label":"doc:spec"}}' >"$HOME/.claude/harness.json"
+# The spec list runs only in a git repo with a github.com remote.
+gh_repo() { git init -q "$1" && git -C "$1" remote add origin "${2:-https://github.com/example/repo.git}"; }
+gh_repo "$TMP/filled"
 printf '# PROGRESS\n- 最終更新：YYYY-MM-DD HH:MM\n' >"$TMP/template/PROGRESS.md"
 
 ss() { # source, project dir
@@ -52,6 +55,19 @@ check "gh hanging: handoff still injected" 1 "$(printf '%s' "$OUT" | grep -c 'do
 check "startup points at /pickup" 1 "$(printf '%s' "$OUT" | grep -c '/pickup')"
 check "clear injects" 1 "$(ss clear "$TMP/filled" | grep -c 'do the thing')"
 check "compact injects" 1 "$(ss compact "$TMP/filled" | grep -c 'do the thing')"
+check "clear lists specs" 2 "$(ss clear "$TMP/filled" | grep -c '^- #9[23] spec: ')"
+check "compact skips the spec list" 0 "$(ss compact "$TMP/filled" | grep -c '^\[harness\] spec')"
+mkdir -p "$TMP/nogit" "$TMP/gitlab"
+cp "$TMP/filled/PROGRESS.md" "$TMP/nogit/" && cp "$TMP/filled/PROGRESS.md" "$TMP/gitlab/"
+gh_repo "$TMP/gitlab" "git@gitlab.com:example/repo.git"
+printf '#!/bin/sh\ntouch "%s/gh-called"\n' "$TMP" >"$TMP/bin/gh-spy" && chmod +x "$TMP/bin/gh-spy"
+OUT=$(HARNESS_GH="$TMP/bin/gh-spy" ss startup "$TMP/nogit")
+check "not a git repo: still injects" 1 "$(printf '%s' "$OUT" | grep -c 'do the thing')"
+HARNESS_GH="$TMP/bin/gh-spy" ss startup "$TMP/gitlab" >/dev/null
+HARNESS_GH="$TMP/bin/gh-spy" ss compact "$TMP/filled" >/dev/null
+check "no git / non-github remote / compact: gh is not called" no "$([ -e "$TMP/gh-called" ] && echo yes || echo no)"
+gh_repo "$TMP/sshgh" "git@github.com:example/repo.git" && cp "$TMP/filled/PROGRESS.md" "$TMP/sshgh/"
+check "ssh github.com remote lists specs" 2 "$(ss startup "$TMP/sshgh" | grep -c '^- #9[23] spec: ')"
 check "resume is silent" "" "$(ss resume "$TMP/filled")"
 check "fork is silent" "" "$(ss fork "$TMP/filled")"
 check "no PROGRESS.md is silent" "" "$(ss startup "$TMP/empty")"
@@ -72,6 +88,7 @@ mk_handoff "$TMP/h2" alpha "alpha purpose" "2026-09-20 10:00" "alpha secret body
 mk_handoff "$TMP/h2" beta "beta purpose" "2026-09-21 09:00" "beta secret body"
 touch -t 202609200000 "$TMP/h2/.claude/handoff/alpha.md"
 touch -t 202609210000 "$TMP/h2/.claude/handoff/beta.md"
+gh_repo "$TMP/h2"
 OUT=$(ss startup "$TMP/h2")
 check "two handoffs: list heading" 1 "$(printf '%s' "$OUT" | grep -c '^\[harness\] handoff 一覧 (session source: startup)$')"
 check "two handoffs: alpha line" 1 "$(printf '%s' "$OUT" | grep -c '^- alpha | 最終更新: 2026-09-20 10:00 | 目的: alpha purpose$')"
@@ -114,6 +131,7 @@ check "template-only handoff + PROGRESS.md: falls back to PROGRESS.md" 1 "$(prin
 
 # --- SessionStart: spec store from harness.json (project > global > unset) ---
 mkdir -p "$TMP/sp/.claude" "$TMP/sp/docs/decisions"
+gh_repo "$TMP/sp"
 printf '# PROGRESS\n- 最終更新：2026-09-20 11:00\n## 次の一手\n1. sp work\n' >"$TMP/sp/PROGRESS.md"
 touch "$TMP/sp/docs/decisions/0001-a.md" "$TMP/sp/docs/decisions/0002-b.md"
 OUT=$(HARNESS_GH="$TMP/bin/gh-label" ss startup "$TMP/sp")

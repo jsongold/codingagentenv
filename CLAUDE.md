@@ -25,14 +25,14 @@
 - `/dispatch <Task | 依頼>`：次の Agent（Subagent）を呼ぶだけ。Issue・worktree・wave の進行は main loop が行う
 - `/handoff [name]`：/clear 前に .claude/handoff/<name>.md を書き出して（自分のファイルだけ）コミット
 - `/pickup [name]`：/clear 後に文脈を復元して復唱、handoff が複数あれば選ぶ（built-in の `/resume` とは別物）
-- タスク一覧：`gh issue list`
+- タスク一覧：`gh issue list --search "-label:doc:spec"`（`doc:spec` は設計判断で、タスクではない）
 
 ## 規約・注意点（デフォルトと違うものだけ）
 - 編集は repo 内だけ。`~/.claude/` 配下は Claude も人も直接編集しない。global に効かせたい変更は repo の正本（`skills/`、`hooks/`、`global/CLAUDE.harness.md`）を直し、ユーザーに `bin/codingenv install` を依頼する（#93）
 - Orchestrator のルールの正本は `global/CLAUDE.harness.md`。`skills/` と `hooks/` は symlink なので、編集すると全 project の挙動が即座に変わる
 - Task = GitHub Issue（#103）。キューを自作しない
 - `hooks/` も global の正本（#93）。編集は全 project に即座に効くので、変更したら必ず `bash test/hooks.test.sh` を通す
-- Task tools が見えないときは `bin/codingenv status` で展開漏れを確認する。代替手段を作らない
+- Claude Code の仕様は docs の原文で確認する。WebFetch の要約は誤答したことがある
 
 ## コンテキスト圧縮時の指示
 - 圧縮（compact）時は、変更したファイル一覧、テストコマンド、.claude/handoff/<name>.md の「決定事項」を必ず残すこと。
