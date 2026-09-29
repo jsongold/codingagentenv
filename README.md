@@ -2,7 +2,7 @@
 
 **Mission**: コーディングエージェントを 24/7 動かし続け、コストを最小に抑えながら計算資源と AI の使用枠を使い切る（[docs/mission.md](docs/mission.md)）。
 
-/clear 後も文脈を失わず、作業を Task list 経由で Subagent に実行させるためのハーネス。
+/clear 後も文脈を失わず、作業を GitHub Issue 経由で Subagent に実行させるためのハーネス。
 ハーネス本体は global（`~/.claude/`）に置き、各 project はデータだけを持つ（ADR-0003）。テンプレートを各 repo にコピーする方式はやめた。
 
 ## global への展開（ADR-0005）
@@ -20,9 +20,8 @@ install が行うこと：
 - `bin/codingenv` を `~/.local/bin/codingenv`（`BIN_DIR` で変更可）へ symlink する
 - `tools/*` を同じ `BIN_DIR` へ同名で symlink する（同名の通常ファイルがあればその tool だけ飛ばす）
 - `skills/*` と `hooks/harness-*.sh` を `~/.claude/skills/`、`~/.claude/hooks/` へ symlink する
-- `~/.claude/settings.json` に `env.CLAUDE_CODE_ENABLE_TODO_TOOLS=1` と hook 2つ（ADR-0004）を追記する
+- `~/.claude/settings.json` に SessionStart hook を追記する。旧版が入れた TaskCompleted hook と `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` は取り除く（ADR-0016）
   - SessionStart：handoff が1件ならその全文、複数なら一覧を ADR 一覧とともに文脈に入れる。handoff が無ければ旧 PROGRESS.md を後方互換で読む。handoff も PROGRESS.md も無い project では何もしない
-  - TaskCompleted：description に `VERIFIED: <コマンド> -> <結果>` の行が無い task の completed を拒否する。`CLAUDE_CODE_TASK_LIST_ID` がある project だけ
 - `~/.claude/CLAUDE.md` のハーネス節を `global/CLAUDE.harness.md` の内容に置き換える（マーカー区間。他の節は変更しない）
 
 hook の登録と CLAUDE.md の節は、repo を直したあと install を再実行するまで反映されない。symlink の中身（skill と hook script）は即座に全 project に効く。install 後は Claude Code を再起動する。
@@ -31,7 +30,6 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 
 ## 各 project が持つもの（すべて任意）
 - `.claude/handoff/<name>.md`、`docs/decisions/`、`docs/context/`。旧 `PROGRESS.md` は後方互換で読む
-- `.claude/settings.json` の `CLAUDE_CODE_TASK_LIST_ID`（無ければ `/pickup` が project ディレクトリ名で追加する）
 
 これらが無い状態でも skill は動く。
 
@@ -44,14 +42,13 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 | docs/context/glossary.md | 業務用語とコード上の名前の対応 | 必要な時 | 随時 |
 | docs/decisions/0000-template.md | ADR（設計判断と却下した案） | 必要な時 | 決定ごと |
 | .claude/handoff/<name>.md | 進行中タスクの引き継ぎ（1セッション1ファイル） | pickupスキルと SessionStart hook | セッションごと |
-| .claude/settings.json | Task list の共有 ID のみ | 起動時に自動 | 固定 |
+| .claude/settings.json | この project の plugin・skill の設定 | 起動時に自動 | 固定 |
 | skills/taskman/SKILL.md | 依頼を分類して Task を作る手順 | `/taskman` で呼ぶ | 固定 |
 | skills/design/SKILL.md | 境界と Node Graph で設計する手順 | `/taskman` から呼ぶ | 固定 |
 | skills/dispatch/SKILL.md | 次の Agent（Subagent）を呼ぶ手順 | `/dispatch` で呼ぶ | 固定 |
 | skills/handoff/SKILL.md | /clear前に自分の handoff を書き出す手順 | `/handoff` で呼ぶ | 固定 |
 | skills/pickup/SKILL.md | /clear後に読み直して理解を復唱する手順 | `/pickup` で呼ぶ | 固定 |
 | hooks/harness-session-start.sh | handoff（複数なら一覧）を文脈に入れる | SessionStart hook | 固定 |
-| hooks/harness-task-completed.sh | 未検証の completed を拒否する | TaskCompleted hook | 固定 |
 | global/CLAUDE.harness.md | `~/.claude/CLAUDE.md` のハーネス節の正本 | `bin/codingenv install` で展開 | 随時 |
 | bin/codingenv | global への展開・drift 検出・取り外し | 手で実行 | 固定 |
 | tools/codex-localreview | Codex CLI でローカルレビューして PR にコメント（bot の quota 切れ時） | `codex-localreview <pr> <worktree>` | 固定 |
@@ -65,8 +62,6 @@ hook の登録と CLAUDE.md の節は、repo を直したあと install を再�
 2. 区切りで `/handoff`
 3. `/clear`
 4. `/pickup` → エージェントの復唱を確認・修正 → 作業再開
-
-`CLAUDE_CODE_TASK_LIST_ID` は `/pickup` がディレクトリ名で設定する。同じ ID の project があると Task list が混ざる。
 
 ## 配置ロジック（ADR-0010）
 調整するものはファイルに置く。配置（`classes`・`rules`・`modes`・`runners`）は `orchd/policy.json`、収集対象（`agents`・`computers`・`collect`）は `cad/config.json`。どちらも実行ファイルの場所から見つけるので CWD に依存しない。分類だけ Orchestrator（Claude）が行い、配置は `orchd place`（[orchd/README.md](orchd/README.md)。cad から usage・capacity を HTTP で読む）が policy の `rules`（順序付きの決定リスト、先勝ち）を上から評価して決定的に返す（同じ入力なら同じ出力）。
@@ -98,10 +93,7 @@ tools/cad rm agent|computer <key>
 
 ## トラブルシュート
 
-- Task tools (`TaskCreate` など) が見えない → `~/.claude/settings.json` の `env` に `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` があるか確認する。代替のキューを自作しない (ADR-0002)。
-- 別プロジェクトの Task list と混ざる → 各 project の `.claude/settings.json` の `CLAUDE_CODE_TASK_LIST_ID` が重複していないか確認する。
 - `/dispatch` などの skill が見つからない → `~/.claude/skills/` の symlink が切れていないか確認する（この repo を移動・削除すると切れる）。
-- `~/.claude/tasks/` 配下は手で編集しない。状態変更は `TaskUpdate` で行う。
 
 AGENTS.md を使う他のツール（Codex、Cursorなど）と併用する場合は、CLAUDE.md の内容を AGENTS.md に置き、
 Claude Code 側は AGENTS.md を読む設定・仕様に合わせてください（Claude Code は CLAUDE.md が無い場合に AGENTS.md を読む、と調査時点のドキュメントに記載）。

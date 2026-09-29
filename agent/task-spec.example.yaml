@@ -2,7 +2,7 @@
 # ChangeGraph node c4（.claude/changegraph/dev-env-upgrade.yaml）を Worker に渡す場合。
 version: 1
 id: dev-env-upgrade-c4          # <changegraph 名>-<node id>。branch・worker labels にも使う
-taskId: "12"                    # 内蔵 Task list の id（1:1）。状態は Task list だけが持つ
+issue: 12                       # Task の GitHub Issue 番号（1:1）。状態は Issue が持つ
 repo: git@github.com:jsongold/codingagentenv.git
 base: origin/main
 branch: feat/cad-workers
@@ -18,7 +18,7 @@ files:                          # 触ってよいファイル（ChangeGraph の 
   - cad/workers.go
   - cad/workers_test.go
   - agent/providers/fake/list
-done:                           # Worker が PR 前に、Orchestrator が VERIFIED 前に、それぞれ実行する
+done:                           # Worker が PR 前に、Orchestrator が完了判断の前に、それぞれ実行する
   - (cd cad && go vet ./... && go test -count=1 ./...)
 resources:
   memoryMB: 2048

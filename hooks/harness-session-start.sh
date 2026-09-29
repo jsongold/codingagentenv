@@ -72,5 +72,5 @@ fi
 if [ -d "$DIR/docs/decisions" ]; then
   echo "[harness] ADR: $(ls "$DIR/docs/decisions" | grep -v '^0000-' | tr '\n' ' ')"
 fi
-echo "[harness] 作業を始める前に $PICKUP の手順に従うこと：TaskList で残タスクを確認し、「目的・完了条件・次の一手」を3行で復唱する。置き換え済みの ADR と却下した案は再提案しない。"
+echo "[harness] 作業を始める前に $PICKUP の手順に従うこと：handoff と GitHub Issues で残タスクを確認し、「目的・完了条件・次の一手」を3行で復唱する。置き換え済みの ADR と却下した案は再提案しない。"
 exit 0

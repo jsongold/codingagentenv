@@ -2,7 +2,8 @@
 # harness — deploys this repo's harness into ~/.claude. The repo is the only
 # source of truth; nothing under ~/.claude is edited by hand (ADR-0005).
 #
-#   bin/codingenv install     symlink skills and hooks, register hooks and env,
+#   bin/codingenv install     symlink skills and hooks, register hooks, drop
+#                           retired hooks and env (ADR-0016),
 #                           sync the harness section of ~/.claude/CLAUDE.md,
 #                           link this command into ~/.local/bin as `codingenv`
 #                           and tools/* into ~/.local/bin under their own names
@@ -30,11 +31,14 @@ SECTION="$ROOT/global/CLAUDE.harness.md"
 BEGIN='<!-- harness:begin (managed by codingagentenv bin/harness; do not edit) -->'
 END='<!-- harness:end -->'
 HEADING='## ハーネス（全プロジェクト共通）'
-ENV_KEY=CLAUDE_CODE_ENABLE_TODO_TOOLS
+# Removed from the harness (ADR-0016); install and uninstall clean them out of
+# an existing settings.json and hooks directory.
+RETIRED_ENV=CLAUDE_CODE_ENABLE_TODO_TOOLS
+RETIRED_HOOKS='TaskCompleted:harness-task-completed.sh'
 
 SKILLS=$(cd "$ROOT/skills" && ls -d */ | tr -d /)
 TOOLS=$(cd "$ROOT/tools" && ls) # linked into BIN_DIR under their own names
-HOOKS='SessionStart:harness-session-start.sh TaskCompleted:harness-task-completed.sh'
+HOOKS='SessionStart:harness-session-start.sh'
 
 hook_command() { printf 'bash "$HOME/.claude/hooks/%s"' "$1"; }
 
@@ -46,6 +50,22 @@ backup() {
 update_settings() { # jq filter, then jq args
   jq "$@" "$SETTINGS" >"$SETTINGS.tmp"
   mv "$SETTINGS.tmp" "$SETTINGS"
+}
+
+unregister_hooks() { # event:script entries; drops our link, groups and empty events
+  for entry in "$@"; do
+    [ "$(readlink "$CLAUDE_DIR/hooks/${entry#*:}" 2>/dev/null)" = "$ROOT/hooks/${entry#*:}" ] && rm "$CLAUDE_DIR/hooks/${entry#*:}"
+    update_settings --arg event "${entry%%:*}" --arg command "$(hook_command "${entry#*:}")" '
+      if .hooks[$event] then
+        .hooks[$event] |= map(select(any(.hooks[]?; .command == $command) | not))
+        | if .hooks[$event] == [] then del(.hooks[$event]) else . end
+      else . end'
+  done
+}
+
+drop_retired() {
+  update_settings --arg key "$RETIRED_ENV" 'del(.env[$key]) | if .env == {} then del(.env) else . end'
+  unregister_hooks $RETIRED_HOOKS
 }
 
 # Prints CLAUDE.md without the harness section: the marked block, or a section
@@ -87,7 +107,7 @@ install() {
 
   [ -f "$SETTINGS" ] || echo '{}' >"$SETTINGS"
   backup "$SETTINGS"
-  update_settings --arg key "$ENV_KEY" '.env[$key] = "1"'
+  drop_retired
   for entry in $HOOKS; do
     # Append a group unless one already runs the same script.
     update_settings --arg event "${entry%%:*}" --arg command "$(hook_command "${entry#*:}")" '
@@ -114,20 +134,10 @@ uninstall() {
   for name in $SKILLS; do
     [ "$(readlink "$CLAUDE_DIR/skills/$name" 2>/dev/null)" = "$ROOT/skills/$name" ] && rm "$CLAUDE_DIR/skills/$name"
   done
-  for entry in $HOOKS; do
-    [ "$(readlink "$CLAUDE_DIR/hooks/${entry#*:}" 2>/dev/null)" = "$ROOT/hooks/${entry#*:}" ] && rm "$CLAUDE_DIR/hooks/${entry#*:}"
-  done
-
   if [ -f "$SETTINGS" ]; then
     backup "$SETTINGS"
-    update_settings --arg key "$ENV_KEY" 'del(.env[$key])'
-    for entry in $HOOKS; do
-      update_settings --arg event "${entry%%:*}" --arg command "$(hook_command "${entry#*:}")" '
-        if .hooks[$event] then
-          .hooks[$event] |= map(select(any(.hooks[]?; .command == $command) | not))
-          | if .hooks[$event] == [] then del(.hooks[$event]) else . end
-        else . end'
-    done
+    drop_retired
+    unregister_hooks $HOOKS
   fi
 
   if [ -f "$MEMORY" ]; then
@@ -159,7 +169,7 @@ status() {
     report "hook registered $event" "$(jq -r --arg event "$event" --arg command "$(hook_command "$script")" \
       'if any(.hooks[$event][]?.hooks[]?; .command == $command) then "yes" else "no" end' "$SETTINGS" 2>/dev/null || echo no)"
   done
-  report "env $ENV_KEY" "$(same "$(jq -r --arg key "$ENV_KEY" '.env[$key] // ""' "$SETTINGS" 2>/dev/null)" 1)"
+  report "env $RETIRED_ENV removed" "$(same "$(jq -r --arg key "$RETIRED_ENV" '.env[$key] // ""' "$SETTINGS" 2>/dev/null)" "")"
 
   local current=""
   [ -f "$MEMORY" ] && current=$(awk -v begin="$BEGIN" -v end="$END" '$0 == end { f = 0 } f { print } $0 == begin { f = 1 }' "$MEMORY")
