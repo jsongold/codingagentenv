@@ -3,6 +3,7 @@
 - 複数ステップの実装・調査は `/taskman` で Task を作り、`/dispatch` で Subagent に配送する。main は自分では実装しない
 - 1ファイルの小さな修正と質問への回答は main が直接やる
 - Task は GitHub Issue で管理する。main が `/taskman` の Task を Issue に登録してから `/dispatch` に渡す。Subagent が実装・検証・コミットし、完了の判断は Orchestrator（main）がする。1タスク = 1コミット
+- commit の message 末尾に trailer を 2 つ書く。`State:` は `working`（実装中）/ `review-wait`（レビュー依頼済み）/ `merge-ready`（レビュー・CI 済み）のどれか。`Next:` は次の一手を 1 行で。空 commit は使わない
 - Issue を閉じる前に、main が Subagent の報告を鵜呑みにせず完了条件（done）のコマンドを自分で再実行して確認し、通ったら `gh issue close <番号> --reason completed` で閉じる
 - `/clear` 前は `/handoff`、`/clear` 後・新セッションの最初は `/pickup`（built-in の `/resume` とは別物）
 - project ごとのルールは harness.json に書く（project の `.claude/harness.json` > `~/.claude/harness.json`。今は tickets だけ：チケット管理の場所（github / jira）と spec の見分け方）。spec は skill が harness.json の tickets を読んで探す（hook は spec を一覧しない）。未設定なら spec を探さない。作るときは `/setupca`
