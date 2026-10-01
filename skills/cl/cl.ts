@@ -28,9 +28,10 @@ const PRIORITIES: Priority[] = ["P0", "P1", "P2"];
 const SPECS: SpecState[] = ["todo", "decided"];
 const IMPLS: ImplState[] = ["todo", "done", "n/a"];
 
+class CliError extends Error {}
+
 function fail(msg: string): never {
-  console.error(msg);
-  process.exit(1);
+  throw new CliError(msg);
 }
 
 function oneOf<T extends string>(values: readonly T[], v: string | undefined, what: string): T {
@@ -39,8 +40,9 @@ function oneOf<T extends string>(values: readonly T[], v: string | undefined, wh
 }
 
 function validate(cl: Checklist, path: string): Checklist {
-  if (!cl.name || !cl.purpose) fail(`invalid checklist: ${path}`);
+  if (!cl || !cl.name || !cl.purpose || !Array.isArray(cl.items) || !Array.isArray(cl.decisions)) fail(`invalid checklist: ${path}`);
   for (const it of cl.items) {
+    if (!it || !Array.isArray(it.links)) fail(`invalid checklist: ${path}`);
     oneOf(PRIORITIES, it.priority, "priority");
     oneOf(SPECS, it.spec, "spec");
     oneOf(IMPLS, it.impl, "impl");
@@ -51,7 +53,7 @@ function validate(cl: Checklist, path: string): Checklist {
 function load(path: string): Checklist {
   if (!existsSync(path)) fail(`not found: ${path}`);
   const raw = JSON.parse(readFileSync(path, "utf8"));
-  return validate({ ...raw, log: raw.log ?? [], synced: raw.synced ?? 0 }, path);
+  return validate({ ...raw, log: raw?.log ?? [], synced: raw?.synced ?? 0 }, path);
 }
 
 function save(path: string, cl: Checklist): void {
@@ -106,11 +108,21 @@ function scan(scratchpad: string): { path: string; cl: Checklist; mtime: number;
     if (!existsSync(dir)) continue;
     for (const f of readdirSync(dir).filter((f) => f.endsWith(".json"))) {
       const path = join(dir, f);
-      found.push({ path, cl: load(path), mtime: statSync(path).mtimeMs, own: dir === own });
+      try {
+        found.push({ path, cl: load(path), mtime: statSync(path).mtimeMs, own: dir === own });
+      } catch (e) {
+        console.error(`warning: skipped ${path}: ${(e as Error).message}`);
+      }
     }
   }
   return found.sort((a, b) => b.mtime - a.mtime);
 }
+
+// Markdown table cell / link label escaping.
+const cell = (s: string) => s.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+const labelEsc = (s: string) => cell(s).replace(/\]/g, "\\]");
+const localDate = (d: Date) => d.toLocaleDateString("sv-SE");
+const localDateTime = (d: Date) => `${localDate(d)} ${d.toLocaleTimeString("sv-SE").slice(0, 5)}`;
 
 function list(scratchpad: string): string {
   const rows = scan(scratchpad);
@@ -118,8 +130,8 @@ function list(scratchpad: string): string {
   const withStore = rows.some((r) => r.cl.store);
   const lines = [`| Name | Purpose | Open | Updated | This session |${withStore ? " Pending |" : ""}`, `|---|---|---|---|---|${withStore ? "---|" : ""}`];
   for (const r of rows) {
-    const updated = new Date(r.mtime).toISOString().slice(0, 16).replace("T", " ");
-    lines.push(`| ${r.cl.name} | ${r.cl.purpose} | ${r.cl.items.filter(isOpen).length} | ${updated} | ${r.own ? "yes" : ""} |${withStore ? ` ${r.cl.store ? r.cl.log.length - r.cl.synced : ""} |` : ""}`);
+    const updated = localDateTime(new Date(r.mtime));
+    lines.push(`| ${cell(r.cl.name)} | ${cell(r.cl.purpose)} | ${r.cl.items.filter(isOpen).length} | ${updated} | ${r.own ? "yes" : ""} |${withStore ? ` ${r.cl.store ? r.cl.log.length - r.cl.synced : ""} |` : ""}`);
   }
   return lines.join("\n");
 }
@@ -127,12 +139,12 @@ function list(scratchpad: string): string {
 function render(cl: Checklist): string {
   const out = [`Purpose: ${cl.purpose}`];
   if (cl.deadline) out.push(`Deadline: ${cl.deadline}`);
-  out.push("", "Decisions", ...cl.decisions.map((d) => `- ${d.date}: ${d.text}`));
+  out.push("", "Decisions", ...cl.decisions.map((d) => `- ${d.date}: ${d.text.replace(/\r?\n/g, " ")}`));
   for (const p of PRIORITIES) {
     out.push("", `## ${p}`, "| # | Item | Spec | Impl | Links |", "|---|---|---|---|---|");
     for (const it of cl.items.filter((i) => i.priority === p)) {
-      const links = it.links.map((l) => `[${l.label}](${l.url})`).join(", ");
-      out.push(`| ${it.id} | ${it.title} | ${it.spec} | ${it.impl} | ${links} |`);
+      const links = it.links.map((l) => `[${labelEsc(l.label)}](${l.url})`).join(", ");
+      out.push(`| ${it.id} | ${cell(it.title)} | ${it.spec} | ${it.impl} | ${links} |`);
     }
   }
   return out.join("\n");
@@ -141,11 +153,12 @@ function render(cl: Checklist): string {
 // Own scratchpad first, then the whole repo (newest wins; mention the others).
 function show(scratchpad: string, name: string): string {
   const own = join(scratchpad, "cl", `${name}.json`);
-  const matches = scan(scratchpad).filter((r) => basename(r.path) === `${name}.json`);
-  const hit = matches.find((r) => r.path === own) ?? matches[0];
+  const others = (): number => scan(scratchpad).filter((r) => basename(r.path) === `${name}.json` && r.path !== own).length;
+  const mk = (n: number) => (n > 0 ? `\n\nNote: ${n} other checklist(s) named ${name} exist in this repo.` : "");
+  if (existsSync(own)) return render(load(own)) + mk(others());
+  const hit = scan(scratchpad).find((r) => basename(r.path) === `${name}.json`);
   if (!hit) fail(`not found: ${name}`);
-  const note = matches.length > 1 ? `\n\nNote: ${matches.length - 1} other checklist(s) named ${name} exist in this repo.` : "";
-  return render(hit.cl) + note;
+  return render(hit.cl) + mk(others() - 1);
 }
 
 function item(cl: Checklist, id: string | undefined): Item {
@@ -156,85 +169,101 @@ function item(cl: Checklist, id: string | undefined): Item {
 
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
-  return i >= 0 ? args[i + 1] : undefined;
+  const v = i >= 0 ? args[i + 1] : undefined;
+  return v === undefined || v === "" || v.startsWith("--") ? undefined : v;
 }
 
-const [scratchpad, cmd, name, ...rest] = process.argv.slice(2);
-if (!scratchpad || !cmd) fail("usage: cl.ts <scratchpad> new|add|spec|impl|link|decide|store|sync|synced|checkpoint|show|list [name] ...");
-if (cmd === "list") {
-  console.log(list(scratchpad));
-  process.exit(0);
-}
-if (!name || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) fail(`invalid name: ${name ?? "(missing)"}`);
-if (cmd === "show") {
-  console.log(show(scratchpad, name));
-  process.exit(0);
-}
-
-const path = join(scratchpad, "cl", `${name}.json`);
-let cl: Checklist;
-if (cmd === "new") {
-  if (existsSync(path)) fail(`already exists: ${name}`);
-  const purpose = flag(rest, "--purpose") ?? fail("new requires --purpose <s>");
-  const store = flag(rest, "--store");
-  cl = { name, purpose, decisions: [], items: [], log: [], synced: 0 };
-  if (store) cl.store = parseStore(store);
-  record(cl, "new", purpose);
-  const deadline = flag(rest, "--deadline");
-  if (deadline) cl.deadline = deadline;
-} else {
-  cl = load(path);
-  const [a, b, c] = rest;
-  if (cmd === "add") {
-    const priority = oneOf(PRIORITIES, a, "priority");
-    if (!b) fail("add requires a title");
-    const id = Math.max(0, ...cl.items.map((i) => i.id)) + 1;
-    cl.items.push({ id, priority, title: b, spec: "todo", impl: "todo", links: [] });
-    record(cl, "add", `#${id} ${priority}: ${b}`);
-  } else if (cmd === "spec") {
-    const it = item(cl, a);
-    const before = it.spec;
-    it.spec = oneOf(SPECS, b, "spec");
-    record(cl, "spec", `#${it.id}: ${before} -> ${it.spec}`);
-  } else if (cmd === "impl") {
-    const it = item(cl, a);
-    const before = it.impl;
-    it.impl = oneOf(IMPLS, b, "impl");
-    record(cl, "impl", `#${it.id}: ${before} -> ${it.impl}`);
-  } else if (cmd === "link") {
-    if (!b || !c) fail("link requires <label> <url>");
-    item(cl, a).links.push({ label: b, url: c });
-    record(cl, "link", `#${a}: ${b} ${c}`);
-  } else if (cmd === "decide") {
-    if (!a) fail("decide requires <text>");
-    cl.decisions.push({ date: new Date().toISOString().slice(0, 10), text: a });
-    record(cl, "decide", a);
-  } else if (cmd === "store") {
-    cl.store = parseStore(a);
-    record(cl, "store", a!);
-  } else if (cmd === "checkpoint") record(cl, "checkpoint", "not synced");
-  else if (cmd === "synced") {
-    const n = Number(a);
-    if (!Number.isInteger(n) || n < 0 || n > cl.log.length) fail(`invalid count: ${a ?? "(missing)"} (0..${cl.log.length})`);
-    if (!cl.store) fail("no store set");
-    cl.synced = n;
-    if (b) cl.store.commentId = b;
-  } else if (cmd === "sync") {
-    if (!cl.store) fail("no store set (use: store <name> <url>)");
-    if (cl.store.kind === "jira") {
-      const { kind, url, commentId } = cl.store;
-      console.log(JSON.stringify({ kind, url, commentId, body: managedBody(cl), pending: pending(cl), next: cl.log.length }, null, 2));
-      process.exit(0);
-    }
-    const n = pending(cl).length;
-    try {
-      syncGithub(cl, cl.store);
-    } finally {
-      save(path, cl); // keeps commentId even if a later post failed; synced only moves on success
-    }
-    console.log(`synced ${n} log entries to ${cl.store.url}`);
+function main(): void {
+  const [scratchpad, cmd, name, ...rest] = process.argv.slice(2);
+  if (!scratchpad || !cmd) fail("usage: cl.ts <scratchpad> new|add|spec|impl|link|decide|store|sync|synced|checkpoint|show|list [name] ...");
+  if (cmd === "list") {
+    console.log(list(scratchpad));
     process.exit(0);
-  } else fail(`unknown command: ${cmd}`);
+  }
+  if (!name || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) fail(`invalid name: ${name ?? "(missing)"}`);
+  if (cmd === "show") {
+    console.log(show(scratchpad, name));
+    process.exit(0);
+  }
+
+  const path = join(scratchpad, "cl", `${name}.json`);
+  let cl: Checklist;
+  if (cmd === "new") {
+    if (existsSync(path)) fail(`already exists: ${name}`);
+    const purpose = flag(rest, "--purpose") ?? fail("new requires --purpose <s>");
+    const store = flag(rest, "--store");
+    cl = { name, purpose, decisions: [], items: [], log: [], synced: 0 };
+    if (store) cl.store = parseStore(store);
+    record(cl, "new", purpose);
+    const deadline = flag(rest, "--deadline");
+    if (deadline) cl.deadline = deadline;
+  } else {
+    cl = load(path);
+    const [a, b] = rest;
+    if (cmd === "add") {
+      const priority = oneOf(PRIORITIES, a, "priority");
+      const title = rest.slice(1).join(" ");
+      if (!title) fail("add requires a title");
+      const id = Math.max(0, ...cl.items.map((i) => i.id)) + 1;
+      cl.items.push({ id, priority, title, spec: "todo", impl: "todo", links: [] });
+      record(cl, "add", `#${id} ${priority}: ${title}`);
+    } else if (cmd === "spec") {
+      const it = item(cl, a);
+      const before = it.spec;
+      it.spec = oneOf(SPECS, b, "spec");
+      record(cl, "spec", `#${it.id}: ${before} -> ${it.spec}`);
+    } else if (cmd === "impl") {
+      const it = item(cl, a);
+      const before = it.impl;
+      it.impl = oneOf(IMPLS, b, "impl");
+      record(cl, "impl", `#${it.id}: ${before} -> ${it.impl}`);
+    } else if (cmd === "link") {
+      const label = rest.slice(1, -1).join(" ");
+      const url = rest.length > 2 ? rest[rest.length - 1] : "";
+      if (!label || !url) fail("link requires <label> <url>");
+      item(cl, a).links.push({ label, url });
+      record(cl, "link", `#${a}: ${label} ${url}`);
+    } else if (cmd === "decide") {
+      const text = rest.join(" ");
+      if (!text) fail("decide requires <text>");
+      cl.decisions.push({ date: localDate(new Date()), text });
+      record(cl, "decide", text);
+    } else if (cmd === "store") {
+      cl.store = parseStore(a);
+      record(cl, "store", a!);
+    } else if (cmd === "checkpoint") record(cl, "checkpoint", "not synced");
+    else if (cmd === "synced") {
+      const n = Number(a);
+      if (!Number.isInteger(n) || n < 0 || n > cl.log.length) fail(`invalid count: ${a ?? "(missing)"} (0..${cl.log.length})`);
+      if (!cl.store) fail("no store set");
+      cl.synced = n;
+      if (b) cl.store.commentId = b;
+    } else if (cmd === "sync") {
+      if (!cl.store) fail("no store set (use: store <name> <url>)");
+      if (cl.store.kind === "jira") {
+        const { kind, url, commentId } = cl.store;
+        console.log(JSON.stringify({ kind, url, commentId, body: managedBody(cl), pending: pending(cl), next: cl.log.length }, null, 2));
+        process.exit(0);
+      }
+      const n = pending(cl).length;
+      try {
+        syncGithub(cl, cl.store);
+      } finally {
+        save(path, cl); // keeps commentId even if a later post failed; synced only moves on success
+      }
+      console.log(`synced ${n} log entries to ${cl.store.url}`);
+      process.exit(0);
+    } else fail(`unknown command: ${cmd}`);
+  }
+  save(path, cl);
+  console.log(render(cl));
 }
-save(path, cl);
-console.log(render(cl));
+
+try {
+  main();
+} catch (e) {
+  if (!(e instanceof CliError)) throw e;
+  console.error(e.message);
+  process.exit(1);
+}
+

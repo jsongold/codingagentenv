@@ -7,6 +7,10 @@ description: Create, show, and update a checklist (CL) driven by AskUserQuestion
 
 A CL is a session-scoped working note stored as JSON at `<scratchpad>/cl/<name>.json` (scratchpad = the Scratchpad directory in the system prompt). Anything that must survive /clear belongs in a handoff or an Issue.
 
+Old Markdown CLs (`cl/*.md`) are not read. They were session-only notes, so losing them is accepted.
+
+Without a name (`cl`): if your own scratchpad has exactly 1 CL, use it; if several, let the user choose (run `list`); if 0, create one (the name is assigned after the purpose is confirmed).
+
 Every read and write goes through the script. Never edit the JSON directly.
 
 ```
