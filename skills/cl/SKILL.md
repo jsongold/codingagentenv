@@ -1,64 +1,51 @@
 ---
 name: cl
-description: チェックリスト（CL）を作り、表示し、AskUserQuestion の回答で更新する。引数は CL の名前で任意（例：`cl le8165-prod`。省くとチケット番号などから自動で付ける）。`cl --list` で repo の全 CL を列挙、`cl --show [名前]` で表示。「CL」「CL見せて」「CL更新」と言われたら使う。
+description: Create, show, and update a checklist (CL) driven by AskUserQuestion answers. The optional argument is the CL name (e.g. `cl le8165-prod`; if omitted, a name is derived from the ticket id and purpose). `cl --list` lists every CL in the repo, `cl --show [name]` prints one. Use when the user says "CL", "show the CL", or "update the CL".
 ---
 
-# cl — チェックリストの生成・表示・更新
+# cl — create, show, and update a checklist
 
-引数 `<name>` は CL の名前。省かれたら、scratchpad の `cl/` に CL が 1 件ならそれを使う。複数あれば一覧から選ばせる。0 件なら生成に進み、目的を確認してから名前を自動で付ける（1.2）。
+A CL is a session-scoped working note stored as JSON at `<scratchpad>/cl/<name>.json` (scratchpad = the Scratchpad directory in the system prompt). Anything that must survive /clear belongs in a handoff or an Issue.
 
-CL はセッションの scratchpad（システムプロンプトにある Scratchpad directory）の `cl/<name>.md` に置く。セッション内だけの作業メモで、/clear をまたぐ状態は持たない。残すべき決定は handoff か Issue に書く。
+Old Markdown CLs (`cl/*.md`) are not read. They were session-only notes, so losing them is accepted.
 
-repo の全 CL は、自分の scratchpad の 2 つ上（repo ごとのディレクトリ）の下にある `*/scratchpad/cl/*.md`（セッションごとに 1 つの scratchpad）。
+Without a name (`cl`): if your own scratchpad has exactly 1 CL, use it; if several, let the user choose (run `list`); if 0, create one (the name is assigned after the purpose is confirmed).
 
-## オプション
-- `cl --list`：repo の全 CL を列挙して終える。列は 名前 / 目的 / 未の数 / 更新日時（新しい順）/ 自セッションか。0 件ならそう伝える。
-- `cl --show [名前]`：CL を表示して終える（2. 表示）。名前は自セッションの CL を先に探し、無ければ repo の全 CL から探す。同名が複数あれば最新を出し、他にもあると 1 行添える。名前を省いたら、自セッションの CL が 1 件ならそれ、それ以外は `--list` の結果から選ばせる。他セッションの CL は表示だけで、更新しない。
+Every read and write goes through the script. Never edit the JSON directly.
 
-## 1. 生成（`cl/<name>.md` が無いとき）
-1. 目的と期限をユーザーに確認する。
-2. 名前が無ければ付ける：チケット番号・PR 番号などの ID と目的を短くつなげる（例：`le8165-prod`）。小文字・ハイフン区切りで 20 文字程度まで。付けた名前は表示する。
-3. 材料（PR・Issue・チケット・コード）を読み、足りない点を洗い出す。
-4. 項目ごとにラベルを付ける。
-   - P0：これがないと期限に間に合わない（ブロッカー）
-   - P1：動くが、本番を壊すか誤った結果になる恐れがある。今回は手順で回避できる
-   - P2：定常運用に入るまでに直せばよい
-5. 下の形式でファイルに書き、表で表示する。
-6. 未確認の事実は「要確認」と書く。推測で断言しない。
-
-## 2. 表示（CL があるとき、または「CL見せて」と言われたとき）
-保存済みの CL をそのまま表で出す。手を加えない。
-
-## 3. 更新
-1. 決めるべき点を AskUserQuestion で聞く。1 回 4 問まで。推奨する選択肢を先頭にして "(Recommended)" を付ける。
-2. 回答を CL に反映する。状態は `未` / `決定` / `決定・実装は未` / `完了` のいずれか。
-3. 「決定事項」に日付付きで追記する。
-4. 自由記述の指示（例：「e2e は削除」「TZ=Tokyo」）も同じ形で反映する。
-5. 回答で前提が変わり、新たに生まれたリスクは項目として追加し、変わった点を短く報告する。
-
-## 出力
-簡潔に。AskUserQuestion の回答は CL に反映してから応答を終える。`未` の項目が残っていれば、次に決める点を続けて聞き、全項目が `完了` になるまで進める。
-
-## CL の形式
-
-```markdown
-目的：<何を・いつまでに>
-
-決定事項（YYYY-MM-DD）
-- <決定>
-
-## P0（期限までに必須）
-| # | 項目 | 状態 |
-|---|---|---|
-| 1 | <項目> | 未 |
-
-## P1（手順で回避して出す）
-| # | 項目 | 状態 |
-|---|---|---|
-
-## P2（定常運用までに直す）
-| # | 項目 | 状態 |
-|---|---|---|
+```
+node ${CLAUDE_SKILL_DIR}/cl.ts <scratchpad> <cmd> ...
+  new <name> --purpose <s> [--deadline <s>]
+  add <name> <P0|P1|P2> <title>
+  spec <name> <#> <todo|decided>
+  impl <name> <#> <todo|done|n/a>      # n/a: nothing to implement (agreement, permission, etc.)
+  link <name> <#> <label> <url>
+  decide <name> <text>                 # appends with today's date
+  show <name>                          # own scratchpad first, then the whole repo
+  list                                 # all CLs in the repo
 ```
 
-`#` 列は P0〜P2 を通した連番にし、追加した項目は末尾の番号を使う（既存の番号を振り直さない）。
+Each write command prints the rendered CL; show that output as-is.
+
+## Options
+- `cl --list`: run `list` and print its output as-is. Columns: Name / Purpose / Open / Updated (newest first) / This session.
+- `cl --show [name]`: run `show <name>` and print its output as-is. CLs from other sessions are read-only; mutating commands only touch your own scratchpad. If the name is omitted: use the only CL in your scratchpad, otherwise run `list` and ask which one.
+
+## Create (no CL yet)
+1. Confirm the purpose and deadline with the user.
+2. If no name was given, derive one from the ticket/PR id and the purpose (short, lowercase, hyphenated, about 20 chars, e.g. `le8165-prod`) after the purpose is confirmed. Tell the user the name.
+3. Read the materials (PRs, Issues, tickets, code) and find what is missing.
+4. Assign each item a priority:
+   - P0: blocker for the deadline
+   - P1: works but may break prod or give wrong results; worked around by procedure this time
+   - P2: fix before steady-state operation
+5. `new`, then `add` each item. Mark unverified facts as "unverified" in the title; never assert guesses.
+
+## Update
+1. Ask the open points with AskUserQuestion: at most 4 per call, recommended option first with "(Recommended)".
+2. Record each answer with `spec` / `impl` / `link`, and add a dated entry with `decide`.
+3. Record free-form instructions (e.g. "drop e2e", "TZ=Tokyo") the same way.
+4. If an answer changes assumptions or creates new risks, `add` them and report what changed in a line or two.
+5. After recording, keep asking about the remaining open items (spec not decided, or impl todo) until none are left.
+
+Item ids (`#`) are never renumbered; new items take the next number.
