@@ -161,6 +161,14 @@ function show(scratchpad: string, name: string): string {
   return render(hit.cl) + mk(others() - 1);
 }
 
+// Same lookup as show: print the local file path, and the store URL when set.
+function where(scratchpad: string, name: string): string {
+  const own = join(scratchpad, "cl", `${name}.json`);
+  const hit = existsSync(own) ? { path: own, cl: load(own) } : scan(scratchpad).find((r) => basename(r.path) === `${name}.json`);
+  if (!hit) fail(`not found: ${name}`);
+  return [`local: ${hit.path}`, ...(hit.cl.store ? [`store: ${hit.cl.store.url}`] : [])].join("\n");
+}
+
 function item(cl: Checklist, id: string | undefined): Item {
   const it = cl.items.find((i) => i.id === Number(id));
   if (!it) fail(`no such item: ${id ?? "(missing)"}`);
@@ -175,14 +183,14 @@ function flag(args: string[], name: string): string | undefined {
 
 function main(): void {
   const [scratchpad, cmd, name, ...rest] = process.argv.slice(2);
-  if (!scratchpad || !cmd) fail("usage: cl.ts <scratchpad> new|add|spec|impl|link|decide|store|sync|synced|checkpoint|show|list [name] ...");
+  if (!scratchpad || !cmd) fail("usage: cl.ts <scratchpad> new|add|spec|impl|link|decide|store|sync|synced|checkpoint|show|where|list [name] ...");
   if (cmd === "list") {
     console.log(list(scratchpad));
     process.exit(0);
   }
   if (!name || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) fail(`invalid name: ${name ?? "(missing)"}`);
-  if (cmd === "show") {
-    console.log(show(scratchpad, name));
+  if (cmd === "show" || cmd === "where") {
+    console.log(cmd === "show" ? show(scratchpad, name) : where(scratchpad, name));
     process.exit(0);
   }
 

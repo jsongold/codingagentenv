@@ -169,6 +169,13 @@ has "show: own file wins over broken other" "$out" "Purpose: ship it"
 rm "$B/cl/broken.json" "$B/cl/noitems.json" "$B/cl/nolinks.json"
 mv "$TMP/rel.b.json" "$B/cl/rel.json"
 
+# where: local path, plus store URL when set
+has "where: own path" "$(cl "$A" where rel)" "local: $A/cl/rel.json"
+has "where: other session" "$(cl "$B" where rel)" "local: $B/cl/rel.json"
+check "where: missing" "1" "$(node "$CL" "$A" where nope >/dev/null 2>&1; echo $?)"
+cl "$A" store rel https://github.com/o/r/issues/1 >/dev/null
+has "where: store url" "$(cl "$A" where rel)" "store: https://github.com/o/r/issues/1"
+
 # invalid stored state is rejected
 sed -i.bak 's/"decided"/"bogus"/' "$A/cl/rel.json"
 check "load: invalid state fails" "1" "$(node "$CL" "$A" show rel >/dev/null 2>&1; echo $?)"
