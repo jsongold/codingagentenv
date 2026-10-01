@@ -19,7 +19,7 @@
 3. 着手前に「目的・完了条件・次の一手」を3行で復唱し、ずれがあれば質問する
 
 ## コマンド
-- テスト：`bash test/hooks.test.sh`、`bash test/harness.test.sh`。lint / 起動：なし
+- テスト：`bash test/hooks.test.sh`、`bash test/harness.test.sh`、`bash test/cl.test.sh`。lint / 起動：なし
 - global への展開：`bin/codingenv install`（ユーザーが実行する）。drift の確認：`bin/codingenv status`（読み取りのみ。Claude が実行してよい）
 - `/taskman <やりたいこと>`：依頼を分類し、必要なら `/design` → `/changegraph` で Task を作る
 - `/dispatch <Task | 依頼>`：次の Agent（Subagent）を呼ぶだけ。Issue・worktree・wave の進行は main loop が行う
