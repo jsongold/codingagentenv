@@ -17,11 +17,15 @@ node ${CLAUDE_SKILL_DIR}/cl.ts <scratchpad> <cmd> ...
   impl <name> <#> <todo|done|n/a>      # n/a: nothing to implement (agreement, permission, etc.)
   link <name> <#> <label> <url>
   decide <name> <text>                 # appends with today's date
+  store <name> <url>                   # GitHub issue or Jira issue URL (also: new ... --store <url>)
+  sync <name>                          # push to the store (see Sync)
+  synced <name> <n> [commentId]        # mark the first n log entries as pushed (Jira)
+  checkpoint <name>                    # log "not synced"; pushes nothing
   show <name>                          # own scratchpad first, then the whole repo
-  list                                 # all CLs in the repo
+  list                                 # all CLs in the repo (Pending column when a store is set)
 ```
 
-Each write command prints the rendered CL; show that output as-is.
+Each write command prints the rendered CL and appends one log entry (before -> after); show that output as-is.
 
 ## Options
 - `cl --list`: run `list` and print its output as-is. Columns: Name / Purpose / Open / Updated (newest first) / This session.
@@ -45,3 +49,9 @@ Each write command prints the rendered CL; show that output as-is.
 5. After recording, keep asking about the remaining open items (spec not decided, or impl todo) until none are left.
 
 Item ids (`#`) are never renumbered; new items take the next number.
+
+## Sync (only when the CL has a store)
+1. After a round of writes, ask with AskUserQuestion: "Sync to store?" with options "Yes (Recommended)" / "No".
+2. No: run `checkpoint`. The log entries stay pending for the next sync.
+3. Yes, GitHub store: run `sync`. It edits one managed comment holding the CL and posts each pending log entry as its own comment.
+4. Yes, Jira store: run `sync`; it prints JSON `{kind,url,commentId,body,pending,next}` and changes nothing. Post `body` (create the comment, or edit `commentId` if set) and each entry in `pending` with the Atlassian MCP, then run `synced <name> <next> [commentId]`. If posting fails, do not run `synced`.
