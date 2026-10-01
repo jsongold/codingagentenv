@@ -27,21 +27,22 @@ check "new twice fails" "1" "$(node "$CL" "$A" new rel --purpose x >/dev/null 2>
 
 cl "$A" add rel P0 "first" >/dev/null
 out=$(cl "$A" add rel P1 "second")
-has "add: ids increment" "$out" "| 2 | second | todo | todo |  |"
+has "add: ids increment" "$out" "| 2 | second | todo |  | todo |  |"
 check "add: bad priority fails" "1" "$(node "$CL" "$A" add rel P9 x >/dev/null 2>&1; echo $?)"
 
-out=$(cl "$A" spec rel 1 decided)
-has "spec" "$out" "| 1 | first | decided | todo |  |"
+check "spec: decided without how fails" "1" "$(node "$CL" "$A" spec rel 1 decided >/dev/null 2>&1; echo $?)"
+out=$(cl "$A" spec rel 1 decided use plan A --url http://d/1)
+has "spec: decided with how and link" "$out" "| 1 | first | [decided](http://d/1) | use plan A | todo |  |"
 out=$(cl "$A" impl rel 1 n/a)
-has "impl: n/a" "$out" "| 1 | first | decided | n/a |  |"
-out=$(cl "$A" impl rel 1 done)
-has "impl: done" "$out" "| 1 | first | decided | done |  |"
+has "impl: n/a" "$out" "| 1 | first | [decided](http://d/1) | use plan A | n/a |  |"
+out=$(cl "$A" impl rel 1 done --url http://pr/9)
+has "impl: done with link" "$out" "| 1 | first | [decided](http://d/1) | use plan A | [done](http://pr/9) |  |"
 cl "$A" impl rel 1 n/a >/dev/null
 check "impl: bad state fails" "1" "$(node "$CL" "$A" impl rel 1 nope >/dev/null 2>&1; echo $?)"
 check "spec: unknown item fails" "1" "$(node "$CL" "$A" spec rel 99 todo >/dev/null 2>&1; echo $?)"
 
 out=$(cl "$A" link rel 2 PR http://x/1)
-has "link" "$out" "| 2 | second | todo | todo | [PR](http://x/1) |"
+has "link" "$out" "| 2 | second | todo |  | todo | [PR](http://x/1) |"
 out=$(cl "$A" decide rel "use plan B")
 has "decide" "$out" "- $(date +%F): use plan B"
 
@@ -131,7 +132,7 @@ has "load: old file" "$(cl "$S" show old)" "Purpose: p"
 
 # multi-word args are joined
 out=$(cl "$A" add rel P2 drop e2e tests)
-has "add: joins title" "$out" "| 3 | drop e2e tests | todo | todo |"
+has "add: joins title" "$out" "| 3 | drop e2e tests | todo |  | todo |"
 out=$(cl "$A" link rel 3 my PR label http://x/2)
 has "link: joins label" "$out" "[my PR label](http://x/2)"
 out=$(cl "$A" decide rel drop the e2e)
