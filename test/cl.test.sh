@@ -21,40 +21,36 @@ mkdir -p "$A" "$B"
 cl() { node "$CL" "$@" 2>&1; }
 
 out=$(cl "$A" new rel --purpose "ship it" --deadline 2026-10-31)
-has "new: header" "$out" "rel — ship it · due 2026-10-31"
-check "new: no decisions line" "0" "$(printf '%s' "$out" | grep -c '^Decisions:')"
-has "new: legend" "$out" "✓ decided/done · todo – n/a"
-check "new: no links footer" "0" "$(printf '%s' "$out" | grep -c '^\[1\]')"
+has "new: header" "$out" "Purpose: ship it"
+has "new: deadline" "$out" "Deadline: 2026-10-31"
 check "new twice fails" "1" "$(node "$CL" "$A" new rel --purpose x >/dev/null 2>&1; echo $?)"
 
 cl "$A" add rel P0 "first" >/dev/null
 out=$(cl "$A" add rel P1 "second")
-has "add: ids increment" "$out" "|  2 | P1 | second |  ·   |  ·   |"
-has "add: P0 sorted before P1" "$(printf '%s' "$out" | grep -n 'first' | cut -d: -f1)" "$(( $(printf '%s' "$out" | grep -n 'second' | cut -d: -f1) - 1 ))"
+has "add: ids increment" "$out" "| 2 | second | todo | todo |  |"
 check "add: bad priority fails" "1" "$(node "$CL" "$A" add rel P9 x >/dev/null 2>&1; echo $?)"
 
 out=$(cl "$A" spec rel 1 decided)
-has "spec" "$out" "|  1 | P0 | first  |  ✓   |  ·   |"
+has "spec" "$out" "| 1 | first | decided | todo |  |"
 out=$(cl "$A" impl rel 1 n/a)
-has "impl: n/a mark" "$out" "|  1 | P0 | first  |  ✓   |  –   |"
+has "impl: n/a" "$out" "| 1 | first | decided | n/a |  |"
 out=$(cl "$A" impl rel 1 done)
-has "impl: done mark" "$out" "|  1 | P0 | first  |  ✓   |  ✓   |"
+has "impl: done" "$out" "| 1 | first | decided | done |  |"
 cl "$A" impl rel 1 n/a >/dev/null
 check "impl: bad state fails" "1" "$(node "$CL" "$A" impl rel 1 nope >/dev/null 2>&1; echo $?)"
 check "spec: unknown item fails" "1" "$(node "$CL" "$A" spec rel 99 todo >/dev/null 2>&1; echo $?)"
 
 out=$(cl "$A" link rel 2 PR http://x/1)
-has "link: number in column" "$out" "| [1]   |"
-has "link: footer" "$out" "[1] PR http://x/1"
+has "link" "$out" "| 2 | second | todo | todo | [PR](http://x/1) |"
 out=$(cl "$A" decide rel "use plan B")
-has "decide" "$out" "Decisions: $(date +%m-%d) use plan B"
+has "decide" "$out" "- $(date +%F): use plan B"
 
 # show / list across sessions
 cl "$B" new other --purpose "b side" >/dev/null
 cl "$B" new rel --purpose "b rel" >/dev/null
-has "show: own first" "$(cl "$A" show rel)" "rel — ship it"
+has "show: own first" "$(cl "$A" show rel)" "Purpose: ship it"
 out=$(cl "$A" show other)
-has "show: other session" "$out" "other — b side"
+has "show: other session" "$out" "Purpose: b side"
 out=$(cl "$A" show rel)
 has "show: notes duplicates" "$out" "1 other checklist(s) named rel"
 check "show: missing fails" "1" "$(node "$CL" "$A" show nope >/dev/null 2>&1; echo $?)"
@@ -131,28 +127,21 @@ check "synced: out of range fails" "1" "$(node "$CL" "$S" synced jr 99 >/dev/nul
 
 # old files without log/synced still load
 echo '{"name":"old","purpose":"p","decisions":[],"items":[]}' > "$S/cl/old.json"
-has "load: old file" "$(cl "$S" show old)" "old — p"
+has "load: old file" "$(cl "$S" show old)" "Purpose: p"
 
 # multi-word args are joined
 out=$(cl "$A" add rel P2 drop e2e tests)
-has "add: joins title" "$out" "|  3 | P2 | drop e2e tests |"
+has "add: joins title" "$out" "| 3 | drop e2e tests | todo | todo |"
 out=$(cl "$A" link rel 3 my PR label http://x/2)
-has "link: joins label" "$out" "[2] my PR label http://x/2"
+has "link: joins label" "$out" "[my PR label](http://x/2)"
 out=$(cl "$A" decide rel drop the e2e)
-has "decide: joins text" "$out" "use plan B · $(date +%m-%d) drop the e2e"
-
-# CJK titles count as width 2 when padding
-cl "$A" new cjk --purpose p >/dev/null
-cl "$A" add cjk P0 "日本語" >/dev/null
-out=$(cl "$A" add cjk P0 "abcdef")
-has "pad: cjk width" "$out" "|  1 | P0 | 日本語 |"
-has "pad: ascii width" "$out" "|  2 | P0 | abcdef |"
+has "decide: joins text" "$out" "- $(date +%F): drop the e2e"
 
 # escaping
 out=$(cl "$A" add rel P2 "a|b")
 has "escape: pipe in title" "$out" 'a\|b'
 out=$(cl "$A" link rel 3 "x]y" http://x/3)
-has "link: footer numbering follows table order" "$out" "[3] x]y http://x/3"
+has "escape: ] in link label" "$out" "[x\\]y](http://x/3)"
 cl "$A" new esc --purpose "p|q" >/dev/null
 out=$(cl "$A" list)
 has "escape: pipe in list purpose" "$out" 'p\|q'
@@ -179,7 +168,7 @@ has "validate: clean message" "$(cl "$A" show noitems)" "invalid checklist"
 mv "$B/cl/rel.json" "$TMP/rel.b.json"
 echo '{bad' > "$B/cl/rel.json"
 out=$(cl "$A" show rel)
-has "show: own file wins over broken other" "$out" "rel — ship it"
+has "show: own file wins over broken other" "$out" "Purpose: ship it"
 rm "$B/cl/broken.json" "$B/cl/noitems.json" "$B/cl/nolinks.json"
 mv "$TMP/rel.b.json" "$B/cl/rel.json"
 
@@ -196,7 +185,7 @@ SR="$TMP/root/$(printf %s "$P" | sed 's/[^A-Za-z0-9]/-/g')/s9/scratchpad"
 mkdir -p "$SR" && cl "$SR" new term --purpose "terminal" >/dev/null
 tcl() { (cd "$P" && CL_SCRATCH_ROOT="$TMP/root" "$ROOT/tools/cl" "$@" 2>&1); }
 has "tools/cl: list" "$(tcl list)" "| term | terminal |"
-has "tools/cl: show newest" "$(tcl show)" "term — terminal"
+has "tools/cl: show newest" "$(tcl show)" "Purpose: terminal"
 has "tools/cl: where" "$(tcl where term)" "local: $SR/cl/term.json"
 check "tools/cl: missing" "1" "$(cd "$P" && CL_SCRATCH_ROOT="$TMP/root" "$ROOT/tools/cl" show nope >/dev/null 2>&1; echo $?)"
 
