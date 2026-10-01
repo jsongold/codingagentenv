@@ -21,6 +21,11 @@ function flag(args: string[], name: string): string | undefined {
   return v === undefined || v === "" || v.startsWith("--") ? undefined : v;
 }
 
+function withoutFlag(args: string[], name: string): string[] {
+  const i = args.indexOf(name);
+  return i < 0 ? args : [...args.slice(0, i), ...args.slice(i + 2)];
+}
+
 function main(): void {
   const [scratchpad, cmd, name, ...rest] = process.argv.slice(2);
   if (!scratchpad || !cmd) fail("usage: cl.ts <scratchpad> new|add|spec|impl|link|decide|store|sync|synced|checkpoint|show|where|list [name] ...");
@@ -59,11 +64,18 @@ function main(): void {
       const it = item(cl, a);
       const before = it.spec;
       it.spec = oneOf(SPECS, b, "spec");
-      record(cl, "spec", `#${it.id}: ${before} -> ${it.spec}`);
+      const how = withoutFlag(rest.slice(2), "--url").join(" ");
+      if (it.spec === "decided" && !how) fail('decided requires how: spec <name> <#> decided "<how>" [--url <u>]');
+      if (how) it.how = how;
+      const url = flag(rest, "--url");
+      if (url) it.specUrl = url;
+      record(cl, "spec", `#${it.id}: ${before} -> ${it.spec}${how ? ` (${how})` : ""}`);
     } else if (cmd === "impl") {
       const it = item(cl, a);
       const before = it.impl;
       it.impl = oneOf(IMPLS, b, "impl");
+      const url = flag(rest, "--url");
+      if (url) it.implUrl = url;
       record(cl, "impl", `#${it.id}: ${before} -> ${it.impl}`);
     } else if (cmd === "link") {
       const label = rest.slice(1, -1).join(" ");

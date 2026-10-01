@@ -6,7 +6,17 @@ export type SpecState = "todo" | "decided";
 export type ImplState = "todo" | "done" | "n/a"; // n/a: nothing to implement (agreement, permission, etc.)
 export type Priority = "P0" | "P1" | "P2";
 export type Link = { label: string; url: string };
-export type Item = { id: number; priority: Priority; title: string; spec: SpecState; impl: ImplState; links: Link[] };
+export type Item = {
+  id: number;
+  priority: Priority;
+  title: string;
+  spec: SpecState;
+  how?: string; // how it will be done; required when spec becomes decided
+  specUrl?: string; // where it was decided
+  impl: ImplState;
+  implUrl?: string; // where it was implemented (e.g. the PR)
+  links: Link[];
+};
 export type Decision = { date: string; text: string }; // YYYY-MM-DD
 export type LogEntry = { at: string; cmd: string; change: string }; // ISO time
 export type Store = { kind: "github" | "jira"; url: string; commentId?: string };

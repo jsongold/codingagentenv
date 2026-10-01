@@ -17,8 +17,9 @@ Every read and write goes through the script. Never edit the JSON directly.
 node ${CLAUDE_SKILL_DIR}/cl.ts <scratchpad> <cmd> ...
   new <name> --purpose <s> [--deadline <s>]
   add <name> <P0|P1|P2> <title>
-  spec <name> <#> <todo|decided>
-  impl <name> <#> <todo|done|n/a>      # n/a: nothing to implement (agreement, permission, etc.)
+  spec <name> <#> decided "<how>" [--url <u>]   # how is required; --url = where it was decided
+  spec <name> <#> todo
+  impl <name> <#> <todo|done|n/a> [--url <u>]  # n/a: nothing to implement; --url = the PR etc.
   link <name> <#> <label> <url>
   decide <name> <text>                 # appends with today's date
   store <name> <url>                   # GitHub issue or Jira issue URL (also: new ... --store <url>)
@@ -50,7 +51,7 @@ Each write command prints the rendered CL and appends one log entry (before -> a
 
 ## Update
 1. Ask the open points with AskUserQuestion: at most 4 per call, recommended option first with "(Recommended)".
-2. Record each answer with `spec` / `impl` / `link`, and add a dated entry with `decide`.
+2. Record each answer with `spec` / `impl` / `link`, and add a dated entry with `decide`. A decision always records how it will be done; pass `--url` when there is a source (comment, PR).
 3. Record free-form instructions (e.g. "drop e2e", "TZ=Tokyo") the same way.
 4. If an answer changes assumptions or creates new risks, `add` them and report what changed in a line or two.
 5. After recording, keep asking about the remaining open items (spec not decided, or impl todo) until none are left.

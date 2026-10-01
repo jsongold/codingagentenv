@@ -23,15 +23,17 @@ export function list(rows: Found[]): string {
 
 export const labelEsc = (s: string) => cell(s).replace(/\]/g, "\\]");
 
+const state = (s: string, url?: string) => (url ? `[${s}](${url})` : s);
+
 export function render(cl: Checklist): string {
   const out = [`Purpose: ${cell(cl.purpose)}`];
   if (cl.deadline) out.push(`Deadline: ${cl.deadline}`);
   out.push("", "Decisions", ...cl.decisions.map((d) => `- ${d.date}: ${d.text.replace(/\r?\n/g, " ")}`));
   for (const p of PRIORITIES) {
-    out.push("", `## ${p}`, "| # | Item | Spec | Impl | Links |", "|---|---|---|---|---|");
+    out.push("", `## ${p}`, "| # | Item | Spec | How | Impl | Links |", "|---|---|---|---|---|---|");
     for (const it of cl.items.filter((i) => i.priority === p)) {
       const links = it.links.map((l) => `[${labelEsc(l.label)}](${l.url})`).join(", ");
-      out.push(`| ${it.id} | ${cell(it.title)} | ${it.spec} | ${it.impl} | ${links} |`);
+      out.push(`| ${it.id} | ${cell(it.title)} | ${state(it.spec, it.specUrl)} | ${cell(it.how ?? "")} | ${state(it.impl, it.implUrl)} | ${links} |`);
     }
   }
   return out.join("\n");
