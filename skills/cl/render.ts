@@ -21,31 +21,18 @@ export function list(rows: Found[]): string {
   return lines.join("\n");
 }
 
-const SPEC_MARK = { todo: "·", decided: "✓" };
-const IMPL_MARK = { todo: "·", done: "✓", "n/a": "–" };
-
-// Display width: East Asian wide characters count 2.
-const WIDE = [[0x1100, 0x115f], [0x2e80, 0xa4cf], [0xac00, 0xd7a3], [0xf900, 0xfaff], [0xfe30, 0xfe4f], [0xff00, 0xff60], [0xffe0, 0xffe6]];
-const width = (s: string) => [...s].reduce((w, ch) => w + (WIDE.some(([a, b]) => ch.codePointAt(0)! >= a && ch.codePointAt(0)! <= b) ? 2 : 1), 0);
-const left = (s: string, w: number) => s + " ".repeat(w - width(s));
-const right = (s: string, w: number) => " ".repeat(w - width(s)) + s;
-const center = (s: string, w: number) => " ".repeat(Math.floor((w - width(s)) / 2)) + s + " ".repeat(Math.ceil((w - width(s)) / 2));
+export const labelEsc = (s: string) => cell(s).replace(/\]/g, "\\]");
 
 export function render(cl: Checklist): string {
-  const out = [`${cl.name} — ${cell(cl.purpose)}${cl.deadline ? ` · due ${cl.deadline}` : ""}`];
-  if (cl.decisions.length) out.push(`Decisions: ${cl.decisions.map((d) => `${d.date.slice(5)} ${d.text.replace(/\r?\n/g, " ")}`).join(" · ")}`);
-  const foot: string[] = [];
-  const items = [...cl.items].sort((a, b) => PRIORITIES.indexOf(a.priority) - PRIORITIES.indexOf(b.priority) || a.id - b.id);
-  const rows = items.map((it) => {
-    const nums = it.links.map((l) => foot.push(`[${foot.length + 1}] ${l.label.replace(/\r?\n/g, " ")} ${l.url}`));
-    return [String(it.id), it.priority, cell(it.title), SPEC_MARK[it.spec], IMPL_MARK[it.impl], nums.length ? `[${nums.join(",")}]` : ""];
-  });
-  const head = ["#", "P", "Item", "Spec", "Impl", "Links"];
-  const w = head.map((h, i) => Math.max(width(h), ...rows.map((r) => width(r[i]!))));
-  w[0] = Math.max(w[0]!, 2);
-  const align = [right, left, left, center, center, left];
-  const line = (cells: string[], fmt: typeof align) => `| ${cells.map((c, i) => fmt[i]!(c, w[i]!)).join(" | ")} |`;
-  out.push("", line(head, [left, left, left, left, left, left]), `|${w.map((n) => "-".repeat(n + 2)).join("|")}|`, ...rows.map((r) => line(r, align)));
-  out.push("", "✓ decided/done · todo – n/a", ...foot);
+  const out = [`Purpose: ${cell(cl.purpose)}`];
+  if (cl.deadline) out.push(`Deadline: ${cl.deadline}`);
+  out.push("", "Decisions", ...cl.decisions.map((d) => `- ${d.date}: ${d.text.replace(/\r?\n/g, " ")}`));
+  for (const p of PRIORITIES) {
+    out.push("", `## ${p}`, "| # | Item | Spec | Impl | Links |", "|---|---|---|---|---|");
+    for (const it of cl.items.filter((i) => i.priority === p)) {
+      const links = it.links.map((l) => `[${labelEsc(l.label)}](${l.url})`).join(", ");
+      out.push(`| ${it.id} | ${cell(it.title)} | ${it.spec} | ${it.impl} | ${links} |`);
+    }
+  }
   return out.join("\n");
 }
