@@ -1,6 +1,6 @@
 ---
 name: cl
-description: Create, show, and update a checklist (CL) driven by AskUserQuestion answers. The optional argument is the CL name (e.g. `cl le8165-prod`; if omitted, a name is derived from the ticket id and purpose). `cl --list` lists every CL in the repo, `cl --show [name]` prints one. Use when the user says "CL", "show the CL", or "update the CL".
+description: Create, show, and update a checklist (CL) driven by AskUserQuestion answers. The optional argument is the CL name (e.g. `cl le8165-prod`; if omitted, a name is derived from the ticket id and purpose). `cl --list` lists every CL in the repo, `cl --show [name]` prints one, `cl --where [name]` prints where it is stored. Use when the user says "CL", "show the CL", or "update the CL".
 ---
 
 # cl — create, show, and update a checklist
@@ -26,6 +26,7 @@ node ${CLAUDE_SKILL_DIR}/cl.ts <scratchpad> <cmd> ...
   synced <name> <n> [commentId]        # mark the first n log entries as pushed (Jira)
   checkpoint <name>                    # log "not synced"; pushes nothing
   show <name>                          # own scratchpad first, then the whole repo
+  where <name>                         # local file path (and store URL if set); same lookup as show
   list                                 # all CLs in the repo (Pending column when a store is set)
 ```
 
@@ -33,6 +34,7 @@ Each write command prints the rendered CL and appends one log entry (before -> a
 
 ## Options
 - `cl --list`: run `list` and print its output as-is. Columns: Name / Purpose / Open / Updated (newest first) / This session.
+- `cl --where [name]`: run `where <name>` and print its output as-is (the local JSON path, plus the store URL when set). Name omitted: same rule as `--show`.
 - `cl --show [name]`: run `show <name>` and print its output as-is. CLs from other sessions are read-only; mutating commands only touch your own scratchpad. If the name is omitted: use the only CL in your scratchpad, otherwise run `list` and ask which one.
 
 ## Create (no CL yet)
