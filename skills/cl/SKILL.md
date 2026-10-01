@@ -34,6 +34,7 @@ Each write command prints the rendered CL and appends one log entry (before -> a
 
 ## Options
 - `cl --list`: run `list` and print its output as-is. Columns: Name / Purpose / Open / Updated (newest first) / This session.
+- Fastest view: tell the user to run `! cl show [name]` (or `! cl list`) in the prompt. It prints straight to the terminal without going through the model.
 - `cl --where [name]`: run `where <name>` and print its output as-is (the local JSON path, plus the store URL when set). Name omitted: same rule as `--show`.
 - `cl --show [name]`: run `show <name>` and print its output as-is. CLs from other sessions are read-only; mutating commands only touch your own scratchpad. If the name is omitted: use the only CL in your scratchpad, otherwise run `list` and ask which one.
 

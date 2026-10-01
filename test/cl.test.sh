@@ -190,6 +190,16 @@ check "where: missing" "1" "$(node "$CL" "$A" where nope >/dev/null 2>&1; echo $
 cl "$A" store rel https://github.com/o/r/issues/1 >/dev/null
 has "where: store url" "$(cl "$A" where rel)" "store: https://github.com/o/r/issues/1"
 
+# tools/cl: read-only terminal command, finds CLs from the cwd's slug
+mkdir -p "$TMP/proj" && P=$(cd "$TMP/proj" && pwd -P)
+SR="$TMP/root/$(printf %s "$P" | sed 's/[^A-Za-z0-9]/-/g')/s9/scratchpad"
+mkdir -p "$SR" && cl "$SR" new term --purpose "terminal" >/dev/null
+tcl() { (cd "$P" && CL_SCRATCH_ROOT="$TMP/root" "$ROOT/tools/cl" "$@" 2>&1); }
+has "tools/cl: list" "$(tcl list)" "| term | terminal |"
+has "tools/cl: show newest" "$(tcl show)" "term — terminal"
+has "tools/cl: where" "$(tcl where term)" "local: $SR/cl/term.json"
+check "tools/cl: missing" "1" "$(cd "$P" && CL_SCRATCH_ROOT="$TMP/root" "$ROOT/tools/cl" show nope >/dev/null 2>&1; echo $?)"
+
 # invalid stored state is rejected
 sed -i.bak 's/"decided"/"bogus"/' "$A/cl/rel.json"
 check "load: invalid state fails" "1" "$(node "$CL" "$A" show rel >/dev/null 2>&1; echo $?)"

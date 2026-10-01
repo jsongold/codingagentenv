@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# cl list | show [name] | where [name] — print this repo's checklists in the terminal
+# (`! cl show`). Read-only; writes go through the /cl skill. Logic lives in skills/cl/shell.ts.
+exec node "$(dirname "$(readlink -f "$0")")/../skills/cl/shell.ts" "$@"
