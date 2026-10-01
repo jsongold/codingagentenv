@@ -58,6 +58,74 @@ has "list: own row" "$out" "| rel | ship it | 1 |"
 has "list: other row" "$out" "| other | b side | 0 |"
 check "list: empty" "No checklists." "$(cl "$TMP/none/x/scratchpad" list)"
 
+# store: URL validation, log, sync (gh stubbed), checkpoint
+S=$TMP/s/sessS/scratchpad
+mkdir -p "$S" "$TMP/bin"
+cat > "$TMP/bin/gh" <<'STUB'
+#!/bin/bash
+a="$*"; echo "${a//$'\n'/ }" >> "$GH_CALLS"
+echo '{"id": 555}'
+STUB
+chmod +x "$TMP/bin/gh"
+export GH_CALLS=$TMP/gh_calls
+: > "$GH_CALLS"
+clg() { PATH="$TMP/bin:$PATH" node "$CL" "$@" 2>&1; }
+field() { node -p "require('$S/cl/$1.json').$2"; }
+
+cl "$S" new st --purpose "store test" >/dev/null
+check "store: other url fails" "1" "$(node "$CL" "$S" store st https://example.com/x >/dev/null 2>&1; echo $?)"
+check "store: missing url fails" "1" "$(node "$CL" "$S" store st >/dev/null 2>&1; echo $?)"
+check "sync without store fails" "1" "$(node "$CL" "$S" sync st >/dev/null 2>&1; echo $?)"
+check "new --store: bad url fails" "1" "$(node "$CL" "$S" new bad --purpose x --store nope >/dev/null 2>&1; echo $?)"
+cl "$S" store st https://github.com/o/r/issues/7 >/dev/null
+check "store: github kind" "github" "$(field st store.kind)"
+cl "$S" add st P0 "one" >/dev/null
+cl "$S" impl st 1 done >/dev/null
+check "log: one entry per write" "4" "$(field st log.length)"
+has "log: before -> after" "$(field st 'log[3].change')" "#1: todo -> done"
+has "list: pending column" "$(cl "$S" list)" "| Pending |"
+has "list: pending count" "$(cl "$S" list)" "| yes | 4 |"
+
+cl "$S" checkpoint st >/dev/null
+check "checkpoint: entry added" "5" "$(field st log.length)"
+check "checkpoint: stays pending" "0" "$(field st synced)"
+check "checkpoint: no gh calls" "0" "$(wc -l < "$GH_CALLS" | tr -d ' ')"
+
+out=$(clg "$S" sync st)
+has "sync github: reports" "$out" "synced 5 log entries"
+check "sync github: synced" "5" "$(field st synced)"
+check "sync github: commentId" "555" "$(field st store.commentId)"
+has "sync github: managed comment created" "$(sed -n 1p "$GH_CALLS")" "-X POST repos/o/r/issues/7/comments"
+check "sync github: 1 managed + 5 entries" "6" "$(wc -l < "$GH_CALLS" | tr -d ' ')"
+cl "$S" decide st "again" >/dev/null
+: > "$GH_CALLS"
+clg "$S" sync st >/dev/null
+has "sync github: managed comment edited" "$(sed -n 1p "$GH_CALLS")" "-X PATCH repos/o/r/issues/comments/555"
+check "sync github: only pending posted" "2" "$(wc -l < "$GH_CALLS" | tr -d ' ')"
+check "sync github: synced again" "6" "$(field st synced)"
+
+# gh failure marks nothing synced
+printf '#!/bin/bash\nexit 1\n' > "$TMP/bin/gh"
+cl "$S" decide st "fail case" >/dev/null
+check "sync github: gh failure exits 1" "1" "$(PATH="$TMP/bin:$PATH" node "$CL" "$S" sync st >/dev/null 2>&1; echo $?)"
+check "sync github: failure keeps synced" "6" "$(field st synced)"
+
+# jira: payload only, then synced
+cl "$S" new jr --purpose "jira test" --store https://x.atlassian.net/browse/AB-12 >/dev/null
+payload=$(node "$CL" "$S" sync jr)
+check "sync jira: kind" "jira" "$(node -p "JSON.parse(process.argv[1]).kind" "$payload")"
+check "sync jira: pending" "1" "$(node -p "JSON.parse(process.argv[1]).pending.length" "$payload")"
+check "sync jira: next" "1" "$(node -p "JSON.parse(process.argv[1]).next" "$payload")"
+check "sync jira: changes nothing" "0" "$(field jr synced)"
+cl "$S" synced jr 1 c-9 >/dev/null
+check "synced: count" "1" "$(field jr synced)"
+check "synced: commentId" "c-9" "$(field jr store.commentId)"
+check "synced: out of range fails" "1" "$(node "$CL" "$S" synced jr 99 >/dev/null 2>&1; echo $?)"
+
+# old files without log/synced still load
+echo '{"name":"old","purpose":"p","decisions":[],"items":[]}' > "$S/cl/old.json"
+has "load: old file" "$(cl "$S" show old)" "Purpose: p"
+
 # multi-word args are joined
 out=$(cl "$A" add rel P2 drop e2e tests)
 has "add: joins title" "$out" "| 3 | drop e2e tests |"

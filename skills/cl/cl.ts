@@ -1,6 +1,7 @@
-// cl.ts <scratchpad> <cmd> [args]   cmd: new | add | spec | impl | link | decide | show | list
+// cl.ts <scratchpad> <cmd> [args]   cmd: new | add | spec | impl | link | decide | store | sync | synced | checkpoint | show | list
 // Checklist (CL) storage and rendering. CLs live at <scratchpad>/cl/<name>.json.
 // Invalid input -> message on stderr, exit 1. Mutating commands touch only the own scratchpad.
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
@@ -10,7 +11,18 @@ type Priority = "P0" | "P1" | "P2";
 type Link = { label: string; url: string };
 type Item = { id: number; priority: Priority; title: string; spec: SpecState; impl: ImplState; links: Link[] };
 type Decision = { date: string; text: string }; // YYYY-MM-DD
-type Checklist = { name: string; purpose: string; deadline?: string; decisions: Decision[]; items: Item[] };
+type LogEntry = { at: string; cmd: string; change: string }; // ISO time
+type Store = { kind: "github" | "jira"; url: string; commentId?: string };
+type Checklist = {
+  name: string;
+  purpose: string;
+  deadline?: string;
+  decisions: Decision[];
+  items: Item[];
+  store?: Store;
+  log: LogEntry[];
+  synced: number; // count of log entries already pushed to the store
+};
 
 const PRIORITIES: Priority[] = ["P0", "P1", "P2"];
 const SPECS: SpecState[] = ["todo", "decided"];
@@ -40,13 +52,48 @@ function validate(cl: Checklist, path: string): Checklist {
 
 function load(path: string): Checklist {
   if (!existsSync(path)) fail(`not found: ${path}`);
-  return validate(JSON.parse(readFileSync(path, "utf8")), path);
+  const raw = JSON.parse(readFileSync(path, "utf8"));
+  return validate({ ...raw, log: raw?.log ?? [], synced: raw?.synced ?? 0 }, path);
 }
 
 function save(path: string, cl: Checklist): void {
   validate(cl, path);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(cl, null, 2) + "\n");
+}
+
+function parseStore(url: string | undefined): Store {
+  const gh = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+$/;
+  const jira = /^https:\/\/[\w.-]+\/browse\/[A-Z][A-Z0-9_]*-\d+$/;
+  if (url && gh.test(url)) return { kind: "github", url };
+  if (url && jira.test(url)) return { kind: "jira", url };
+  return fail(`invalid store url: ${url ?? "(missing)"} (expected https://github.com/<o>/<r>/issues/<n> or https://<host>/browse/<KEY>-<n>)`);
+}
+
+function record(cl: Checklist, cmd: string, change: string): void {
+  cl.log.push({ at: new Date().toISOString(), cmd, change });
+}
+
+function gh(args: string[]): { id?: number } {
+  try {
+    return JSON.parse(execFileSync("gh", args, { encoding: "utf8" }) || "{}");
+  } catch (e) {
+    return fail(`gh failed: ${(e as Error).message}`);
+  }
+}
+
+const pending = (cl: Checklist) => cl.log.slice(cl.synced);
+const managedBody = (cl: Checklist) => `<!-- cl:${cl.name} -->\n${render(cl)}`;
+const entryBody = (cl: Checklist, e: LogEntry) => `cl ${cl.name} ${e.at} ${e.cmd}: ${e.change}`;
+
+// github: managed comment (create or edit) + one comment per pending entry. Nothing is marked synced on failure.
+function syncGithub(cl: Checklist, store: Store): void {
+  const m = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)$/.exec(store.url)!;
+  const base = `repos/${m[1]}/issues`;
+  if (store.commentId) gh(["api", "-X", "PATCH", `${base}/comments/${store.commentId}`, "-f", `body=${managedBody(cl)}`]);
+  else store.commentId = String(gh(["api", "-X", "POST", `${base}/${m[2]}/comments`, "-f", `body=${managedBody(cl)}`]).id);
+  for (const e of pending(cl)) gh(["api", "-X", "POST", `${base}/${m[2]}/comments`, "-f", `body=${entryBody(cl, e)}`]);
+  cl.synced = cl.log.length;
 }
 
 const isOpen = (it: Item) => !(it.spec === "decided" && it.impl !== "todo");
@@ -80,10 +127,11 @@ const localDateTime = (d: Date) => `${localDate(d)} ${d.toLocaleTimeString("sv-S
 function list(scratchpad: string): string {
   const rows = scan(scratchpad);
   if (rows.length === 0) return "No checklists.";
-  const lines = ["| Name | Purpose | Open | Updated | This session |", "|---|---|---|---|---|"];
+  const withStore = rows.some((r) => r.cl.store);
+  const lines = [`| Name | Purpose | Open | Updated | This session |${withStore ? " Pending |" : ""}`, `|---|---|---|---|---|${withStore ? "---|" : ""}`];
   for (const r of rows) {
     const updated = localDateTime(new Date(r.mtime));
-    lines.push(`| ${cell(r.cl.name)} | ${cell(r.cl.purpose)} | ${r.cl.items.filter(isOpen).length} | ${updated} | ${r.own ? "yes" : ""} |`);
+    lines.push(`| ${cell(r.cl.name)} | ${cell(r.cl.purpose)} | ${r.cl.items.filter(isOpen).length} | ${updated} | ${r.own ? "yes" : ""} |${withStore ? ` ${r.cl.store ? r.cl.log.length - r.cl.synced : ""} |` : ""}`);
   }
   return lines.join("\n");
 }
@@ -127,7 +175,7 @@ function flag(args: string[], name: string): string | undefined {
 
 function main(): void {
   const [scratchpad, cmd, name, ...rest] = process.argv.slice(2);
-  if (!scratchpad || !cmd) fail("usage: cl.ts <scratchpad> new|add|spec|impl|link|decide|show|list [name] ...");
+  if (!scratchpad || !cmd) fail("usage: cl.ts <scratchpad> new|add|spec|impl|link|decide|store|sync|synced|checkpoint|show|list [name] ...");
   if (cmd === "list") {
     console.log(list(scratchpad));
     process.exit(0);
@@ -143,7 +191,10 @@ function main(): void {
   if (cmd === "new") {
     if (existsSync(path)) fail(`already exists: ${name}`);
     const purpose = flag(rest, "--purpose") ?? fail("new requires --purpose <s>");
-    cl = { name, purpose, decisions: [], items: [] };
+    const store = flag(rest, "--store");
+    cl = { name, purpose, decisions: [], items: [], log: [], synced: 0 };
+    if (store) cl.store = parseStore(store);
+    record(cl, "new", purpose);
     const deadline = flag(rest, "--deadline");
     if (deadline) cl.deadline = deadline;
   } else {
@@ -155,17 +206,53 @@ function main(): void {
       if (!title) fail("add requires a title");
       const id = Math.max(0, ...cl.items.map((i) => i.id)) + 1;
       cl.items.push({ id, priority, title, spec: "todo", impl: "todo", links: [] });
-    } else if (cmd === "spec") item(cl, a).spec = oneOf(SPECS, b, "spec");
-    else if (cmd === "impl") item(cl, a).impl = oneOf(IMPLS, b, "impl");
-    else if (cmd === "link") {
+      record(cl, "add", `#${id} ${priority}: ${title}`);
+    } else if (cmd === "spec") {
+      const it = item(cl, a);
+      const before = it.spec;
+      it.spec = oneOf(SPECS, b, "spec");
+      record(cl, "spec", `#${it.id}: ${before} -> ${it.spec}`);
+    } else if (cmd === "impl") {
+      const it = item(cl, a);
+      const before = it.impl;
+      it.impl = oneOf(IMPLS, b, "impl");
+      record(cl, "impl", `#${it.id}: ${before} -> ${it.impl}`);
+    } else if (cmd === "link") {
       const label = rest.slice(1, -1).join(" ");
       const url = rest.length > 2 ? rest[rest.length - 1] : "";
       if (!label || !url) fail("link requires <label> <url>");
       item(cl, a).links.push({ label, url });
+      record(cl, "link", `#${a}: ${label} ${url}`);
     } else if (cmd === "decide") {
       const text = rest.join(" ");
       if (!text) fail("decide requires <text>");
       cl.decisions.push({ date: localDate(new Date()), text });
+      record(cl, "decide", text);
+    } else if (cmd === "store") {
+      cl.store = parseStore(a);
+      record(cl, "store", a!);
+    } else if (cmd === "checkpoint") record(cl, "checkpoint", "not synced");
+    else if (cmd === "synced") {
+      const n = Number(a);
+      if (!Number.isInteger(n) || n < 0 || n > cl.log.length) fail(`invalid count: ${a ?? "(missing)"} (0..${cl.log.length})`);
+      if (!cl.store) fail("no store set");
+      cl.synced = n;
+      if (b) cl.store.commentId = b;
+    } else if (cmd === "sync") {
+      if (!cl.store) fail("no store set (use: store <name> <url>)");
+      if (cl.store.kind === "jira") {
+        const { kind, url, commentId } = cl.store;
+        console.log(JSON.stringify({ kind, url, commentId, body: managedBody(cl), pending: pending(cl), next: cl.log.length }, null, 2));
+        process.exit(0);
+      }
+      const n = pending(cl).length;
+      try {
+        syncGithub(cl, cl.store);
+      } finally {
+        save(path, cl); // keeps commentId even if a later post failed; synced only moves on success
+      }
+      console.log(`synced ${n} log entries to ${cl.store.url}`);
+      process.exit(0);
     } else fail(`unknown command: ${cmd}`);
   }
   save(path, cl);
@@ -179,3 +266,4 @@ try {
   console.error(e.message);
   process.exit(1);
 }
+
