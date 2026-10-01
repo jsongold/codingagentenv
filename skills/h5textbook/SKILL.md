@@ -1,10 +1,10 @@
 ---
-name: textbook
-description: 会話で学んだ内容を h5notebook repo（~/projects/h5notebook）の textbooks/ に Markdown の教科書としてまとめる。先にトピックと章立てを提案してユーザーの OK を取り、過去のトピックとの重複を指摘してから Dir を作る。ユーザーが `/textbook` と打ったときだけ使う。
+name: h5textbook
+description: 会話で学んだ内容を h5notebook repo（~/projects/h5notebook）の textbooks/ に Markdown の教科書としてまとめる。先にトピックと章立てを提案してユーザーの OK を取り、過去のトピックとの重複を指摘してから Dir を作る。ユーザーが `/h5textbook` と打ったときだけ使う。
 disable-model-invocation: true
 ---
 
-# textbook — 学んだ内容を教科書にする
+# h5textbook — 学んだ内容を教科書にする
 
 引数は任意（トピックのヒント）。無ければこの会話で学んだ内容から決める。
 
