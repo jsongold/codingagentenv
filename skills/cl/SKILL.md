@@ -30,7 +30,7 @@ node ${CLAUDE_SKILL_DIR}/cl.ts <scratchpad> <cmd> ...
   list                                 # all CLs in the repo (Pending column when a store is set)
 ```
 
-Each write command prints the rendered CL and appends one log entry (before -> after); show that output as-is.
+Each write command prints the rendered CL and appends one log entry (before -> after); print that output as-is (do not reformat or summarize it). Output is one table sorted by P0/P1/P2: Spec/Impl marks are ✓ decided/done, · todo, – n/a (a legend line is printed). Links are numbered `[n]`, with `[n] label url` lines below the table.
 
 ## Options
 - `cl --list`: run `list` and print its output as-is. Columns: Name / Purpose / Open / Updated (newest first) / This session.
