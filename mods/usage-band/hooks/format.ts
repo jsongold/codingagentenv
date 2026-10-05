@@ -40,11 +40,13 @@ export function shortOrg(name: string): string {
 }
 
 // Model id or display name -> family + version digits ("claude-opus-5-5", "Opus 5.5" -> "opus55").
-// Drops [1m]-style suffixes and date suffixes. Unknown format -> raw string.
-export function shortModel(raw: string): string {
+// Drops [1m]-style suffixes and date suffixes. Any alphabetic family works (no list).
+// Unparsable -> raw name + '?' so a broken parser is visible; empty/null -> '?'.
+export function shortModel(raw: string | null | undefined): string {
+  if (!raw || !raw.trim()) return '?'
   const s = raw.replace(/\[.*?\]/g, '').trim().toLowerCase()
   const m = /^(?:claude[\s-]+)?([a-z]+)[\s-]+(\d+)(?:[.\s-](\d{1,2})(?!\d))?/.exec(s)
-  return m ? `${m[1]}${m[2]}${m[3] ?? ''}` : raw
+  return m ? `${m[1]}${m[2]}${m[3] ?? ''}` : `${raw.trim()}?`
 }
 
 const EFFORT_SHORT: Record<string, string> = { low: 'low', medium: 'mid', high: 'high', xhigh: 'xl', max: 'max' }
