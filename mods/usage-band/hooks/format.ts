@@ -1,10 +1,11 @@
 // rate-limit kind -> short label. Unknown kinds keep their raw name.
 export function label(kind: string): string {
-  if (kind === 'five_hour') return '5h'
-  if (kind === 'seven_day') return 'w'
-  if (kind.toLowerCase().includes('fable')) return 'F'
-  if (kind.includes('opus')) return 'ow'
-  if (kind.includes('sonnet')) return 'sw'
+  const k = kind.toLowerCase()
+  if (k === 'five_hour') return '5h'
+  if (k === 'seven_day') return 'w'
+  if (k.includes('fable')) return 'F'
+  if (k.includes('opus')) return 'ow'
+  if (k.includes('sonnet')) return 'sw'
   return kind
 }
 

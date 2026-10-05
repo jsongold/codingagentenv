@@ -6,6 +6,10 @@ test('labels', () => {
   expect(label('seven_day')).toBe('w')
   expect(label('seven_day_fable')).toBe('F')
   expect(label('Fable')).toBe('F')
+  expect(label('seven_day_Opus')).toBe('ow')
+  expect(label('Seven_Day_Sonnet')).toBe('sw')
+  expect(label('seven_day_Opus')).toBe('ow')
+  expect(label('Seven_Day_Sonnet')).toBe('sw')
   expect(label('spend_limit')).toBe('spend_limit')
 })
 
