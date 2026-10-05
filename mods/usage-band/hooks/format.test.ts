@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { color, label, ordered, parseOrg } from './format'
+import { color, formatEffort, label, ordered, parseOrg } from './format'
 
 test('labels', () => {
   expect(label('five_hour')).toBe('5h')
@@ -28,4 +28,10 @@ test('org shortened between @ and \'s', () => {
 test('F ordered last', () => {
   const kinds = ordered([{ kind: 'seven_day_fable' }, { kind: 'five_hour' }, { kind: 'seven_day' }]).map(l => label(l.kind))
   expect(kinds).toEqual(['5h', 'w', 'F'])
+})
+
+test('effort shown only when set', () => {
+  expect(formatEffort('high')).toBe('high')
+  expect(formatEffort(8000)).toBe('8000')
+  expect(formatEffort(undefined)).toBe(null)
 })

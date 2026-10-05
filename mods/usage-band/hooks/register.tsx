@@ -2,11 +2,12 @@ import { atom, read, update } from 'claude-code'
 import type { Register, SessionContextUsage, SessionRateLimit } from 'claude-code'
 
 import type { Stats } from '../types'
-import { CTX_COLOR, color, label, ordered, parseOrg } from './format'
+import { CTX_COLOR, color, formatEffort, label, ordered, parseOrg } from './format'
 
 const stats = atom({ plugin: 'usage-band', key: 'stats' } as const, { limits: [] } as Stats)
 const org = atom({ plugin: 'usage-band', key: 'org' } as const, null)
 const model = atom({ plugin: 'usage-band', key: 'model' } as const, null)
+const effort = atom({ plugin: 'usage-band', key: 'effort' } as const, null)
 
 const toStats = (context: SessionContextUsage, limits: SessionRateLimit[]): Stats => ({
   context: context.percent,
@@ -32,16 +33,27 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // Effort is only exposed per model request (turn.step); main loop only.
+  on('turn.step', async function* ($, e, next) {
+    if (e.agentId === undefined) {
+      const f = formatEffort(e.effort)
+      if (f !== (await read($, effort))) await update($, effort, () => f)
+    }
+    return yield* next(e)
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const s = await read($, stats)
     const o = await read($, org)
     const m = await read($, model)
+    const f = await read($, effort)
     const { Box, Text } = $.ui.resolve(e)
 
     return (
       <Box>
         <Text color="magenta" bold>{m ?? '-'}</Text>
+        {f !== null && <Text dimColor>{` (${f})`}</Text>}
         <Text dimColor> | </Text>
         <Text dimColor>ctx </Text>
         <Text color={CTX_COLOR}>{s.context === undefined ? '-' : `${s.context}%`}</Text>

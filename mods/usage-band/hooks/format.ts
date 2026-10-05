@@ -38,3 +38,9 @@ export function parseOrg(stdout: string): string | null {
 export function shortOrg(name: string): string {
   return /@(.+?)'s/.exec(name)?.[1] ?? name
 }
+
+// turn.step effort (level or number) -> display text; absent/empty -> null.
+export function formatEffort(effort: string | number | undefined): string | null {
+  if (effort === undefined || effort === '') return null
+  return String(effort)
+}
