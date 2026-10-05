@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register, SessionContextUsage, SessionRateLimit } from 'claude-code'
 
 import type { Stats } from '../types'
-import { color, label, parseOrg } from './format'
+import { CTX_COLOR, color, label, ordered, parseOrg } from './format'
 
 const stats = atom({ plugin: 'usage-band', key: 'stats' } as const, { limits: [] } as Stats)
 const org = atom({ plugin: 'usage-band', key: 'org' } as const, null)
@@ -44,10 +44,11 @@ export const register: Register = on => {
         <Text color="magenta" bold>{m ?? '-'}</Text>
         <Text dimColor> | </Text>
         <Text dimColor>ctx </Text>
-        <Text color={color(s.context)}>{s.context === undefined ? '-' : `${s.context}%`}</Text>
-        {s.limits.map(l => (
+        <Text color={CTX_COLOR}>{s.context === undefined ? '-' : `${s.context}%`}</Text>
+        <Text dimColor> |</Text>
+        {ordered(s.limits).map((l, i) => (
           <Text key={l.kind}>
-            <Text dimColor> {label(l.kind)} </Text>
+            <Text dimColor>{i === 0 ? ' ' : '  '}{label(l.kind)} </Text>
             <Text color={color(l.percentUsed)}>{`${l.percentUsed}%`}</Text>
           </Text>
         ))}

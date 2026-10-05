@@ -1,10 +1,11 @@
 import { expect, test } from 'claude-code/testing'
-import { color, label, parseOrg } from './format'
+import { color, label, ordered, parseOrg } from './format'
 
 test('labels', () => {
   expect(label('five_hour')).toBe('5h')
   expect(label('seven_day')).toBe('w')
-  expect(label('seven_day_fable')).toBe('fw')
+  expect(label('seven_day_fable')).toBe('F')
+  expect(label('Fable')).toBe('F')
   expect(label('spend_limit')).toBe('spend_limit')
 })
 
@@ -22,4 +23,9 @@ test('org from auth status', () => {
 
 test('org shortened between @ and \'s', () => {
   expect(parseOrg(`{"orgName":"a.b@cafkah.com's Organization"}`)).toBe('cafkah.com')
+})
+
+test('F ordered last', () => {
+  const kinds = ordered([{ kind: 'seven_day_fable' }, { kind: 'five_hour' }, { kind: 'seven_day' }]).map(l => label(l.kind))
+  expect(kinds).toEqual(['5h', 'w', 'F'])
 })
