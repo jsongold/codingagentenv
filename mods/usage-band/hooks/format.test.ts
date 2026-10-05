@@ -38,6 +38,7 @@ test('effort shortened to <= 4 chars', () => {
   expect(formatEffort('max')).toBe('max')
   expect(formatEffort(8000)).toBe('8000')
   expect(formatEffort(123456)).toBe('1234')
+  expect(formatEffort('turbo')).toBe('?')
   expect(formatEffort(undefined)).toBe(null)
 })
 
@@ -50,7 +51,7 @@ test('model shortened to family + version', () => {
   expect(shortModel('claude-fable-5-1')).toBe('fable51')
   expect(shortModel('claude-opus-5-5[1m]')).toBe('opus55')
   expect(shortModel('claude-opus-4-20250514')).toBe('opus4')
-  expect(shortModel('Default (recommended)')).toBe('Default (recommended)?')
+  expect(shortModel('Default (recommended)')).toBe('?')
   expect(shortModel('claude-lyra-6-0')).toBe('lyra60')
   expect(shortModel('claude-lyra-6-0-20270101[1m]')).toBe('lyra60')
   expect(shortModel('Lyra 6.0')).toBe('lyra60')
