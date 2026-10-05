@@ -5,12 +5,14 @@
 #   bin/codingenv install     symlink skills, hooks and global/harness.json,
 #                           register hooks, drop retired hooks and env (#103),
 #                           sync the harness section of ~/.claude/CLAUDE.md,
+#                           list mods/*/ plugins in env.CLAUDE_CODE_PLUGIN_DIRS,
 #                           link this command into ~/.local/bin as `codingenv`
 #                           and tools/* into ~/.local/bin under their own names
 #   bin/codingenv uninstall   remove everything install added
 #   bin/codingenv status      report drift; exit 1 if anything is missing
 #
-# CLAUDE_DIR and BIN_DIR override the target directories (used by the tests).
+# CLAUDE_DIR and BIN_DIR override the target directories, MODS_DIR the mods
+# source (used by the tests).
 set -eu
 
 # Resolve symlinks so the script finds the repo when run as `codingenv` via PATH.
@@ -39,6 +41,10 @@ RETIRED_HOOKS='TaskCompleted:harness-task-completed.sh'
 
 SKILLS=$(cd "$ROOT/skills" && ls -d */ | tr -d /)
 TOOLS=$(cd "$ROOT/tools" && ls) # linked into BIN_DIR under their own names
+# Every mods/<name>/ with .claude-plugin/plugin.json loads as a plugin in every
+# session via CLAUDE_CODE_PLUGIN_DIRS (":"-separated); no registry to edit.
+MODS_DIR=${MODS_DIR:-$ROOT/mods}
+MODS=$(for d in "$MODS_DIR"/*/; do [ -f "$d.claude-plugin/plugin.json" ] && printf '%s:' "${d%/}"; done; true)
 HOOKS='SessionStart:harness-session-start.sh PreToolUse:harness-scope-check.ts'
 
 hook_command() {
@@ -85,6 +91,18 @@ unregister_hooks() { # event:script entries
         | if .hooks[$event] == [] then del(.hooks[$event]) else . end
       else . end'
   done
+}
+
+# jq filter: CLAUDE_CODE_PLUGIN_DIRS with entries under MODS_DIR replaced by
+# $mods (others kept, in order); the key goes when the list ends up empty.
+PLUGIN_DIRS_FILTER='
+  (((.env.CLAUDE_CODE_PLUGIN_DIRS // "") | split(":") | map(select(. != "" and (startswith($prefix) | not))))
+    + ($mods | split(":") | map(select(. != ""))) | join(":")) as $dirs
+  | if $dirs == "" then del(.env.CLAUDE_CODE_PLUGIN_DIRS) else .env.CLAUDE_CODE_PLUGIN_DIRS = $dirs end
+  | if .env == {} then del(.env) else . end'
+
+sync_plugin_dirs() { # ":"-joined mod paths to list
+  update_settings --arg mods "$1" --arg prefix "$MODS_DIR/" "$PLUGIN_DIRS_FILTER"
 }
 
 drop_retired() {
@@ -147,6 +165,7 @@ install() {
         else .hooks[$event] += [$filter.group + {hooks: [{type: "command", command: $command, timeout: 10} + $filter.handler]}]
         end'
   done
+  sync_plugin_dirs "$MODS"
 
   [ -f "$MEMORY" ] || : >"$MEMORY"
   backup "$MEMORY"
@@ -171,6 +190,7 @@ uninstall() {
     backup "$SETTINGS"
     drop_retired
     unregister_hooks $HOOKS
+    sync_plugin_dirs ""
   fi
 
   if [ -f "$MEMORY" ]; then
@@ -209,6 +229,8 @@ status() {
     report "retired hook $event unregistered" "$(jq -r --arg event "$event" --arg command "$(hook_command "$script")" \
       'if any(.hooks[$event][]?.hooks[]?; .command == $command) then "no" else "yes" end' "$SETTINGS" 2>/dev/null || echo yes)"
   done
+  report "env CLAUDE_CODE_PLUGIN_DIRS lists mods" "$(jq -r --arg mods "$MODS" --arg prefix "$MODS_DIR/" \
+    "if ($PLUGIN_DIRS_FILTER) == . then \"yes\" else \"no\" end" "$SETTINGS" 2>/dev/null || echo no)"
   report "env $RETIRED_ENV removed" "$(same "$(jq -r --arg key "$RETIRED_ENV" '.env[$key] // ""' "$SETTINGS" 2>/dev/null)" "")"
 
   local current=""
