@@ -84,6 +84,15 @@ check "status passes once leftovers are gone" 0 $?
 jq '.env.CLAUDE_CODE_PLUGIN_DIRS = "/other/plugin"' "$TMP/settings.clean" >"$FAKE/settings.json"
 harness status >/dev/null 2>&1
 check "status detects a mod missing from CLAUDE_CODE_PLUGIN_DIRS" 1 $?
+jq --arg d "$MODS/band:/other/plugin" '.env.CLAUDE_CODE_PLUGIN_DIRS = $d' "$TMP/settings.clean" >"$FAKE/settings.json"
+harness status >/dev/null 2>&1
+check "status accepts mods listed in another order" 0 $?
+# The same mod listed from another checkout (a worktree) is replaced, not added.
+jq '.env.CLAUDE_CODE_PLUGIN_DIRS = "/old/checkout/mods/band:/other/plugin"' "$TMP/settings.clean" >"$FAKE/settings.json"
+harness status >/dev/null 2>&1
+check "status detects a mod listed from another checkout" 1 $?
+harness install >/dev/null
+check "install replaces a mod listed from another checkout" "/other/plugin:$MODS/band" "$(jq -r '.env.CLAUDE_CODE_PLUGIN_DIRS' "$FAKE/settings.json")"
 cp "$TMP/settings.clean" "$FAKE/settings.json"
 
 # status reports a missing harness.json link as drift.

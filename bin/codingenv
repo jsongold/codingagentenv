@@ -45,6 +45,7 @@ TOOLS=$(cd "$ROOT/tools" && ls) # linked into BIN_DIR under their own names
 # session via CLAUDE_CODE_PLUGIN_DIRS (":"-separated); no registry to edit.
 MODS_DIR=${MODS_DIR:-$ROOT/mods}
 MODS=$(for d in "$MODS_DIR"/*/; do [ -f "$d.claude-plugin/plugin.json" ] && printf '%s:' "${d%/}"; done; true)
+MOD_NAMES=$(printf '%s' "$MODS" | tr ':' '\n' | sed 's#.*/##' | tr '\n' ':')
 HOOKS='SessionStart:harness-session-start.sh PreToolUse:harness-scope-check.ts'
 
 hook_command() {
@@ -93,16 +94,22 @@ unregister_hooks() { # event:script entries
   done
 }
 
-# jq filter: CLAUDE_CODE_PLUGIN_DIRS with entries under MODS_DIR replaced by
-# $mods (others kept, in order); the key goes when the list ends up empty.
-PLUGIN_DIRS_FILTER='
-  (((.env.CLAUDE_CODE_PLUGIN_DIRS // "") | split(":") | map(select(. != "" and (startswith($prefix) | not))))
-    + ($mods | split(":") | map(select(. != ""))) | join(":")) as $dirs
+# jq defs: an entry is ours when it is under MODS_DIR or ends in /mods/<name>
+# of one of our mods (the same mod installed from another checkout or worktree).
+PLUGIN_DIRS_DEFS='
+  def ours: . as $d | ($d | startswith($prefix)) or any($names | split(":")[] | select(. != ""); . as $n | $d | endswith("/mods/" + $n));
+  def entries: (.env.CLAUDE_CODE_PLUGIN_DIRS // "") | split(":") | map(select(. != ""));'
+# jq filter: CLAUDE_CODE_PLUGIN_DIRS with our entries replaced by $mods
+# (others kept, in order); the key goes when the list ends up empty.
+PLUGIN_DIRS_FILTER="$PLUGIN_DIRS_DEFS"'
+  ((entries | map(select(ours | not))) + ($mods | split(":") | map(select(. != ""))) | join(":")) as $dirs
   | if $dirs == "" then del(.env.CLAUDE_CODE_PLUGIN_DIRS) else .env.CLAUDE_CODE_PLUGIN_DIRS = $dirs end
   | if .env == {} then del(.env) else . end'
+# jq test: our entries are exactly $mods, in any order.
+PLUGIN_DIRS_OK='(entries | map(select(ours)) | sort) == ($mods | split(":") | map(select(. != "")) | sort)'
 
 sync_plugin_dirs() { # ":"-joined mod paths to list
-  update_settings --arg mods "$1" --arg prefix "$MODS_DIR/" "$PLUGIN_DIRS_FILTER"
+  update_settings --arg mods "$1" --arg prefix "$MODS_DIR/" --arg names "$MOD_NAMES" "$PLUGIN_DIRS_FILTER"
 }
 
 drop_retired() {
@@ -229,8 +236,8 @@ status() {
     report "retired hook $event unregistered" "$(jq -r --arg event "$event" --arg command "$(hook_command "$script")" \
       'if any(.hooks[$event][]?.hooks[]?; .command == $command) then "no" else "yes" end' "$SETTINGS" 2>/dev/null || echo yes)"
   done
-  report "env CLAUDE_CODE_PLUGIN_DIRS lists mods" "$(jq -r --arg mods "$MODS" --arg prefix "$MODS_DIR/" \
-    "if ($PLUGIN_DIRS_FILTER) == . then \"yes\" else \"no\" end" "$SETTINGS" 2>/dev/null || echo no)"
+  report "env CLAUDE_CODE_PLUGIN_DIRS lists mods" "$(jq -r --arg mods "$MODS" --arg prefix "$MODS_DIR/" --arg names "$MOD_NAMES" \
+    "$PLUGIN_DIRS_DEFS if $PLUGIN_DIRS_OK then \"yes\" else \"no\" end" "$SETTINGS" 2>/dev/null || echo no)"
   report "env $RETIRED_ENV removed" "$(same "$(jq -r --arg key "$RETIRED_ENV" '.env[$key] // ""' "$SETTINGS" 2>/dev/null)" "")"
 
   local current=""
