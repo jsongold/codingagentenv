@@ -22,6 +22,19 @@ argument-hint: "[Task | 依頼]"
      - 指定なし（既定モデル）：設計判断、デバッグ、ADR に触る変更。
    - `CLAUDE_CODE_SUBAGENT_MODEL` で一律に下げない（判断タスクまで劣化する）。
 
+## 振り分け（CC Subagent / opencode）
+- 判断系（設計判断・デバッグ・ADR に触る変更）→ CC Subagent（上の手順）。
+- 調査・手順が明確な実装・テスト追加・転記整形 → opencode（`dispatch → oc main → oc sub`）。oc main は 1 Task の中だけを仕切る。Issue 操作・merge・完了判断はしない。
+- opencode には `skills/dispatch/oc.ts` で渡す。必ず `run_in_background` で起動し、終了通知で結果を受け取る：
+  ```bash
+  node ~/.claude/skills/dispatch/oc.ts --dir <worktree> [--model provider/model] [--timeout 秒] <<'EOF'
+  <Task の本文。15 行報告形式の指示も添える>
+  EOF
+  ```
+  - stdout は 1 行の JSON `{sessionID, status: "done"|"error"|"timeout", text}`。exit 0 は done のときだけ。
+  - serve（既定 `http://127.0.0.1:4096`、`OC_URL` で変更）が応答しなければ oc.ts が起動する。CLI（`opencode run`）は使わない。
+  - error / timeout の再実行や CC Subagent への振り直しは main loop が決める（dispatch は判断しない）。
+
 ## やらないこと
 - 記録（Issue の作成、handoff など）、worktree の作成、wave の進行、完了の判断（main loop の仕事）。
 - 分解・設計（`/taskman` の仕事）。
