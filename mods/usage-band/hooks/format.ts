@@ -39,8 +39,19 @@ export function shortOrg(name: string): string {
   return /@(.+?)'s/.exec(name)?.[1] ?? name
 }
 
-// turn.step effort (level or number) -> display text; absent/empty -> null.
+// Model id or display name -> family + version digits ("claude-opus-5-5", "Opus 5.5" -> "opus55").
+// Drops [1m]-style suffixes and date suffixes. Unknown format -> raw string.
+export function shortModel(raw: string): string {
+  const s = raw.replace(/\[.*?\]/g, '').trim().toLowerCase()
+  const m = /^(?:claude[\s-]+)?([a-z]+)[\s-]+(\d+)(?:[.\s-](\d{1,2})(?!\d))?/.exec(s)
+  return m ? `${m[1]}${m[2]}${m[3] ?? ''}` : raw
+}
+
+const EFFORT_SHORT: Record<string, string> = { low: 'low', medium: 'mid', high: 'high', xhigh: 'xl', max: 'max' }
+
+// turn.step effort (level or number) -> display text (<= 4 chars); absent/empty -> null.
 export function formatEffort(effort: string | number | undefined): string | null {
   if (effort === undefined || effort === '') return null
-  return String(effort)
+  const s = String(effort)
+  return EFFORT_SHORT[s.toLowerCase()] ?? s.slice(0, 4)
 }

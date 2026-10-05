@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register, SessionContextUsage, SessionRateLimit } from 'claude-code'
 
 import type { Stats } from '../types'
-import { CTX_COLOR, color, formatEffort, label, ordered, parseOrg } from './format'
+import { CTX_COLOR, color, formatEffort, label, ordered, parseOrg, shortModel } from './format'
 
 const stats = atom({ plugin: 'usage-band', key: 'stats' } as const, { limits: [] } as Stats)
 const org = atom({ plugin: 'usage-band', key: 'org' } as const, null)
@@ -20,7 +20,7 @@ export const register: Register = on => {
     const usage = await $.session.usage()
     await update($, stats, () => toStats(usage.context, usage.rateLimits))
     const m = await $.session.model()
-    await update($, model, () => m)
+    await update($, model, () => shortModel(m))
     const auth = await $.process.run(['claude', 'auth', 'status'])
     await update($, org, () => parseOrg(auth.stdout))
     return started
@@ -29,7 +29,7 @@ export const register: Register = on => {
   on('session.measure', async ($, e, next) => {
     await update($, stats, () => toStats(e.context, e.rateLimits))
     const m = await $.session.model()
-    await update($, model, () => m)
+    await update($, model, () => shortModel(m))
     return next(e)
   })
 
