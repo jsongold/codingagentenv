@@ -18,7 +18,12 @@ check() { # name, expected, actual
   fi
 }
 
-harness() { CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" bash "$ROOT/bin/codingenv" "$@"; }
+# Fake mods: one plugin, one folder that is not a plugin.
+MODS="$TMP/mods"
+mkdir -p "$MODS/band/.claude-plugin" "$MODS/notes"
+echo '{"name":"band"}' >"$MODS/band/.claude-plugin/plugin.json"
+
+harness() { CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" MODS_DIR="$MODS" bash "$ROOT/bin/codingenv" "$@"; }
 
 # A machine that already has its own settings, hooks and CLAUDE.md, including a
 # harness section written by hand before markers existed.
@@ -27,7 +32,7 @@ mkdir -p "$FAKE/skills/mine"
 # It also carries what an older install registered (#103 retired them).
 mkdir -p "$FAKE/hooks"
 ln -s "$ROOT/hooks/harness-task-completed.sh" "$FAKE/hooks/harness-task-completed.sh"
-echo '{"model":"x","env":{"KEEP":"1","CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"existing"}]}],"TaskCompleted":[{"hooks":[{"type":"command","command":"bash \"$HOME/.claude/hooks/harness-task-completed.sh\"","timeout":10}]},{"hooks":[{"type":"command","command":"mine"}]},{"hooks":[{"type":"command","command":"bash \"$HOME/.claude/hooks/harness-task-completed.sh\""},{"type":"command","command":"keep-me"}]}]}}' >"$FAKE/settings.json"
+echo '{"model":"x","env":{"KEEP":"1","CLAUDE_CODE_PLUGIN_DIRS":"/other/plugin:'"$TMP"'/mods/gone","CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"existing"}]}],"TaskCompleted":[{"hooks":[{"type":"command","command":"bash \"$HOME/.claude/hooks/harness-task-completed.sh\"","timeout":10}]},{"hooks":[{"type":"command","command":"mine"}]},{"hooks":[{"type":"command","command":"bash \"$HOME/.claude/hooks/harness-task-completed.sh\""},{"type":"command","command":"keep-me"}]}]}}' >"$FAKE/settings.json"
 printf '# Rules\n\n## 行動ルール\n- a\n\n## ハーネス（全プロジェクト共通）\n\n- stale line\n\n## レスポンススタイル\n- b\n' >"$FAKE/CLAUDE.md"
 
 harness status >/dev/null 2>&1
@@ -39,8 +44,9 @@ harness status >/dev/null
 check "status passes after install" 0 $?
 
 check "command is linked" "$ROOT/bin/codingenv" "$(readlink "$TMP/bin/codingenv")"
-CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" "$TMP/bin/codingenv" status >/dev/null 2>&1
+CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" MODS_DIR="$MODS" "$TMP/bin/codingenv" status >/dev/null 2>&1
 check "linked command finds the repo" 0 $?
+check "mods are added to CLAUDE_CODE_PLUGIN_DIRS once, stale mods dropped" "/other/plugin:$MODS/band" "$(jq -r '.env.CLAUDE_CODE_PLUGIN_DIRS' "$FAKE/settings.json")"
 check "tools are linked" "$ROOT/tools/codex-probe" "$(readlink "$TMP/bin/codex-probe")"
 check "skills are symlinked" "$ROOT/skills/dispatch" "$(readlink "$FAKE/skills/dispatch")"
 check "other skills are untouched" yes "$([ -d "$FAKE/skills/mine" ] && echo yes)"
@@ -74,6 +80,21 @@ rm "$FAKE/hooks/harness-task-completed.sh"
 harness status >/dev/null
 check "status passes once leftovers are gone" 0 $?
 
+# status reports a mod missing from CLAUDE_CODE_PLUGIN_DIRS as drift.
+jq '.env.CLAUDE_CODE_PLUGIN_DIRS = "/other/plugin"' "$TMP/settings.clean" >"$FAKE/settings.json"
+harness status >/dev/null 2>&1
+check "status detects a mod missing from CLAUDE_CODE_PLUGIN_DIRS" 1 $?
+jq --arg d "$MODS/band:/other/plugin" '.env.CLAUDE_CODE_PLUGIN_DIRS = $d' "$TMP/settings.clean" >"$FAKE/settings.json"
+harness status >/dev/null 2>&1
+check "status accepts mods listed in another order" 0 $?
+# The same mod listed from another checkout (a worktree) is replaced, not added.
+jq '.env.CLAUDE_CODE_PLUGIN_DIRS = "/old/checkout/mods/band:/other/plugin"' "$TMP/settings.clean" >"$FAKE/settings.json"
+harness status >/dev/null 2>&1
+check "status detects a mod listed from another checkout" 1 $?
+harness install >/dev/null
+check "install replaces a mod listed from another checkout" "/other/plugin:$MODS/band" "$(jq -r '.env.CLAUDE_CODE_PLUGIN_DIRS' "$FAKE/settings.json")"
+cp "$TMP/settings.clean" "$FAKE/settings.json"
+
 # status reports a missing harness.json link as drift.
 rm "$FAKE/harness.json"
 harness status >/dev/null 2>&1
@@ -97,7 +118,7 @@ check "uninstall drops its SessionStart group" 1 "$(jq '.hooks.SessionStart | le
 check "uninstall removes the scope-check link" no "$([ -e "$FAKE/hooks/harness-scope-check.ts" ] && echo yes || echo no)"
 check "uninstall drops its PreToolUse entry" null "$(jq -c '.hooks.PreToolUse' "$FAKE/settings.json")"
 check "uninstall keeps others' TaskCompleted" 2 "$(jq '.hooks.TaskCompleted | length' "$FAKE/settings.json")"
-check "uninstall drops its env only" '{"KEEP":"1"}' "$(jq -c '.env' "$FAKE/settings.json")"
+check "uninstall drops its env only" '{"KEEP":"1","CLAUDE_CODE_PLUGIN_DIRS":"/other/plugin"}' "$(jq -c '.env' "$FAKE/settings.json")"
 check "uninstall removes the section" 0 "$(grep -c '^## ハーネス' "$FAKE/CLAUDE.md")"
 check "uninstall keeps other sections" 2 "$(grep -c -e '^- a$' -e '^- b$' "$FAKE/CLAUDE.md")"
 
@@ -107,7 +128,7 @@ harness install >/dev/null
 harness status >/dev/null
 check "install works on an empty directory" 0 $?
 check "fresh install registers no TaskCompleted" null "$(jq '.hooks.TaskCompleted' "$FAKE/settings.json")"
-check "fresh install adds no env" null "$(jq '.env' "$FAKE/settings.json")"
+check "fresh install adds only the mods env" "{\"CLAUDE_CODE_PLUGIN_DIRS\":\"$MODS/band\"}" "$(jq -c '.env' "$FAKE/settings.json")"
 
 # uninstall still unlinks hook scripts when settings.json is gone.
 rm "$FAKE/settings.json"

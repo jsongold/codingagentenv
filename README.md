@@ -24,6 +24,7 @@ install が行うこと：
 - `~/.claude/settings.json` に SessionStart hook を追記する。旧版が入れた TaskCompleted hook と `env.CLAUDE_CODE_ENABLE_TODO_TOOLS` は取り除く（#103）
   - SessionStart：handoff が1件ならその全文、複数なら一覧を文脈に入れる（spec の一覧は出さない。spec は skill が harness.json の tickets を読んで探す）。handoff が無ければ旧 PROGRESS.md を後方互換で読む。handoff も PROGRESS.md も無い project では何もしない
 - `~/.claude/CLAUDE.md` のハーネス節を `global/CLAUDE.harness.md` の内容に置き換える（マーカー区間。他の節は変更しない）
+- `mods/*/`（`.claude-plugin/plugin.json` があるもの）を `~/.claude/settings.json` の `env.CLAUDE_CODE_PLUGIN_DIRS` に列挙し、全セッションで plugin として読み込ませる。他の checkout（worktree）から入れた同名 mod のパスは置き換える。Claude Code v2.1.280 未満はこの env を無視する
 
 hook の登録と CLAUDE.md の節は、repo を直したあと install を再実行するまで反映されない。symlink の中身（skill と hook script）は即座に全 project に効く。install 後は Claude Code を再起動する。
 
