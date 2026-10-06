@@ -44,6 +44,8 @@ async function loadWhere($: EngineInterface): Promise<void> {
           branch: br.exitCode === 0 ? br.stdout : '',
           sha: sha.exitCode === 0 ? sha.stdout : '',
         })
+    // cwd moved while git ran: a newer lookup owns the atom, drop this stale result.
+    if ((await $.session.cwd()) !== cwd) return
     await update($, where, () => w)
   } catch {
     // keep the where already shown

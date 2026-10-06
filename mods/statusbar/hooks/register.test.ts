@@ -63,6 +63,15 @@ test('outside a git repo no where field is shown', async ($, on) => {
   expect(await (await band($)).find({ type: 'Text', text: /^repo$/ })).toBeUndefined()
 })
 
+test('a lookup whose cwd changed meanwhile is dropped', async ($, on) => {
+  let calls = 0
+  on('session.cwd', () => ({ value: ++calls === 1 ? '/old' : '/new' }))
+  on('process.run', () => ({ value: ok('/old/stale\n') }))
+  on('classic.Stop', () => ({}))
+  await $.classic.Stop(STOP)
+  expect(await (await band($)).find({ type: 'Text', text: /^stale$/ })).toBeUndefined()
+})
+
 test('cwd change shows the new branch', async ($, on) => {
   git(on as never, true, 'moved')
   on('classic.CwdChanged', () => ({}))
