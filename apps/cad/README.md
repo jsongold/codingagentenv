@@ -7,7 +7,7 @@ task を「誰に・どこで」やらせるかは [orchd](../orchd/README.md) �
 ## 起動
 
 ```bash
-CAD_SLOTS=5 cad &                     # どの CWD でも cad/config.json を読む                     # tools/cad が必要なら go build してから起動
+CAD_SLOTS=5 cad &                     # どの CWD でも apps/cad/config.json を読む                     # tools/cad が必要なら go build してから起動
 cad get meta -ns default              # 動作確認
 ```
 
@@ -47,10 +47,10 @@ cad get meta -ns default              # 動作確認
 
 | 何 | 場所 |
 |---|---|
-| 設定（git 管理） | `CAD_CONFIG` > `CAD_POLICY`（旧名、別名として有効）> `<app>/config.json`（= `cad/config.json`）。無ければ built-in の既定 |
-| namespace の登録（gitignore） | `<app>/config/namespaces.json`。例は `cad/config/namespaces.example.json`（まだ cad は読まない） |
+| 設定（git 管理） | `CAD_CONFIG` > `CAD_POLICY`（旧名、別名として有効）> `<app>/config.json`（= `apps/cad/config.json`）。無ければ built-in の既定 |
+| namespace の登録（gitignore） | `<app>/config/namespaces.json`。例は `apps/cad/config/namespaces.example.json`（まだ cad は読まない） |
 
-`cad/config.json` のキー：
+`apps/cad/config.json` のキー：
 
 | キー | 内容 |
 |---|---|
@@ -59,7 +59,7 @@ cad get meta -ns default              # 動作確認
 | `computers` | computer の属性（`cad show cost`） |
 | `gate` / `review` / `providers` | capacity・レビュアー（`agent/ai-review.ts`）・workers の provider |
 
-`cad add/rm` は cad の知らないキーもそのまま残す。rules / classes / runners / modes は `orchd/policy.json`（[orchd/README.md](../orchd/README.md)）。
+`cad add/rm` は cad の知らないキーもそのまま残す。rules / classes / runners / modes は `apps/orchd/policy.json`（[orchd/README.md](../orchd/README.md)）。
 
 壊れた policy は読み込まず、直前の正しいものを使い続ける（ログに理由を出す）。
 

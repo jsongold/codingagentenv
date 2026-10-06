@@ -4,9 +4,9 @@
 # because a volume on /data would hide anything installed there at build time.
 FROM golang:1.27-bookworm AS build
 WORKDIR /src
-COPY cad/ cad/
-COPY orchd/ orchd/
-RUN cd cad && CGO_ENABLED=0 go build -trimpath -o /out/cad . \
+COPY apps/cad/ apps/cad/
+COPY apps/orchd/ apps/orchd/
+RUN cd apps/cad && CGO_ENABLED=0 go build -trimpath -o /out/cad . \
  && cd ../orchd && CGO_ENABLED=0 go build -trimpath -o /out/orchd .
 
 FROM debian:bookworm-slim
@@ -21,8 +21,8 @@ RUN curl -fsSL https://claude.ai/install.sh | bash && /home/cad/.local/bin/claud
 USER root
 COPY --from=build /out/cad /app/cad/bin/cad
 COPY --from=build /out/orchd /app/orchd/bin/orchd
-COPY cad/config.json /app/cad/config.json
-COPY orchd/policy.json orchd/wake.md /app/orchd/
+COPY apps/cad/config.json /app/cad/config.json
+COPY apps/orchd/policy.json apps/orchd/wake.md /app/orchd/
 COPY deploy/entrypoint.sh /app/entrypoint.sh
 # Secret Manager -> /data (deploy/gcp/startup.sh runs it with --entrypoint; needs jq/curl/base64 above).
 COPY deploy/fetch-auth.sh /app/bin/fetch-auth

@@ -15,7 +15,7 @@ tools/orchd show [rules|classes|runners]                     # 引数なし = 3 
 tools/orchd dispatch --placement "$json"                      # "$json" = place の出力（- で stdin）。runner.cmd の {key} を runner の同名 field で置換して実行（shell なし）、runner.stdin を stdin に流す
 ```
 
-`tools/orchd` は `orchd/bin/orchd` が無いか古ければ `go build` してから実行する（`bin/codingenv install` で `~/.local/bin/orchd` に入る）。
+`tools/orchd` は `apps/orchd/bin/orchd` が無いか古ければ `go build` してから実行する（`bin/codingenv install` で `~/.local/bin/orchd` に入る）。
 
 ## exit code（`place`）
 
@@ -27,7 +27,7 @@ tools/orchd dispatch --placement "$json"                      # "$json" = place 
 
 `dispatch`：0 = 成功（runner が `{}` でも 0 で何も実行せず `{}` を出す）、1 = 実行したコマンドの失敗、2 = 入力が不正（`--placement`、runner にキーはあるが cmd が無い・`{key}` の値が無い）。
 
-- cloud の session：`place` が runner.cmd に `{session}` があれば `CLAUDE_CLOUD_SESSION` > namespace 登録（`ORCHD_NAMESPACES` > `cad/config/namespaces.json`）の `cloudWorkerSession`（owner が `claude --cloud` で 1 度作る）を `runner.session` に入れる。無ければ dispatch が exit 2
+- cloud の session：`place` が runner.cmd に `{session}` があれば `CLAUDE_CLOUD_SESSION` > namespace 登録（`ORCHD_NAMESPACES` > `apps/cad/config/namespaces.json`）の `cloudWorkerSession`（owner が `claude --cloud` で 1 度作る）を `runner.session` に入れる。無ければ dispatch が exit 2
 
 ## vm runner（opencode の cloud worker）
 
@@ -51,10 +51,10 @@ MODE は place が使う rule の一覧を切り替える（[#97](https://github
 
 | 何 | 場所 |
 |---|---|
-| policy（git 管理） | `ORCHD_POLICY` > `<app>/policy.json`（= `orchd/policy.json`） |
+| policy（git 管理） | `ORCHD_POLICY` > `<app>/policy.json`（= `apps/orchd/policy.json`） |
 | 状態（gitignore） | `ORCHD_STATE_DIR` > `<app>/state` |
 
-`orchd/policy.json` のキー：`rules`・`modes`・`classes`（必須）・`runners`・`placement.reservePct`・`placement.staleUsage`（`pass` 既定 = stale な agent は usage 不明と同じく配置し reason に `<agent>: usage stale` を足す／`block` = その agent を飛ばす）・`cadAddr`、それに `agents`（パターン展開用）と `computers`（rule の computer 名の確認用、名前の配列）。`agents` と `computers` は `cad/config.json` の写し（orchd は cad のファイルを読まない）。agent を足したら両方を直す。
+`apps/orchd/policy.json` のキー：`rules`・`modes`・`classes`（必須）・`runners`・`placement.reservePct`・`placement.staleUsage`（`pass` 既定 = stale な agent は usage 不明と同じく配置し reason に `<agent>: usage stale` を足す／`block` = その agent を飛ばす）・`cadAddr`、それに `agents`（パターン展開用）と `computers`（rule の computer 名の確認用、名前の配列）。`agents` と `computers` は `apps/cad/config.json` の写し（orchd は cad のファイルを読まない）。agent を足したら両方を直す。
 
 cad の場所：`CAD_ADDR`（明示すれば常に優先）> mode の `cadAddr`（`auto` は top-level の `cadAddr`、他は `modes.<m>.cadAddr`）> `127.0.0.1:7878`。seed は `urgent` = `127.0.0.1:7878`（手元の cad。urgent は local で動くので local の値を信じる）、`auto` = `127.0.0.1:17878`（常時動く VM の cad。IAP tunnel 経由）。`CAD_TOKEN` も読む。
 
