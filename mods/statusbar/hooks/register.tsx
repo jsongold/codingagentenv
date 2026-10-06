@@ -3,6 +3,7 @@ import type { EngineInterface, Register, SessionContextUsage, SessionRateLimit }
 
 import type { Stats } from '../types'
 import { CTX_COLOR, color, formatEffort, label, ordered, parseOrg, shortModel } from './format'
+import { untilReset } from './reset'
 import { parseWhere } from './where'
 import type { Where } from './where'
 
@@ -14,7 +15,7 @@ const effort = atom({ plugin: 'statusbar', key: 'effort' } as const, null)
 
 const toStats = (context: SessionContextUsage, limits: SessionRateLimit[]): Stats => ({
   context: context.percent,
-  limits: limits.map(l => ({ kind: l.kind, percentUsed: l.percentUsed })),
+  limits: limits.map(l => ({ kind: l.kind, percentUsed: l.percentUsed, resetsAt: l.resetsAt })),
 })
 
 // `claude auth status` -> org atom. Never throws: a missing/hung `claude` keeps the current org.
@@ -115,6 +116,7 @@ export const register: Register = on => {
     const m = await read($, model)
     const f = await read($, effort)
     const limits = ordered(s.limits)
+    const now = Date.now()
     const { Box, Text } = $.ui.resolve(e)
 
     return (
@@ -125,12 +127,16 @@ export const register: Register = on => {
         <Text dimColor>ctx </Text>
         <Text color={CTX_COLOR}>{s.context === undefined ? '-' : `${s.context}%`}</Text>
         {limits.length > 0 && <Text dimColor> |</Text>}
-        {limits.map((l, i) => (
-          <Text key={l.kind}>
-            <Text dimColor>{i === 0 ? ' ' : '  '}{label(l.kind)} </Text>
-            <Text color={color(l.percentUsed)}>{`${l.percentUsed}%`}</Text>
-          </Text>
-        ))}
+        {limits.map((l, i) => {
+          const left = untilReset(l.kind, l.resetsAt, now)
+          return (
+            <Text key={l.kind}>
+              <Text dimColor>{i === 0 ? ' ' : '  '}{label(l.kind)} </Text>
+              <Text color={color(l.percentUsed)}>{`${l.percentUsed}%`}</Text>
+              {left !== null && <Text dimColor>{` ${left}`}</Text>}
+            </Text>
+          )
+        })}
         <Text dimColor> | </Text>
         <Text color="cyan">{o ?? '-'}</Text>
         {w !== null && <Text dimColor> | </Text>}

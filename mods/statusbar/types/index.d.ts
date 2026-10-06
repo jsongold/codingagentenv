@@ -1,4 +1,4 @@
-export type Limit = { kind: string; percentUsed: number }
+export type Limit = { kind: string; percentUsed: number; resetsAt?: string }
 export type Stats = { context?: number; limits: Limit[] }
 
 declare module 'claude-code' {
