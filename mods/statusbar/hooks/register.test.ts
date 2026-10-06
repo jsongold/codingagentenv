@@ -5,7 +5,7 @@ const AUTH = { exitCode: 0, stdout: '{"orgName":"a@acme.com\'s Organization"}', 
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 10 }, view: {} }
 const SWITCH = { requested_model: 'sonnet', source: 'command', context_tokens: 0, prompt_cache_warm: false, cache_ttl: '5m', estimated_cache_write_usd: 0, pricing: 'catalog' } as const
 
-const band = ($: Engine) => $.ui.mount({ plugin: 'usage-band', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+const band = ($: Engine) => $.ui.mount({ plugin: 'statusbar', surface: 'terminal', component: 'AbovePrompt', props: BAND })
 
 test('/clear fetches org again', async ($, on) => {
   on('process.run', () => ({ value: AUTH }))
