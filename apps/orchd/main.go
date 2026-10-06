@@ -1,5 +1,5 @@
-// orchd decides where a task runs (#98): it reads rules/classes/runners from orchd/policy.json
-// and asks cad (HTTP only) for usage and capacity. Deleting orchd/ and tools/orchd leaves cad intact.
+// orchd decides where a task runs (#98): it reads rules/classes/runners from apps/orchd/policy.json
+// and asks cad (HTTP only) for usage and capacity. Deleting apps/orchd/ and tools/orchd leaves cad intact.
 package main
 
 import (

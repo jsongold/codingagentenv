@@ -55,13 +55,13 @@ function run(cmd: string, args: string[], input?: string) {
   return { code: r.status ?? 127, out, err, last: (err || out).split("\n").pop() ?? "" };
 }
 
-// CAD_CONFIG > CAD_POLICY > cad /v1/policy > the repo's cad/config.json.
+// CAD_CONFIG > CAD_POLICY > cad /v1/policy > the repo's apps/cad/config.json.
 async function policy(): Promise<{ reviewers: string[]; excludeImplementer: boolean }> {
   const read = (p: string) => JSON.parse(readFileSync(p, "utf8"));
   let p: any;
   const file = process.env.CAD_CONFIG || process.env.CAD_POLICY;
   if (file) p = read(file);
-  else p = (await cad(`/v1/policy?${cadNS}`)) ?? read(join(repo, "cad/config.json"));
+  else p = (await cad(`/v1/policy?${cadNS}`)) ?? read(join(repo, "apps/cad/config.json"));
   const reviewers = p?.review?.reviewers;
   if (!Array.isArray(reviewers) || reviewers.length === 0) fail("policy has no review.reviewers");
   return { reviewers, excludeImplementer: p.review.excludeImplementer !== false };

@@ -127,7 +127,7 @@ Secret Manager（[pricing](https://cloud.google.com/secret-manager/pricing)、bi
 
 ## opencode worker VM（`worker-spot` / `worker-std` / `worker-spot-2`）
 
-opencode の task を 1 件ずつ container で実行する VM を 1〜3 台持つ（`create-worker.sh` の引数 / 環境変数 `N`、既定 2、最大 3。#100 の再検討条件「並列度が 2 台で足りない」）。全台 e2-medium・COS・boot disk 10GB pd-balanced、tag `cad`（IAP SSH）、SA `cad-vm@`（scope cloud-platform）。名前は spot/std/spot の順で決め、既定の N=2 は元のままの `worker-spot`（Spot）+ `worker-std`（standard）、3 台目は 2 台目の standard ではなく安い Spot を増やして `worker-spot-2` にする。Spot は `--provisioning-model=SPOT --instance-termination-action=STOP`（preempt されても削除されず停止し、disk と cache 済み image が残る。[Spot VMs](https://cloud.google.com/compute/docs/instances/create-use-spot)）。どちらの種類を使うかは orchd の rule 順（`opencode@gce-spot` → `opencode@gce-std`、`orchd/README.md`）、同じ種類が複数台あれば `runners["opencode@gce-spot"].instance` のカンマ区切りリスト（例 `"worker-spot,worker-spot-2"`）から `orchd/vm.go` が `TERMINATED` の 1 台を選ぶ（全台使用中なら exit 5 → `orchd place --exclude gce-spot` で次の rule へ）。
+opencode の task を 1 件ずつ container で実行する VM を 1〜3 台持つ（`create-worker.sh` の引数 / 環境変数 `N`、既定 2、最大 3。#100 の再検討条件「並列度が 2 台で足りない」）。全台 e2-medium・COS・boot disk 10GB pd-balanced、tag `cad`（IAP SSH）、SA `cad-vm@`（scope cloud-platform）。名前は spot/std/spot の順で決め、既定の N=2 は元のままの `worker-spot`（Spot）+ `worker-std`（standard）、3 台目は 2 台目の standard ではなく安い Spot を増やして `worker-spot-2` にする。Spot は `--provisioning-model=SPOT --instance-termination-action=STOP`（preempt されても削除されず停止し、disk と cache 済み image が残る。[Spot VMs](https://cloud.google.com/compute/docs/instances/create-use-spot)）。どちらの種類を使うかは orchd の rule 順（`opencode@gce-spot` → `opencode@gce-std`、`apps/orchd/README.md`）、同じ種類が複数台あれば `runners["opencode@gce-spot"].instance` のカンマ区切りリスト（例 `"worker-spot,worker-spot-2"`）から `apps/orchd/vm.go` が `TERMINATED` の 1 台を選ぶ（全台使用中なら exit 5 → `orchd place --exclude gce-spot` で次の rule へ）。
 
 - image：`Dockerfile.worker` → `ghcr.io/jsongold/codingagentenv/opencode-worker:main` と `:sha-<7桁>`（`image.yml` が main への push ごとに build）。git・gh・opencode（公式 install script）・`fetch-auth`。entrypoint `deploy/worker-run.sh`：env `ISSUE` `REPO` `MODEL`。`/data` の auth を読み、clone → branch `task/<ISSUE>`（push 済みなら再利用）→ `opencode run --auto --model $MODEL "<gh issue view の内容>"` → commit・push → `Closes #<ISSUE>` の PR が無ければ `gh pr create --base main`。opencode が失敗したら branch だけ push して PR は作らず非 0。push は opencode の終了後の 1 回だけなので、その前に preempt されると作業は失われる（Issue は queue に戻る、`skills/orchestrate`）
 - 起動（毎 boot、`worker-startup.sh`）：`fetch-auth` で secret を `/var/lib/cad` へ → metadata `worker-task`（`<id> <issue> <repo> <model> <image>`。`orchd dispatch` が Compute API の setMetadata で置いてから start する）を読み、`docker run -d --rm --name opencode-worker-<issue> ...` → image を pull。task の id を `/var/lib/cad/task-done` に記録し、同じ id では再実行しない（reboot・手動 start。VM から metadata は消せないので消さない）。image が cache 済みなら pull は task の起動の後（cache の image で即起動し、pull は変わった layer だけ取って次回に効く）。cache が無い初回だけ先に pull する。orchd からの ssh は無い
@@ -152,7 +152,7 @@ gcloud secrets add-iam-policy-binding cad-github-worker --project $P \
 
 3. `deploy/gcp/create-worker.sh [N]`（`N` = 1〜3、既定 2。既にある VM は skip、後から `N` を増やせば足りない分だけ作る）。firewall `allow-iap-ssh-cad` は `create-vm.sh` が作る。初回 boot が image を pull し終えたら（serial port に `worker: ready`）表示される `gcloud compute instances stop ...` で止める。止めなくても 30 分で保険の timer が止める
 4. 確認：`gcloud compute instances list --project suggestorder-dev --filter=labels.app=cad-worker`（全台 `TERMINATED`）
-5. `N` を 3 にした（`worker-spot-2` を追加した）場合は `orchd/policy.json` の `runners["opencode@gce-spot"].instance` を `"worker-spot,worker-spot-2"` に直す（`create-worker.sh` がこのコマンドを最後に出す）
+5. `N` を 3 にした（`worker-spot-2` を追加した）場合は `apps/orchd/policy.json` の `runners["opencode@gce-spot"].instance` を `"worker-spot,worker-spot-2"` に直す（`create-worker.sh` がこのコマンドを最後に出す）
 
 token の rotation は 2 の `versions add` だけ（VM は boot ごとに `latest` を読む）。
 
@@ -172,7 +172,7 @@ Cloud Logging を有効にした後は下の「Cloud Logging」の `gcloud loggi
 - `worker-std`：e2-medium $24.46 / 月（常時稼働した場合。≈ $0.0335 / 時）
 - `worker-spot` / `worker-spot-2`：Spot は on-demand から最大 91% 引き、価格は最大 1 日 1 回変わる（[Spot VMs](https://cloud.google.com/compute/docs/instances/spot)、[Spot pricing](https://cloud.google.com/spot-vms/pricing)）。e2-medium の Spot は約 $0.01〜0.03 / 時の見込み（**推定**。公式の表で確認していない）
 - 停止中も課金：boot disk 10GB pd-balanced × 台数（と外部 IP の扱いは [IP pricing](https://cloud.google.com/vpc/network-pricing#ipaddress) に従う）。task 1 件（起動 + 実行 30 分 + grace 10 秒）で std ≈ $0.02
-- `cad/config.json` の `computers` には `gce-spot` の隣に `gce-std`（e2-medium standard の見積り、上の $24.46/月 ≈ $0.0335/時から算出、**推定**）を足してある。`gce-spot-2` は同じ `gce-spot` の記録を使う（同じ machine type・Spot）ので追加のエントリは不要
+- `apps/cad/config.json` の `computers` には `gce-spot` の隣に `gce-std`（e2-medium standard の見積り、上の $24.46/月 ≈ $0.0335/時から算出、**推定**）を足してある。`gce-spot-2` は同じ `gce-spot` の記録を使う（同じ machine type・Spot）ので追加のエントリは不要
 
 ## Cloud Logging
 
@@ -207,7 +207,7 @@ gcloud logging read 'resource.type="gce_instance" AND resource.labels.instance_i
 `cad-vm@$PROJECT.iam.gserviceaccount.com` は次の 2 つの理由で権限が要る：
 
 1. Cloud Logging への書き込み（上の「Cloud Logging」。VM 自身が自分のログを送る）：`roles/logging.logWriter`
-2. `orchd/vm.go` が cad-2（cad image、`cad-vm@` で動く）から worker VM を REST API で操作する（`instances.get` / `instances.setMetadata` / `instances.start` / `zoneOperations.get`。`orchd/README.md` の「vm runner」）
+2. `apps/orchd/vm.go` が cad-2（cad image、`cad-vm@` で動く）から worker VM を REST API で操作する（`instances.get` / `instances.setMetadata` / `instances.start` / `zoneOperations.get`。`apps/orchd/README.md` の「vm runner」）
 
 ```bash
 P=suggestorder-dev
@@ -215,7 +215,7 @@ gcloud projects add-iam-policy-binding $P \
   --member serviceAccount:cad-vm@$P.iam.gserviceaccount.com --role roles/logging.logWriter
 ```
 
-Compute 側は project 全体の `roles/compute.instanceAdmin.v1` は権限が広すぎる（全 VM の作成・削除まで含む）。worker VM だけに絞るなら instance レベルの IAM（[IAM condition でリソースを絞る](https://cloud.google.com/iam/docs/conditions-overview)）で `compute.instances.get` / `setMetadata` / `start` を worker VM 3 台（`worker-spot` `worker-std` `worker-spot-2`）にだけ付け、`compute.zoneOperations.get`（`orchd/vm.go` の `wait` が operation を poll する）は zone operation が instance の子リソースではなく instance 単位の IAM binding が効かないため、project レベルで別に付ける（2 つに分ける分、project レベルの方は zoneOperations.get だけの最小ロールにする）：
+Compute 側は project 全体の `roles/compute.instanceAdmin.v1` は権限が広すぎる（全 VM の作成・削除まで含む）。worker VM だけに絞るなら instance レベルの IAM（[IAM condition でリソースを絞る](https://cloud.google.com/iam/docs/conditions-overview)）で `compute.instances.get` / `setMetadata` / `start` を worker VM 3 台（`worker-spot` `worker-std` `worker-spot-2`）にだけ付け、`compute.zoneOperations.get`（`apps/orchd/vm.go` の `wait` が operation を poll する）は zone operation が instance の子リソースではなく instance 単位の IAM binding が効かないため、project レベルで別に付ける（2 つに分ける分、project レベルの方は zoneOperations.get だけの最小ロールにする）：
 
 ```bash
 cat >/tmp/orchd-vm-role.yaml <<'YAML'

@@ -2,8 +2,8 @@
 # Global gitignore excludes CLAUDE.md; this repo ships it.
 !CLAUDE.md
 .claude/settings.local.json
-cad/bin/
-cad/state/
-cad/config/namespaces.json
-cad/cad
-orchd/orchd
+apps/cad/bin/
+apps/cad/state/
+apps/cad/config/namespaces.json
+apps/cad/cad
+apps/orchd/orchd

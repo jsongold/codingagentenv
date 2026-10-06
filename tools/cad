@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# cad [args] — run the cad metadata server (see cad/README.md for env: CAD_ADDR,
-# CAD_TOKEN, CAD_CONFIG, CAD_SLOTS, CAD_PROVIDERS_DIR). Builds cad/bin/cad
-# (gitignored) when it is missing or older than the Go sources. cad finds cad/config.json
-# from its own path (cad/bin/..), so any CWD works.
+# cad [args] — run the cad metadata server (see apps/cad/README.md for env: CAD_ADDR,
+# CAD_TOKEN, CAD_CONFIG, CAD_SLOTS, CAD_PROVIDERS_DIR). Builds apps/cad/bin/cad
+# (gitignored) when it is missing or older than the Go sources. cad finds apps/cad/config.json
+# from its own path (apps/cad/bin/..), so any CWD works.
 set -euo pipefail
 here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
-src=$(cd "$here/../cad" && pwd)
+src=$(cd "$here/../apps/cad" && pwd)
 bin=$src/bin/cad
 if [ ! -x "$bin" ] || [ -n "$(find "$src" -maxdepth 1 \( -name '*.go' -o -name go.mod \) -newer "$bin")" ]; then
   (cd "$src" && go build -o bin/cad .)

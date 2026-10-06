@@ -8,7 +8,7 @@ import (
 var executable = os.Executable // tests fake it
 
 // appDir is cad's own directory, independent of the CWD: $CAD_HOME > the dir above the bin/ holding
-// the real executable (tools/cad runs cad/bin/cad) if it has config.json > "." (go run / go test).
+// the real executable (tools/cad runs apps/cad/bin/cad) if it has config.json > "." (go run / go test).
 func appDir() string {
 	if d := os.Getenv("CAD_HOME"); d != "" {
 		return d

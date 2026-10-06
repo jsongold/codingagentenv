@@ -6,8 +6,8 @@
 
 FROM golang:1.27.1-bookworm AS cad-build
 WORKDIR /src/cad
-COPY cad/go.mod ./
-COPY cad/*.go ./
+COPY apps/cad/go.mod ./
+COPY apps/cad/*.go ./
 RUN CGO_ENABLED=0 go build -o /out/cad .
 
 FROM node:24-bookworm-slim

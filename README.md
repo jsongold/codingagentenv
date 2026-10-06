@@ -43,7 +43,7 @@ project ごとのルールを書く。トップレベルのキーがルールの
 {"tickets":{"system":"jira","project":"BATCH","spec":{"label":"spec"}}}
 ```
 
-読むのは skill（pickup・design・handoff）と orchd/wake.md。`system` が無いか `null` なら未設定（spec を探さない）。github なら `spec.label` で spec を探す（`gh issue list --label <tickets.spec.label>`）。github 以外（jira など）は一覧取得は未対応。形は `/setupca` が書くときに担保する。
+読むのは skill（pickup・design・handoff）と apps/orchd/wake.md。`system` が無いか `null` なら未設定（spec を探さない）。github なら `spec.label` で spec を探す（`gh issue list --label <tickets.spec.label>`）。github 以外（jira など）は一覧取得は未対応。形は `/setupca` が書くときに担保する。
 
 ## この repo のファイル
 
@@ -78,7 +78,7 @@ project ごとのルールを書く。トップレベルのキーがルールの
 4. `/pickup` → エージェントの復唱を確認・修正 → 作業再開
 
 ## 配置ロジック（#97）
-調整するものはファイルに置く。配置（`classes`・`rules`・`modes`・`runners`）は `orchd/policy.json`、収集対象（`agents`・`computers`・`collect`）は `cad/config.json`。どちらも実行ファイルの場所から見つけるので CWD に依存しない。分類だけ Orchestrator（Claude）が行い、配置は `orchd place`（[orchd/README.md](orchd/README.md)。cad から usage・capacity を HTTP で読む）が policy の `rules`（順序付きの決定リスト、先勝ち）を上から評価して決定的に返す（同じ入力なら同じ出力）。
+調整するものはファイルに置く。配置（`classes`・`rules`・`modes`・`runners`）は `apps/orchd/policy.json`、収集対象（`agents`・`computers`・`collect`）は `apps/cad/config.json`。どちらも実行ファイルの場所から見つけるので CWD に依存しない。分類だけ Orchestrator（Claude）が行い、配置は `orchd place`（[apps/orchd/README.md](apps/orchd/README.md)。cad から usage・capacity を HTTP で読む）が policy の `rules`（順序付きの決定リスト、先勝ち）を上から評価して決定的に返す（同じ入力なら同じ出力）。
 
 ```
 task spec
@@ -91,7 +91,7 @@ task spec
       窓以外（local の slot 無しなど）で塞がっている → exit 4
 ```
 
-配置の記録（policy）は `cad` の CLI で編集する。ファイルは daemon と同じ（`CAD_CONFIG` > `cad/config.json`。詳細は [cad/README.md](cad/README.md#設定)）。書き込みは atomic で、稼働中の `cad` は mtime で再読込する（再起動不要）。usage は daemon が定期収集する（claude は `claude -p /usage`、codex は `codex app-server` の `account/rateLimits/read`）（`CAD_USAGE_EVERY` > policy `collect.usage.every`、既定 60s）。メタデータは `cad get` で読む（`CAD_ADDR`・`CAD_TOKEN`、`-ns` 必須）。
+配置の記録（policy）は `cad` の CLI で編集する。ファイルは daemon と同じ（`CAD_CONFIG` > `apps/cad/config.json`。詳細は [apps/cad/README.md](apps/cad/README.md#設定)）。書き込みは atomic で、稼働中の `cad` は mtime で再読込する（再起動不要）。usage は daemon が定期収集する（claude は `claude -p /usage`、codex は `codex app-server` の `account/rateLimits/read`）（`CAD_USAGE_EVERY` > policy `collect.usage.every`、既定 60s）。メタデータは `cad get` で読む（`CAD_ADDR`・`CAD_TOKEN`、`-ns` 必須）。
 
 ```
 tools/cad get meta -ns dev                                   # 実行中の cad から全 topic（JSON）

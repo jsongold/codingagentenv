@@ -2,7 +2,7 @@
 # Create 1-3 opencode worker VMs (run once), e2-medium COS each. Names rotate spot/std/spot so the default (N=2)
 # reproduces the original worker-spot + worker-std unchanged; a 3rd worker adds a second Spot VM (cheaper) as
 # worker-spot-2 rather than a second standard one. orchd (runner mode vm) picks any TERMINATED VM of a kind from
-# runner.instance, a comma-separated list (orchd/README.md "vm runner"); each VM powers itself off
+# runner.instance, a comma-separated list (apps/orchd/README.md "vm runner"); each VM powers itself off
 # stop-grace-seconds after its last worker container exits, or after idle-minutes without one (worker-startup.sh).
 # The first boot fetches secrets and pulls the worker image onto the disk; stop the VMs once it is done (printed
 # below) or the idle net does it, so later starts only boot + `docker run`. Creates only; never deletes or updates.
@@ -65,6 +65,6 @@ echo "  gcloud compute instances stop ${created[*]} $S"
 echo "  gcloud compute instances list --project $PROJECT --filter=labels.app=cad-worker --format='table(name,status)'"
 if [ "$N" -gt 2 ]; then
   echo
-  echo "orchd/policy.json's opencode@gce-spot runner.instance is a comma-separated list of same-kind VMs;" \
+  echo "apps/orchd/policy.json's opencode@gce-spot runner.instance is a comma-separated list of same-kind VMs;" \
     "add ${names[2]} to it (e.g. \"worker-spot,worker-spot-2\") so orchd can pick either."
 fi
