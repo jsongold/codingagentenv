@@ -49,13 +49,14 @@ const fail = { exitCode: 128, stdout: '', stderr: 'fatal', isStdoutTruncated: fa
 const STOP = { stop_hook_active: false, last_assistant_message: '' } as never
 
 // Answers git by argv; outside a repo every git call fails.
-const git = (on: (name: 'process.run' | 'session.cwd', h: (_$: unknown, e: { argv: readonly string[] }) => unknown) => void, inRepo: boolean, branch = 'feature-x') => {
+const git = (on: (name: 'process.run' | 'session.cwd', h: (_$: unknown, e: { argv: readonly string[] }) => unknown) => void, inRepo: boolean, branch = 'feature-x', linked = true) => {
   on('session.cwd', () => ({ value: '/work/repo' }))
   on('process.run', (_$, e) => {
     if (!inRepo) return { value: fail }
     const a = e.argv.join(' ')
     if (a.includes('--show-toplevel')) return { value: ok('/work/repo\n') }
     if (a.includes('--show-current')) return { value: ok(`${branch}\n`) }
+    if (a.includes('--git-common-dir')) return { value: ok(linked ? '/main/.git/worktrees/repo\n/main/.git\n' : '/work/repo/.git\n/work/repo/.git\n') }
     return { value: ok('abc1234\n') }
   })
 }
@@ -67,6 +68,16 @@ test('worktree and branch show after org', async ($, on) => {
   const b = await band($)
   expect(await b.find({ type: 'Text', text: /^repo$/ })).toBeDefined()
   expect(await b.find({ type: 'Text', text: /^feature-x$/ })).toBeDefined()
+})
+
+test('main worktree shows - instead of the worktree name', async ($, on) => {
+  git(on as never, true, 'main', false)
+  on('classic.Stop', () => ({}))
+  await $.classic.Stop(STOP)
+  const b = await band($)
+  expect(await b.find({ type: 'Text', text: /^repo$/ })).toBeUndefined()
+  expect(await b.find({ type: 'Text', text: /^-$/ })).toBeDefined()
+  expect(await b.find({ type: 'Text', text: /^main$/ })).toBeDefined()
 })
 
 test('outside a git repo no where field is shown', async ($, on) => {

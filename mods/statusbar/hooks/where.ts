@@ -1,4 +1,5 @@
-export type Where = { worktree: string; branch: string }
+// worktree: null in the main worktree, the linked worktree's name otherwise.
+export type Where = { worktree: string | null; branch: string }
 
 const MAX = 12
 
@@ -8,8 +9,11 @@ export const clip = (s: string): string => (s.length <= MAX ? s : `${s.slice(0, 
 const basename = (p: string): string => p.replace(/\/+$/, '').split('/').pop() ?? ''
 
 // git stdout -> where to show. Empty toplevel (not in a repo) -> null; detached HEAD shows the short sha.
-export function parseWhere(g: { toplevel: string; branch: string; sha: string }): Where | null {
+// dirs = `rev-parse --path-format=absolute --git-dir --git-common-dir`: the two lines match only in the main worktree.
+export function parseWhere(g: { toplevel: string; dirs: string; branch: string; sha: string }): Where | null {
   const top = g.toplevel.trim()
   if (top === '') return null
-  return { worktree: clip(basename(top)), branch: clip(g.branch.trim() || g.sha.trim()) }
+  const [gitDir, commonDir] = g.dirs.trim().split('\n')
+  const linked = gitDir !== undefined && commonDir !== undefined && gitDir !== commonDir
+  return { worktree: linked ? clip(basename(top)) : null, branch: clip(g.branch.trim() || g.sha.trim()) }
 }
