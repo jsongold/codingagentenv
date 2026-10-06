@@ -33,8 +33,9 @@ async function loadWhere($: EngineInterface): Promise<void> {
   try {
     const cwd = await $.session.cwd()
     const git = (args: string[]) => $.process.run(['git', ...args], { cwd, timeoutMs: 5000 })
-    const [top, br, sha] = await Promise.all([
+    const [top, dirs, br, sha] = await Promise.all([
       git(['rev-parse', '--show-toplevel']),
+      git(['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir']),
       git(['branch', '--show-current']),
       git(['rev-parse', '--short', 'HEAD']),
     ])
@@ -42,6 +43,7 @@ async function loadWhere($: EngineInterface): Promise<void> {
       ? null
       : parseWhere({
           toplevel: top.stdout,
+          dirs: dirs.exitCode === 0 ? dirs.stdout : '',
           branch: br.exitCode === 0 ? br.stdout : '',
           sha: sha.exitCode === 0 ? sha.stdout : '',
         })
@@ -140,9 +142,9 @@ export const register: Register = on => {
         <Text dimColor> | </Text>
         <Text color="cyan">{o ?? '-'}</Text>
         {w !== null && <Text dimColor> | </Text>}
-        {w !== null && <Text color="green">{w.worktree}</Text>}
+        {w !== null && (w.worktree === null ? <Text dimColor>-</Text> : <Text color="yellow">{w.worktree}</Text>)}
         {w !== null && <Text dimColor> | </Text>}
-        {w !== null && <Text color="green">{w.branch}</Text>}
+        {w !== null && <Text color="#FFA500">{w.branch}</Text>}
       </Box>
     )
   })

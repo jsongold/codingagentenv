@@ -3,6 +3,6 @@ export type Stats = { context?: number; limits: Limit[] }
 
 declare module 'claude-code' {
   interface PluginState {
-    'statusbar': { stats: Stats; org: string | null; where: { worktree: string; branch: string } | null; model: string | null; effort: string | null }
+    'statusbar': { stats: Stats; org: string | null; where: { worktree: string | null; branch: string } | null; model: string | null; effort: string | null }
   }
 }
