@@ -1,1 +1,0 @@
-{ "name": "usage-band", "version": "0.1.0", "description": "Colored band above the prompt: model (effort), context %, rate-limit usage, org", "types": "./types/index.d.ts" }

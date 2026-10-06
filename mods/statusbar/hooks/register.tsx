@@ -4,10 +4,10 @@ import type { EngineInterface, Register, SessionContextUsage, SessionRateLimit }
 import type { Stats } from '../types'
 import { CTX_COLOR, color, formatEffort, label, ordered, parseOrg, shortModel } from './format'
 
-const stats = atom({ plugin: 'usage-band', key: 'stats' } as const, { limits: [] } as Stats)
-const org = atom({ plugin: 'usage-band', key: 'org' } as const, null)
-const model = atom({ plugin: 'usage-band', key: 'model' } as const, null)
-const effort = atom({ plugin: 'usage-band', key: 'effort' } as const, null)
+const stats = atom({ plugin: 'statusbar', key: 'stats' } as const, { limits: [] } as Stats)
+const org = atom({ plugin: 'statusbar', key: 'org' } as const, null)
+const model = atom({ plugin: 'statusbar', key: 'model' } as const, null)
+const effort = atom({ plugin: 'statusbar', key: 'effort' } as const, null)
 
 const toStats = (context: SessionContextUsage, limits: SessionRateLimit[]): Stats => ({
   context: context.percent,
