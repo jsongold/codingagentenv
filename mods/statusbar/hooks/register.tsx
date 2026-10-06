@@ -3,9 +3,12 @@ import type { EngineInterface, Register, SessionContextUsage, SessionRateLimit }
 
 import type { Stats } from '../types'
 import { CTX_COLOR, color, formatEffort, label, ordered, parseOrg, shortModel } from './format'
+import { parseWhere } from './where'
+import type { Where } from './where'
 
 const stats = atom({ plugin: 'statusbar', key: 'stats' } as const, { limits: [] } as Stats)
 const org = atom({ plugin: 'statusbar', key: 'org' } as const, null)
+const where = atom({ plugin: 'statusbar', key: 'where' } as const, null as Where | null)
 const model = atom({ plugin: 'statusbar', key: 'model' } as const, null)
 const effort = atom({ plugin: 'statusbar', key: 'effort' } as const, null)
 
@@ -24,6 +27,29 @@ async function loadOrg($: EngineInterface): Promise<void> {
   }
 }
 
+// git in the session cwd -> where atom (null outside a repo). Never throws: a failure keeps the current value.
+async function loadWhere($: EngineInterface): Promise<void> {
+  try {
+    const cwd = await $.session.cwd()
+    const git = (args: string[]) => $.process.run(['git', ...args], { cwd, timeoutMs: 5000 })
+    const [top, br, sha] = await Promise.all([
+      git(['rev-parse', '--show-toplevel']),
+      git(['branch', '--show-current']),
+      git(['rev-parse', '--short', 'HEAD']),
+    ])
+    const w = top.exitCode !== 0
+      ? null
+      : parseWhere({
+          toplevel: top.stdout,
+          branch: br.exitCode === 0 ? br.stdout : '',
+          sha: sha.exitCode === 0 ? sha.stdout : '',
+        })
+    await update($, where, () => w)
+  } catch {
+    // keep the where already shown
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -33,12 +59,27 @@ export const register: Register = on => {
     await update($, model, () => shortModel(m))
     // Not awaited: the first session.start blocks the first prompt.
     void loadOrg($)
+    void loadWhere($)
     return started
   })
 
   // /clear starts a new session without session.start: fetch org again.
   on('classic.SessionStart', async ($, e, next) => {
-    if (e.source === 'clear') await loadOrg($)
+    if (e.source === 'clear') {
+      await loadOrg($)
+      await loadWhere($)
+    }
+    return next(e)
+  })
+
+  // cd / worktree switch, and branch changes made during a turn.
+  on('classic.CwdChanged', async ($, e, next) => {
+    await loadWhere($)
+    return next(e)
+  })
+
+  on('classic.Stop', async ($, e, next) => {
+    await loadWhere($)
     return next(e)
   })
 
@@ -68,6 +109,7 @@ export const register: Register = on => {
     if (e.props.hasSurvey) return next(e)
     const s = await read($, stats)
     const o = await read($, org)
+    const w = await read($, where)
     const m = await read($, model)
     const f = await read($, effort)
     const limits = ordered(s.limits)
@@ -89,6 +131,10 @@ export const register: Register = on => {
         ))}
         <Text dimColor> | </Text>
         <Text color="cyan">{o ?? '-'}</Text>
+        {w !== null && <Text dimColor> | </Text>}
+        {w !== null && <Text color="green">{w.worktree}</Text>}
+        {w !== null && <Text dimColor> | </Text>}
+        {w !== null && <Text color="green">{w.branch}</Text>}
       </Box>
     )
   })
