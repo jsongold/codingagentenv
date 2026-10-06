@@ -34,7 +34,7 @@ while read -r service id _; do
   name=cad-$service-$id
   case $id in '' | *[!A-Za-z0-9_-]*) echo "$name: bad id; skipping"; continue ;; esac
   case $service in
-    opencode) dir=$VOL/.aienv/.store/$id/opencode file=auth.json ;; # cad/opencode_usage.go: $HOME/.aienv/.store/<id>/opencode/auth.json
+    opencode) dir=$VOL/.aienv/.store/$id/opencode file=auth.json ;; # apps/cad/opencode_usage.go: $HOME/.aienv/.store/<id>/opencode/auth.json
     github) dir=$VOL/.aienv/.store/$id/github file=token ;; # deploy/worker-run.sh reads it as GH_TOKEN
     *) echo "$name: unknown service; skipping"; continue ;;
   esac

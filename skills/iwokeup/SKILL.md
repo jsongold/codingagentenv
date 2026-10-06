@@ -16,7 +16,7 @@ disable-model-invocation: true
    ```
    最後の行は、timer を止めた時点で実行中だった `orchd-sleep.service`（oneshot。CCO へ指示を送る dispatch）が終わるのを最大 10 分待ち、状態を出す。`timer=inactive` かつ `service` が `activating` 以外なら 2 へ。どちらかが違えば、結果を伝えて 2 へは進まず owner の対応を待つ。
    service が終わっても、送った指示で CCO（cloud worker セッション）がまだ作業中のことがある。claude.ai/code でそのセッションが止まっているのを owner に確かめてもらってから 3 の `/pickup` に進む（手元と CCO が同時に同じ repo を触らないため）。次に寝るときは `/igosleep`（start し直す）。
-2. 夜間の結果を一覧にする（`gh`、読み取りのみ）。`<repo>` と `<SINCE>`（手順 1 の時刻を `2026-09-29T22:00:00Z` 形式にしたもの。控えが無ければ前夜の就寝時刻を owner に聞く）を決め、下のコマンドに値を直接埋めて実行する。`<repo>` は次の順で決める：cad-2 の登録の `default.repo`、無ければ手元の `cad/config/namespaces.json`（無ければ `.example.json`）の `default.repo`、無ければ `gh repo view --json nameWithOwner -q .nameWithOwner`。
+2. 夜間の結果を一覧にする（`gh`、読み取りのみ）。`<repo>` と `<SINCE>`（手順 1 の時刻を `2026-09-29T22:00:00Z` 形式にしたもの。控えが無ければ前夜の就寝時刻を owner に聞く）を決め、下のコマンドに値を直接埋めて実行する。`<repo>` は次の順で決める：cad-2 の登録の `default.repo`、無ければ手元の `apps/cad/config/namespaces.json`（無ければ `.example.json`）の `default.repo`、無ければ `gh repo view --json nameWithOwner -q .nameWithOwner`。
    ```bash
    gh pr list --repo <repo> --state all --limit 200 --search "updated:>=<SINCE>" --json number,title,state,isDraft,reviewDecision,mergeStateStatus,url,createdAt,mergedAt,updatedAt
    gh issue list --repo <repo> --state open --limit 200 --search "updated:>=<SINCE> comments:>0 no:milestone -label:doc:spec" --json number,title,url,updatedAt

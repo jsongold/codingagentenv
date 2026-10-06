@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-// Policy is orchd/policy.json (see home.go). Agents and computer names are copies of cad/config.json's
+// Policy is apps/orchd/policy.json (see home.go). Agents and computer names are copies of apps/cad/config.json's
 // (orchd does not read cad's files; keep them in sync by hand for now).
 type Policy struct {
 	Agents    []string        `json:"agents"`

@@ -9,7 +9,7 @@ import (
 var executable = os.Executable // tests fake it
 
 // appDir is orchd's own directory, independent of the CWD: $ORCHD_HOME > the dir above the bin/ holding
-// the real executable (tools/orchd runs orchd/bin/orchd) if it has policy.json > "." (go run / go test).
+// the real executable (tools/orchd runs apps/orchd/bin/orchd) if it has policy.json > "." (go run / go test).
 func appDir() string {
 	if d := os.Getenv("ORCHD_HOME"); d != "" {
 		return d
@@ -34,7 +34,7 @@ func policyFile() string {
 }
 
 // claudeConfigDir: CLAUDE_CONFIG_DIR for a claude/<id> agent, mirroring cad's usage collector
-// (cad/usage.go usageStore, agent claude/<id> -> config dir $HOME/.aienv/.store/<id>; "default" ->
+// (apps/cad/usage.go usageStore, agent claude/<id> -> config dir $HOME/.aienv/.store/<id>; "default" ->
 // the plain ~/.claude.json, i.e. no CLAUDE_CONFIG_DIR). No dir expresses "default", so it returns ""
 // and dispatch refuses the {configDir} template instead of pointing claude at the wrong place.
 func claudeConfigDir(agent string) string {

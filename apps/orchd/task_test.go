@@ -132,7 +132,7 @@ func TestPlaceSleepFillsSession(t *testing.T) { // cad-2's timer: no --class, se
 }
 
 // runner.cmd's {configDir} (claude@claude-cloud) is filled from the placed claude/<id> agent,
-// mirroring cad's usage-collector mapping (cad/usage.go usageStore).
+// mirroring cad's usage-collector mapping (apps/cad/usage.go usageStore).
 func TestPlaceSleepFillsConfigDir(t *testing.T) {
 	taskEnv(t, `{"default":{"cloudWorkerSession":"sess-1"}}`)
 	fakeCad(t, seedUsage(), 0)

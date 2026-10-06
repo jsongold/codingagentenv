@@ -20,6 +20,6 @@ jobs:
       - run: bash test/harness.test.sh
       - run: bash test/cl.test.sh
       - run: go test ./...
-        working-directory: cad
+        working-directory: apps/cad
       - run: go test ./...
-        working-directory: orchd
+        working-directory: apps/orchd

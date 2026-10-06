@@ -29,7 +29,7 @@ var shellIn = func(stdin io.Reader, name string, args ...string) (string, error)
 	return string(out), nil
 }
 
-// NS is one entry of the namespace registry (cad/config/namespaces.json, shared with cad; orchd only reads it).
+// NS is one entry of the namespace registry (apps/cad/config/namespaces.json, shared with cad; orchd only reads it).
 type NS struct {
 	Repo               string `json:"repo"`
 	Path               string `json:"path"`
