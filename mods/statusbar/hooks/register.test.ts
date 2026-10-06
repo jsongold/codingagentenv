@@ -30,3 +30,51 @@ test('/model switch shows the new model', async ($, on) => {
 test('no limits: no empty separator', async $ => {
   expect(await (await band($)).find({ type: 'Text', text: /^ \|$/ })).toBeUndefined()
 })
+
+const ok = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
+const fail = { exitCode: 128, stdout: '', stderr: 'fatal', isStdoutTruncated: false, isStderrTruncated: false }
+const STOP = { stop_hook_active: false, last_assistant_message: '' } as never
+
+// Answers git by argv; outside a repo every git call fails.
+const git = (on: (name: 'process.run' | 'session.cwd', h: (_$: unknown, e: { argv: readonly string[] }) => unknown) => void, inRepo: boolean, branch = 'feature-x') => {
+  on('session.cwd', () => ({ value: '/work/repo' }))
+  on('process.run', (_$, e) => {
+    if (!inRepo) return { value: fail }
+    const a = e.argv.join(' ')
+    if (a.includes('--show-toplevel')) return { value: ok('/work/repo\n') }
+    if (a.includes('--show-current')) return { value: ok(`${branch}\n`) }
+    return { value: ok('abc1234\n') }
+  })
+}
+
+test('worktree and branch show after org', async ($, on) => {
+  git(on as never, true)
+  on('classic.Stop', () => ({}))
+  await $.classic.Stop(STOP)
+  const b = await band($)
+  expect(await b.find({ type: 'Text', text: /^repo$/ })).toBeDefined()
+  expect(await b.find({ type: 'Text', text: /^feature-x$/ })).toBeDefined()
+})
+
+test('outside a git repo no where field is shown', async ($, on) => {
+  git(on as never, false)
+  on('classic.Stop', () => ({}))
+  await $.classic.Stop(STOP)
+  expect(await (await band($)).find({ type: 'Text', text: /^repo$/ })).toBeUndefined()
+})
+
+test('a lookup whose cwd changed meanwhile is dropped', async ($, on) => {
+  let calls = 0
+  on('session.cwd', () => ({ value: ++calls === 1 ? '/old' : '/new' }))
+  on('process.run', () => ({ value: ok('/old/stale\n') }))
+  on('classic.Stop', () => ({}))
+  await $.classic.Stop(STOP)
+  expect(await (await band($)).find({ type: 'Text', text: /^stale$/ })).toBeUndefined()
+})
+
+test('cwd change shows the new branch', async ($, on) => {
+  git(on as never, true, 'moved')
+  on('classic.CwdChanged', () => ({}))
+  await $.classic.CwdChanged({ old_cwd: '/a', new_cwd: '/b' })
+  expect(await (await band($)).find({ type: 'Text', text: /^moved$/ })).toBeDefined()
+})
