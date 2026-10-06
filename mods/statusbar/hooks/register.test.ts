@@ -27,6 +27,19 @@ test('/model switch shows the new model', async ($, on) => {
   expect(await (await band($)).find({ type: 'Text', text: /^sonnet56$/ })).toBeDefined()
 })
 
+test('5h shows h:mm until reset after the percentage', async ($, on) => {
+  on('session.measure', () => ({ changed: ['rateLimits'] }))
+  const resetsAt = new Date(Date.now() + 2 * 3600000 + 15 * 60000 + 30000).toISOString()
+  await ($ as never as { session: { measure: (e: unknown) => Promise<unknown> } }).session.measure({
+    context: { percent: 1 },
+    rateLimits: [{ kind: 'five_hour', percentUsed: 23, resetsAt }, { kind: 'seven_day', percentUsed: 10 }],
+    changed: ['rateLimits'],
+  })
+  const b = await band($)
+  expect(await b.find({ type: 'Text', text: /^ 2:15$/ })).toBeDefined()
+  expect(await b.find({ type: 'Text', text: /^23%$/ })).toBeDefined()
+})
+
 test('no limits: no empty separator', async $ => {
   expect(await (await band($)).find({ type: 'Text', text: /^ \|$/ })).toBeUndefined()
 })
