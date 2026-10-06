@@ -41,7 +41,7 @@
 
 ## テンプレ Index
 
-実装はアプリ [searchcode](../searchcode/README.md) として切り出す。
+実装はアプリ [searchcode](../apps/searchcode/README.md) として切り出す。
 
 - project ごとに上の数字を記録する。数が溜まったら、仮説どおりかを実データで確かめる
 - 適合率が低かった境界は、新しいテンプレとして Index に登録する
