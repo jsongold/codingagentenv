@@ -61,7 +61,7 @@ const git = (on: (name: 'process.run' | 'session.cwd', h: (_$: unknown, e: { arg
   })
 }
 
-test('worktree and branch show after org', async ($, on) => {
+test('worktree and branch show on the second line', async ($, on) => {
   git(on as never, true)
   on('classic.Stop', () => ({}))
   await $.classic.Stop(STOP)
