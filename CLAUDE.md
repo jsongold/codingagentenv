@@ -5,7 +5,7 @@
 ## 業務コンテキスト（毎回必要な要点だけ）
 - 目的：/clear 後も文脈を失わず、複数ステップの作業をチケット経由で Orca の worker に実行させるハーネスの正本を管理し、全 project に効かせる（#92, #103）
 - 利用者：repo の持ち主本人。自分の全 project で Claude Code を使う場面（#92。他人との共有は再検討条件）
-- 成功の定義：どの project でも global skill の `/pickup` → `/cco`（配送役の Subagent が Orca の orchestration で worker に振る）での配送が完遂し、/clear 後も handoff と Issue で文脈が残る（handoff の完了条件）
+- 成功の定義：どの project でも global skill の `/pickup` → `/cco`（配送役の Subagent が Orca の orchestration で worker に振る）での配送が完遂し、/clear 後も handoff とチケットで文脈が残る（handoff の完了条件）
 - 絶対に守る業務ルール：
   - `~/.claude/` 配下を直接編集しない。repo の正本を直し、展開はユーザーが `bin/codingenv install` で行う（#93）
   - キューや代替のタスク管理を自作しない。Task はチケット（この repo では Jira の project CAO）、完了の判断は Orchestrator（main）がする（#103）
