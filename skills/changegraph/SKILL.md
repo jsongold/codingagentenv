@@ -1,6 +1,6 @@
 ---
 name: changegraph
-description: 設計（/design の出力）を適切なタスク粒度に分割し、Task 一覧を出す。PR 単位のノードと触るファイルから、並列 worktree で安全に同時進行できる組（wave）も計算する。/taskman から呼ばれ、Task 一覧は Orca の orchestration に渡る。
+description: 設計（/design の出力）を適切なタスク粒度に分割し、Task 一覧を出す。PR 単位のノードと触るファイルから、並列 worktree で安全に同時進行できる組（wave）も計算する。/taskman から呼ばれ、Task 一覧は /cco に渡る。
 argument-hint: "[名前] [#issue | 設計のパス]"
 ---
 
@@ -45,5 +45,5 @@ argument-hint: "[名前] [#issue | 設計のパス]"
 ## やらないこと
 - 設計（`/design` の仕事）。
 - 承認（`/taskman` の `auto`）。
-- 登録と配送（Orca の orchestration（skill `orchestration`。手順は `orca skills get orchestration`、worker の起動は `orca orchestration worker-start`）の仕事）。
+- 登録と配送（`/cco` の仕事）。
 - 衝突相手を手で書く項目（conflicts_with）を持たない。重なりは files から計算する。
