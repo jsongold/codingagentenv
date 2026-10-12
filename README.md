@@ -58,7 +58,7 @@ project ごとのルールを書く。トップレベルのキーがルールの
 | skills/taskman/SKILL.md | 依頼を分類して Task を作る手順 | `/taskman` で呼ぶ | 固定 |
 | skills/cco/SKILL.md | Task を振って完了まで進める手順 | `/cco` で呼ぶ | 固定 |
 | skills/mrs/SKILL.md | 「何ができれば OK か」だけの最小要件 spec を書く手順 | `/mrs` で呼ぶ | 固定 |
-| skills/jira-task/SKILL.md | Jira の Epic / Story / Task の役割と登録手順 | `/jira-task` で呼ぶ | 固定 |
+| skills/jira-task/SKILL.md | Jira の Epic / Story / Task の役割と登録手順、完了にするときのコメントの形 | `/jira-task` で呼ぶ | 固定 |
 | skills/design/SKILL.md | 境界と Node Graph で設計する手順 | `/taskman` から呼ぶ | 固定 |
 | skills/handoff/SKILL.md | /clear前に自分の handoff を書き出す手順 | `/handoff` で呼ぶ | 固定 |
 | skills/pickup/SKILL.md | /clear後に読み直して理解を復唱する手順 | `/pickup` で呼ぶ | 固定 |
