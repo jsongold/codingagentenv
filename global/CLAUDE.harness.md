@@ -2,7 +2,7 @@
 
 - `/clear` 前は `/handoff`、`/clear` 後・新セッションの最初は `/pickup`（built-in の `/resume` とは別物）
 - project ごとのルールは harness.json に書く（project の `.claude/harness.json` > `~/.claude/harness.json`。今は tickets だけ：チケット管理の場所（github / jira）と spec の見分け方）。spec は skill が harness.json の tickets を読んで探す（hook は spec を一覧しない）。未設定なら spec を探さない。作るときは `/setupca`
-- チケット管理が Jira の project（harness.json の `tickets.system` が `jira`）では、チケットを積む・分けるときに必ず `/jira-task` を使う。Epic / Story / Task の表し方と起票の形はそこに従う
+- チケット管理が Jira の project（harness.json の `tickets.system` が `jira`）では、チケットを積む・分ける・完了にするときに必ず `/jira-task` を使う。Epic / Story / Task の表し方、起票の形、完了にするときのコメントの形はそこに従う
 - キューや代替のタスク管理を自作しない。/clear をまたぐ状態は handoff とチケットに残す
 - この節・skill・hook の正本は codingagentenv リポジトリ。`~/.claude/` 側を直接編集せず、リポジトリを直して `bin/codingenv install` で展開する
 - 出力・インターフェースを推測で断言しない。実行結果 / 型定義 / API仕様など実物で確認する
