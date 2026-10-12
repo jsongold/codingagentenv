@@ -56,6 +56,7 @@ project ごとのルールを書く。トップレベルのキーがルールの
 | .claude/handoff/<name>.md | 進行中タスクの引き継ぎ（1セッション1ファイル） | pickupスキルと SessionStart hook | セッションごと |
 | .claude/settings.json | この project の plugin・skill の設定 | 起動時に自動 | 固定 |
 | skills/taskman/SKILL.md | 依頼を分類して Task を作る手順 | `/taskman` で呼ぶ | 固定 |
+| skills/cco/SKILL.md | Task を振って完了まで進める手順 | `/cco` で呼ぶ | 固定 |
 | skills/mrs/SKILL.md | 「何ができれば OK か」だけの最小要件 spec を書く手順 | `/mrs` で呼ぶ | 固定 |
 | skills/jira-task/SKILL.md | Jira の Epic / Story / Task の役割と登録手順 | `/jira-task` で呼ぶ | 固定 |
 | skills/design/SKILL.md | 境界と Node Graph で設計する手順 | `/taskman` から呼ぶ | 固定 |
@@ -71,7 +72,7 @@ project ごとのルールを書く。トップレベルのキーがルールの
 `/resume` は Claude Code の built-in コマンド（セッション履歴の再開）なので、スキル名には使わない。
 
 ## 運用ループ
-1. `/taskman <やりたいこと>` → Task を作る → main loop が Issue・worktree を用意 → Orca の orchestration（skill `orchestration`。手順は `orca skills get orchestration`、worker の起動は `orca orchestration worker-start`）が worker に配送する → worker が実装・検証・コミット
+1. `/taskman <やりたいこと>` → main が Task をチケットに登録する → 配送役が Orca の orchestration（skill `orchestration`。worker の起動は `orca orchestration worker-start`）で worker に振る → 待つ → worker の報告（`worker_done`）を受ける → PR・CI・merge → main が done コマンドを再実行して判定し、チケットを閉じる。手順は `/cco`
 2. 区切りで `/handoff`
 3. `/clear`
 4. `/pickup` → エージェントの復唱を確認・修正 → 作業再開
