@@ -32,7 +32,7 @@ placement:
   # ranked のとき: order: [e2b, gce-spot]
   # provider: e2b               # 明示指定。strategy より優先
 agent:
-  model: claude-sonnet-4-6      # 実装者。ai-review はこのモデル系のレビュアーを除外する
+  model: claude-sonnet-4-6      # 実装者
 review: {}                      # 空 = policy.review に従う
 output:
   pr: true
