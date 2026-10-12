@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# tokens <session-id | dir>... [--json] [--root <dir>] — token usage per session / subagent,
+# counted from Claude Code transcripts. Logic lives in agent/tokens/cli.ts.
+exec node "$(dirname "$(readlink -f "$0")")/../agent/tokens/cli.ts" "$@"
