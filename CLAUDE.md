@@ -5,7 +5,7 @@
 ## 業務コンテキスト（毎回必要な要点だけ）
 - 目的：/clear 後も文脈を失わず、複数ステップの作業を GitHub Issue 経由で Subagent に実行させるハーネスの正本を管理し、全 project に効かせる（#92, #103）
 - 利用者：repo の持ち主本人。自分の全 project で Claude Code を使う場面（#92。他人との共有は再検討条件）
-- 成功の定義：どの project でも `/pickup` → `/dispatch` が global skill で完遂し、/clear 後も handoff と Issue で文脈が残る（handoff の完了条件）
+- 成功の定義：どの project でも global skill の `/pickup` → Orca の orchestration（skill `orchestration`。手順は `orca skills get orchestration`、worker の起動は `orca orchestration worker-start`）での配送が完遂し、/clear 後も handoff と Issue で文脈が残る（handoff の完了条件）
 - 絶対に守る業務ルール：
   - `~/.claude/` 配下を直接編集しない。repo の正本を直し、展開はユーザーが `bin/codingenv install` で行う（#93）
   - キューや代替のタスク管理を自作しない。Task は GitHub Issue、完了の判断は Orchestrator（main）がする（#103）
@@ -22,7 +22,7 @@
 - テスト：`bash test/hooks.test.sh`、`bash test/harness.test.sh`、`bash test/cl.test.sh`。lint / 起動：なし
 - global への展開：`bin/codingenv install`（ユーザーが実行する）。drift の確認：`bin/codingenv status`（読み取りのみ。Claude が実行してよい）
 - `/taskman <やりたいこと>`：依頼を分類し、必要なら `/design` → `/changegraph` で Task を作る
-- `/dispatch <Task | 依頼>`：次の Agent（Subagent）を呼ぶだけ。Issue・worktree・wave の進行は main loop が行う
+- Task の配送：Orca の orchestration（`orca orchestration worker-start`）で worker に渡す。Issue・worktree・wave の進行は main loop が行う
 - `/handoff [name]`：/clear 前に .claude/handoff/<name>.md を書き出して（自分のファイルだけ）コミット
 - `/pickup [name]`：/clear 後に文脈を復元して復唱、handoff が複数あれば選ぶ（built-in の `/resume` とは別物）
 - タスク一覧：`gh issue list --search "-label:doc:spec"`（`doc:spec` は設計判断で、タスクではない）

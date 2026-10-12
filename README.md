@@ -57,7 +57,6 @@ project ごとのルールを書く。トップレベルのキーがルールの
 | .claude/settings.json | この project の plugin・skill の設定 | 起動時に自動 | 固定 |
 | skills/taskman/SKILL.md | 依頼を分類して Task を作る手順 | `/taskman` で呼ぶ | 固定 |
 | skills/design/SKILL.md | 境界と Node Graph で設計する手順 | `/taskman` から呼ぶ | 固定 |
-| skills/dispatch/SKILL.md | 次の Agent（Subagent）を呼ぶ手順 | `/dispatch` で呼ぶ | 固定 |
 | skills/handoff/SKILL.md | /clear前に自分の handoff を書き出す手順 | `/handoff` で呼ぶ | 固定 |
 | skills/pickup/SKILL.md | /clear後に読み直して理解を復唱する手順 | `/pickup` で呼ぶ | 固定 |
 | skills/setupca/SKILL.md | project のルールを対話で決めて harness.json を作る手順 | `/setupca` で呼ぶ | 固定 |
@@ -72,7 +71,7 @@ project ごとのルールを書く。トップレベルのキーがルールの
 `/resume` は Claude Code の built-in コマンド（セッション履歴の再開）なので、スキル名には使わない。
 
 ## 運用ループ
-1. `/taskman <やりたいこと>` → Task を作る → main loop が Issue・worktree を用意 → `/dispatch` が Subagent を呼ぶ → Subagent が実装・検証・コミット
+1. `/taskman <やりたいこと>` → Task を作る → main loop が Issue・worktree を用意 → Orca の orchestration（skill `orchestration`。手順は `orca skills get orchestration`、worker の起動は `orca orchestration worker-start`）が worker に配送する → worker が実装・検証・コミット
 2. 区切りで `/handoff`
 3. `/clear`
 4. `/pickup` → エージェントの復唱を確認・修正 → 作業再開
@@ -107,7 +106,7 @@ tools/cad rm agent|computer <key>
 
 ## トラブルシュート
 
-- `/dispatch` などの skill が見つからない → `~/.claude/skills/` の symlink が切れていないか確認する（この repo を移動・削除すると切れる）。
+- `/taskman` などの skill が見つからない → `~/.claude/skills/` の symlink が切れていないか確認する（この repo を移動・削除すると切れる）。
 
 AGENTS.md を使う他のツール（Codex、Cursorなど）と併用する場合は、CLAUDE.md の内容を AGENTS.md に置き、
 Claude Code 側は AGENTS.md を読む設定・仕様に合わせてください（Claude Code は CLAUDE.md が無い場合に AGENTS.md を読む、と調査時点のドキュメントに記載）。

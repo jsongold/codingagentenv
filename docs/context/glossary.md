@@ -6,7 +6,7 @@
 |---|---|---|---|
 | <例：案件> | <受注前の商談単位> | `Deal` | 「プロジェクト」（受注後） |
 | Task | 1 PR 単位の作業。GitHub Issue として登録する (#103) | GitHub Issue | 自作キュー（作らない） |
-| Orchestrator | main セッションの役割。Task を作って Subagent を呼び、完了を判断する。自分では実装しない | `skills/taskman`, `skills/dispatch` | Subagent（実装担当） |
+| Orchestrator | main セッションの役割。Task を作って worker に配送し、完了を判断する。自分では実装しない | `skills/taskman` | Subagent（実装担当） |
 | Subagent | Agent tool で起動する background エージェント。実装・検証・コミットを行う | `Agent` tool | agent teams の teammate (別セッション) |
 | handoff | /clear 前に .claude/handoff/<name>.md を書き出してコミットする skill | `/handoff` | pickup（反対の処理） |
 | harness.json | project ごとのルールを書くファイル。今は `tickets`（チケット管理の場所と spec の見分け方）だけ。project の `.claude/harness.json` > `~/.claude/harness.json` | `global/harness.json`, `/setupca` | settings.json（Claude Code の設定） |
