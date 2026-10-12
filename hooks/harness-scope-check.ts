@@ -1,22 +1,27 @@
 // PreToolUse (Bash) hook: `gh issue create` / `gh pr create` must carry a
 // 「追加・変更するもの」 list in the body, i.e. at least one line like
 //   - 追加: skill `/foo`
-// Body source: the --body-file/-F file when given, else the whole command
-// string (covers --body/-b and heredoc bodies; a list line may also start
-// right after the opening quote of --body). Exit 2 blocks the tool call
+// Body source: the --body-file/-F file when given (an unquoted path ends at
+// whitespace or `)` `&` `;` `|`), else the whole command string (covers
+// --body/-b and heredoc bodies; a list line may also start right after the
+// opening quote of --body). Exit 2 blocks the tool call
 // with the stderr line; anything else (other commands, unparseable stdin) exits 0.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const TARGET = /\bgh\s+(issue|pr)\s+create\b/;
-const BODY_FILE = /(?:^|\s)(?:--body-file|-F)(?:=|\s+)(?:"([^"]*)"|'([^']*)'|(\S+))/;
+const BODY_FILE = /(?:^|\s)(?:--body-file|-F)(?:=|\s+)(?:"([^"]*)"|'([^']*)'|([^\s)&;|]+))/;
 const SCOPE_LINE = /(?:^|["'])\s*-\s*(追加|変更|削除)[:：]\s*\S+\s+`[^`]+`/m;
 const MESSAGE = "本文に「追加・変更するもの」（例: `- 追加: skill /foo`）を書いてから作る";
 
-function body(command: string, cwd: string): string {
+function bodyFilePath(command: string): string | null {
   const m = command.match(BODY_FILE);
-  if (!m) return command;
-  const file = m[1] ?? m[2] ?? m[3];
+  return m ? (m[1] ?? m[2] ?? m[3]) : null;
+}
+
+function body(command: string, cwd: string): string {
+  const file = bodyFilePath(command);
+  if (file === null) return command;
   if (file === "-") return ""; // stdin is not available to the hook
   try {
     return readFileSync(resolve(cwd, file), "utf8");

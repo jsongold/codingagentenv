@@ -35,6 +35,8 @@ EOF
 printf '目的：x\n- 追加: skill `/foo`\n' >"$TMP/body.md"
 check "--body-file with list" "0|" "$(run 'gh pr create --title t --body-file body.md')"
 check "-F absolute path with list" "0|" "$(run "gh issue create -F $TMP/body.md")"
+check "--body-file path followed by )" "0|" "$(run '$(gh pr create --title t --body-file body.md)')"
+check "--body-file path followed by &&" "0|" "$(run 'gh pr create --body-file body.md&& echo ok')"
 check "non-gh command" "0|" "$(run 'ls -la')"
 check "gh pr view is not a target" "0|" "$(run 'gh pr view 1')"
 check "unparseable stdin" "0|" "$(echo 'not json' | node "$HOOK" 2>&1; echo "$?|")"
@@ -44,6 +46,7 @@ check "pr create without list" "$BLOCK" "$(run 'gh pr create --title t --body "�
 check "issue create with list missing backticks" "$BLOCK" "$(run 'gh issue create --body "- 追加: skill foo"')"
 printf '目的：x\n' >"$TMP/nolist.md"
 check "--body-file without list" "$BLOCK" "$(run 'gh pr create --body-file nolist.md --body "- 追加: skill `x`"')"
+check "--body-file without list followed by )" "$BLOCK" "$(run '$(gh pr create --body-file nolist.md)')"
 check "--body-file missing file" "$BLOCK" "$(run 'gh pr create --body-file nope.md')"
 check "--body-file - (stdin)" "$BLOCK" "$(run 'gh pr create --body-file -')"
 
