@@ -2,7 +2,7 @@
 
 **Mission**: コーディングエージェントを 24/7 動かし続け、コストを最小に抑えながら計算資源と AI の使用枠を使い切る（[docs/mission.md](docs/mission.md)）。
 
-/clear 後も文脈を失わず、作業を GitHub Issue 経由で Subagent に実行させるためのハーネス。
+/clear 後も文脈を失わず、作業をチケット経由で Orca の worker に実行させるためのハーネス。
 ハーネス本体は global（`~/.claude/`）に置き、各 project はデータだけを持つ（#92）。テンプレートを各 repo にコピーする方式はやめた。
 
 ## global への展開（#93）
@@ -56,8 +56,10 @@ project ごとのルールを書く。トップレベルのキーがルールの
 | .claude/handoff/<name>.md | 進行中タスクの引き継ぎ（1セッション1ファイル） | pickupスキルと SessionStart hook | セッションごと |
 | .claude/settings.json | この project の plugin・skill の設定 | 起動時に自動 | 固定 |
 | skills/taskman/SKILL.md | 依頼を分類して Task を作る手順 | `/taskman` で呼ぶ | 固定 |
+| skills/cco/SKILL.md | Task を振って完了まで進める手順 | `/cco` で呼ぶ | 固定 |
+| skills/mrs/SKILL.md | 「何ができれば OK か」だけの最小要件 spec を書く手順 | `/mrs` で呼ぶ | 固定 |
+| skills/jira-task/SKILL.md | Jira の Epic / Story / Task の役割と登録手順、完了にするときのコメントの形 | `/jira-task` で呼ぶ | 固定 |
 | skills/design/SKILL.md | 境界と Node Graph で設計する手順 | `/taskman` から呼ぶ | 固定 |
-| skills/dispatch/SKILL.md | 次の Agent（Subagent）を呼ぶ手順 | `/dispatch` で呼ぶ | 固定 |
 | skills/handoff/SKILL.md | /clear前に自分の handoff を書き出す手順 | `/handoff` で呼ぶ | 固定 |
 | skills/pickup/SKILL.md | /clear後に読み直して理解を復唱する手順 | `/pickup` で呼ぶ | 固定 |
 | skills/setupca/SKILL.md | project のルールを対話で決めて harness.json を作る手順 | `/setupca` で呼ぶ | 固定 |
@@ -65,14 +67,12 @@ project ごとのルールを書く。トップレベルのキーがルールの
 | global/CLAUDE.harness.md | `~/.claude/CLAUDE.md` のハーネス節の正本 | `bin/codingenv install` で展開 | 随時 |
 | global/harness.json | `~/.claude/harness.json`（ルールの既定値）の正本 | `bin/codingenv install` で展開 | 随時 |
 | bin/codingenv | global への展開・drift 検出・取り外し | 手で実行 | 固定 |
-| tools/codex-localreview | Codex CLI でローカルレビューして PR にコメント（bot の quota 切れ時） | `codex-localreview <pr> <worktree>` | 固定 |
-| tools/codex-probe | Codex の復帰を待ち、キュー（`<pr> <worktree>` 行）を順にローカルレビュー | バックグラウンドで実行 | 固定 |
 | test/hooks.test.sh, test/harness.test.sh | hook・`bin/codingenv` のテスト | `bash test/<name>` | 固定 |
 
 `/resume` は Claude Code の built-in コマンド（セッション履歴の再開）なので、スキル名には使わない。
 
 ## 運用ループ
-1. `/taskman <やりたいこと>` → Task を作る → main loop が Issue・worktree を用意 → `/dispatch` が Subagent を呼ぶ → Subagent が実装・検証・コミット
+1. `/taskman <やりたいこと>` → main が Task をチケットに登録する → 配送役が Orca の orchestration（skill `orchestration`。worker の起動は `orca orchestration worker-start`）で worker に振る → 待つ → worker の報告（`worker_done`）を受ける → PR・CI・merge → main が done コマンドを再実行して判定し、チケットを閉じる。手順は `/cco`
 2. 区切りで `/handoff`
 3. `/clear`
 4. `/pickup` → エージェントの復唱を確認・修正 → 作業再開
@@ -107,7 +107,7 @@ tools/cad rm agent|computer <key>
 
 ## トラブルシュート
 
-- `/dispatch` などの skill が見つからない → `~/.claude/skills/` の symlink が切れていないか確認する（この repo を移動・削除すると切れる）。
+- `/taskman` などの skill が見つからない → `~/.claude/skills/` の symlink が切れていないか確認する（この repo を移動・削除すると切れる）。
 
 AGENTS.md を使う他のツール（Codex、Cursorなど）と併用する場合は、CLAUDE.md の内容を AGENTS.md に置き、
 Claude Code 側は AGENTS.md を読む設定・仕様に合わせてください（Claude Code は CLAUDE.md が無い場合に AGENTS.md を読む、と調査時点のドキュメントに記載）。
