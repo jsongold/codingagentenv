@@ -10,7 +10,7 @@ argument-hint: "[Task 一覧 | チケットの Key]"
 
 通常の手順に要る Orca のコマンドは、下の「Orca のコマンド」に書いてある。Orca の guide（`orca skills get orchestration`）は、失敗したときだけ読む。
 
-- Input：Task 一覧（`/taskman` の出力。Task ごとに 仕様ファイルのパス・done コマンド・触るファイル・wave）。仕様は本文を貼らず、ファイルのパスで受け取る
+- Input：Task 一覧（`/taskman` の出力。Task ごとに 仕様ファイルのパス・done コマンド・触るファイル・wave）。仕様は本文を貼らず、ファイルのパスで受け取る。仕様の形は `task-spec.md` にある
 - Output：Task ごとの結果（PR、merge commit、done コマンドの結果、未解決事項）
 
 ## 誰が実行するか
@@ -45,7 +45,7 @@ orca orchestration check --ack <delivery_id> --json
 
 ## 手順（配送役）
 1. assign：Task ごとに agent と worktree を決める。agent は指定が無ければ `claude`。worktree は、wave の Task が 1 つなら今の worktree、複数なら Task ごとに新しい worktree。
-2. start：`run-create` と wave の全 Task の `worker-start` を、1 回の Bash にまとめる。仕様は `$(cat <パス>)` で渡し、本文を読まない・指示文に貼らない（仕様は Target / Change / Constraints / Ownership / Observable acceptance を含むこと）。
+2. start：`run-create` と wave の全 Task の `worker-start` を、1 回の Bash にまとめる。仕様は `$(cat <パス>)` で渡し、本文を読まない・指示文に貼らない（仕様の形は `task-spec.md` に従う）。
 3. wait：`check --wait` を `--timeout-ms 230000` で 1 回を長くする（Bash の timeout は 240000）。heartbeat は完了ではない。heartbeat だけの Delivery や時間切れなら、何も書かずに次の待ちに入る。
 4. worker の質問：Task の仕様から答えられるものだけ `reply` で答える。答えられないものは、推奨を添えて main に返す。
 5. 起動に失敗したとき：ここで guide を読む（`orca skills get orchestration --reference recovery-and-cleanup`）。receipt の `recovery` に従って片付ける。確認画面（hooks・更新・trust・login）には答えない。同じ Task の再試行は 1 回まで。
