@@ -122,29 +122,34 @@ export const register: Register = on => {
     const { Box, Text } = $.ui.resolve(e)
 
     return (
-      <Box>
-        <Text color="magenta" bold>{m ?? '-'}</Text>
-        {f !== null && <Text dimColor>{` (${f})`}</Text>}
-        <Text dimColor> | </Text>
-        <Text dimColor>ctx </Text>
-        <Text color={CTX_COLOR}>{s.context === undefined ? '-' : `${s.context}%`}</Text>
-        {limits.length > 0 && <Text dimColor> |</Text>}
-        {limits.map((l, i) => {
-          const left = untilReset(l.kind, l.resetsAt, now)
-          return (
-            <Text key={l.kind}>
-              <Text dimColor>{i === 0 ? ' ' : '  '}{label(l.kind)} </Text>
-              <Text color={color(l.percentUsed)}>{`${l.percentUsed}%`}</Text>
-              {left !== null && <Text dimColor>{` ${left}`}</Text>}
-            </Text>
-          )
-        })}
-        <Text dimColor> | </Text>
-        <Text color="cyan">{o ?? '-'}</Text>
-        {w !== null && <Text dimColor> | </Text>}
-        {w !== null && (w.worktree === null ? <Text dimColor>-</Text> : <Text color="yellow">{w.worktree}</Text>)}
-        {w !== null && <Text dimColor> | </Text>}
-        {w !== null && <Text color="#FFA500">{w.branch}</Text>}
+      <Box flexDirection="column">
+        <Box>
+          <Text color="magenta" bold>{m ?? '-'}</Text>
+          {f !== null && <Text dimColor>{` (${f})`}</Text>}
+          <Text dimColor> | </Text>
+          <Text dimColor>ctx </Text>
+          <Text color={CTX_COLOR}>{s.context === undefined ? '-' : `${s.context}%`}</Text>
+          {limits.length > 0 && <Text dimColor> |</Text>}
+          {limits.map((l, i) => {
+            const left = untilReset(l.kind, l.resetsAt, now)
+            return (
+              <Text key={l.kind}>
+                <Text dimColor>{i === 0 ? ' ' : '  '}{label(l.kind)} </Text>
+                <Text color={color(l.percentUsed)}>{`${l.percentUsed}%`}</Text>
+                {left !== null && <Text dimColor>{` ${left}`}</Text>}
+              </Text>
+            )
+          })}
+          <Text dimColor> | </Text>
+          <Text color="cyan">{o ?? '-'}</Text>
+        </Box>
+        {w !== null && (
+          <Box>
+            {w.worktree === null ? <Text dimColor>-</Text> : <Text color="yellow">{w.worktree}</Text>}
+            <Text dimColor> | </Text>
+            <Text color="#FFA500">{w.branch}</Text>
+          </Box>
+        )}
       </Box>
     )
   })

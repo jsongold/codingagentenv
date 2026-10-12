@@ -1,14 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { clip, parseWhere } from './where'
-
-test('clip keeps 12 chars or fewer', () => {
-  expect(clip('abc')).toBe('abc')
-  expect(clip('123456789012')).toBe('123456789012')
-})
-
-test('clip cuts longer text to 11 chars and an ellipsis', () => {
-  expect(clip('1234567890123')).toBe('12345678901…')
-})
+import { parseWhere } from './where'
 
 const MAIN = '/a/repo/.git\n/a/repo/.git\n'
 const LINKED = '/a/repo/.git/worktrees/wt\n/a/repo/.git\n'
@@ -25,8 +16,8 @@ test('parseWhere falls back to the sha on a detached HEAD', () => {
   expect(parseWhere({ toplevel: '/a/repo', dirs: MAIN, branch: '', sha: 'abc1234' })).toEqual({ worktree: null, branch: 'abc1234' })
 })
 
-test('parseWhere clips long names', () => {
-  expect(parseWhere({ toplevel: '/a/agent-a0b31a7761269161b', dirs: LINKED, branch: 'mods-statusbar-where', sha: 'x' })).toEqual({ worktree: 'agent-a0b31…', branch: 'mods-status…' })
+test('parseWhere keeps long names whole', () => {
+  expect(parseWhere({ toplevel: '/a/agent-a0b31a7761269161b', dirs: LINKED, branch: 'mods-statusbar-where', sha: 'x' })).toEqual({ worktree: 'agent-a0b31a7761269161b', branch: 'mods-statusbar-where' })
 })
 
 test('parseWhere is null outside a repo', () => {
