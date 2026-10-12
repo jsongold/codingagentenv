@@ -56,6 +56,8 @@ project ごとのルールを書く。トップレベルのキーがルールの
 | .claude/handoff/<name>.md | 進行中タスクの引き継ぎ（1セッション1ファイル） | pickupスキルと SessionStart hook | セッションごと |
 | .claude/settings.json | この project の plugin・skill の設定 | 起動時に自動 | 固定 |
 | skills/taskman/SKILL.md | 依頼を分類して Task を作る手順 | `/taskman` で呼ぶ | 固定 |
+| skills/mrs/SKILL.md | 「何ができれば OK か」だけの最小要件 spec を書く手順 | `/mrs` で呼ぶ | 固定 |
+| skills/jira-task/SKILL.md | Jira の Epic / Story / Task の役割と登録手順 | `/jira-task` で呼ぶ | 固定 |
 | skills/design/SKILL.md | 境界と Node Graph で設計する手順 | `/taskman` から呼ぶ | 固定 |
 | skills/dispatch/SKILL.md | 次の Agent（Subagent）を呼ぶ手順 | `/dispatch` で呼ぶ | 固定 |
 | skills/handoff/SKILL.md | /clear前に自分の handoff を書き出す手順 | `/handoff` で呼ぶ | 固定 |
