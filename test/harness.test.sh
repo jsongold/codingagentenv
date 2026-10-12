@@ -101,7 +101,7 @@ harness status >/dev/null 2>&1
 check "status detects a missing harness.json link" 1 $?
 harness install >/dev/null
 
-sed -i.orig 's/^- 1ファイル.*$/- edited by hand/' "$FAKE/CLAUDE.md"
+sed -i.orig 's/^- テストは小さい単位.*$/- edited by hand/' "$FAKE/CLAUDE.md"
 harness status >/dev/null 2>&1
 check "status detects a hand-edited section" 1 $?
 harness install >/dev/null
