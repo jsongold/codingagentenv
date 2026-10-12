@@ -1,7 +1,7 @@
 ---
 name: jira-task
 description: Jira に Epic / Story / Task を作るときの、各レイヤーの役割と登録手順。チケットを積む・分ける・Jira に登録するときは必ず使う。登録済みチケットの構成と内容をレビューするときにも使う。
-argument-hint: "[やりたいこと | Jira Key | review <Epic の Key | project キー>]"
+argument-hint: "[やりたいこと | Jira Key | review <Epic の Key | project キー>] [auto=true|false]"
 ---
 
 # jira-task — Jira のチケットを 3 レイヤーで作る
@@ -9,6 +9,9 @@ argument-hint: "[やりたいこと | Jira Key | review <Epic の Key | project 
 責任は、依頼を Epic / Story / Task に当てて Jira に登録することと、登録済みのチケットをこの決まりに照らしてレビューすること。
 
 レイヤーの表し方と起票の形は、ここに書いたものを使う。handoff など、ほかの文書にある起票ルールと食い違うときは、こちらを優先する。
+
+## 人の OK を待つか
+セッションは人がいないまま動き続けることがあるので、既定では人の OK を待たない（`auto=true`）。作るもの・直すものを一覧で出力してから、そのまま進める。`auto=false` を付けて呼ばれたときだけ、一覧を見せて OK が出るまで止まる。
 
 ## レイヤーの役割
 | レイヤー | 役割 | やること | 親 | Jira の階層 |
@@ -28,11 +31,11 @@ argument-hint: "[やりたいこと | Jira Key | review <Epic の Key | project 
 - 種別名が Epic / Story でない project でも、上の表の階層が合う種別を使う（例：種別が「プロセス / タスク / サブタスク」の project では、Epic = プロセス、Story = タスク、Task = サブタスク）
 
 ## 手順
-1. harness.json（project の `.claude/harness.json` > `~/.claude/harness.json`）の `tickets` から project キーを読む。`tickets.system` が `jira` でなければ、止めてユーザーに確認する。
+1. harness.json（project の `.claude/harness.json` > `~/.claude/harness.json`）の `tickets` から project キーを読む。`tickets.system` が `jira` でなければ、何も作らずに止め、理由を報告する（登録先を推測しない）。
 2. その project の種別と階層を `getJiraProjectIssueTypesMetadata` で確認し、上の表の階層に当てる。種別名と階層は project ごとに違うので、記憶で決めない。
 3. 依頼を上の表でレイヤーに当てる。既存の Epic / Story に入るものは、新しく作らずそこに足す。
-4. すでにあるチケットを入れるときは、どのレイヤーに当たるかを決める。Epic の直下にある Task の粒度のチケットは、Story の下に移す。種別や親を変えられないときは、作り直してよいかをユーザーに確認する。
-5. 作る一覧（レイヤー・種別・タイトル・親）を、Epic から Task まで見せ、OK が出てから登録する。
+4. すでにあるチケットを入れるときは、どのレイヤーに当たるかを決める。Epic の直下にある Task の粒度のチケットは、Story の下に移す。種別や親を変えられないときは、正しいレイヤーで作り直し、元のチケットに置き換え先の Key をコメントで残す。
+5. 作る一覧（レイヤー・種別・タイトル・親）を、Epic から Task まで出力する。`auto=true`（既定）ならそのまま登録に進む。`auto=false` なら OK が出てから登録する。
 6. 上のレイヤーから順に登録し、親を付ける。
 7. 親子の紐付けを JQL（`parent = <Key>`）で確認し、Key を報告する。子のない Epic / Story が残っていないことも確認する。
 
@@ -41,7 +44,7 @@ argument-hint: "[やりたいこと | Jira Key | review <Epic の Key | project 
 - 本文は冒頭に `目的：<1〜2行>`、続けて完了条件を 1〜3 行。それ以上は書かない
 
 ## レビュー（`/jira-task review <Epic の Key | project キー>`）
-登録済みのチケットの構成と内容を、この skill の決まりに照らして確認する。読むだけで、何も変えない。
+登録済みのチケットの構成と内容を、この skill の決まりに照らして確認し、違反を直す。
 
 どのセッションで行うか：起票したセッションでは行わない。新規セッションか、`/clear` した review 専用セッションで行う。セッションの判定と扱いは `/reviewpr` と同じにする（PR をチケットに読み替える）。起票の文脈が残るセッションで呼ばれたら、レビューせずに止め、新しいセッションで実行するよう伝える。
 
@@ -53,7 +56,7 @@ argument-hint: "[やりたいこと | Jira Key | review <Epic の Key | project 
    - 本文：冒頭が `目的：` か。完了条件が 1〜3 行か。それ以外の節がないか
    - 内容：子がすべて終われば親の完了条件を満たせるか。同じ内容のチケットが重なっていないか
 3. 結果を一覧で報告する。1 行に「Key・反している決まり・直し方の案」を書く。問題がなければ、そう書く。
-4. 直すのは、ユーザーの OK が出てから。直すときは上の「手順」に従う。
+4. `auto=true`（既定）なら、違反を上の「手順」に従ってそのまま直し、直した内容を Key つきで報告する。`auto=false` なら、OK が出てから直す。
 
 ## やらないこと
 - 要件を絞る（`/mrs`）、設計（`/design`）、実装
