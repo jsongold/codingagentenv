@@ -57,7 +57,7 @@ cad get meta -ns default              # 動作確認
 | `agents` | 使う agent（`<service>/<account>`。account は aienv の store id）。orchd の `policy.json` にも写しがある |
 | `collect.usage.every` | usage の収集間隔（既定 60s） |
 | `computers` | computer の属性（`cad show cost`） |
-| `gate` / `review` / `providers` | capacity・レビュアー（`agent/ai-review.ts`）・workers の provider |
+| `gate` / `review` / `providers` | capacity・レビュアー・workers の provider |
 
 `cad add/rm` は cad の知らないキーもそのまま残す。rules / classes / runners / modes は `apps/orchd/policy.json`（[orchd/README.md](../orchd/README.md)）。
 

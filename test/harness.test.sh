@@ -47,7 +47,7 @@ check "command is linked" "$ROOT/bin/codingenv" "$(readlink "$TMP/bin/codingenv"
 CLAUDE_DIR="$FAKE" BIN_DIR="$TMP/bin" MODS_DIR="$MODS" "$TMP/bin/codingenv" status >/dev/null 2>&1
 check "linked command finds the repo" 0 $?
 check "mods are added to CLAUDE_CODE_PLUGIN_DIRS once, stale mods dropped" "/other/plugin:$MODS/band" "$(jq -r '.env.CLAUDE_CODE_PLUGIN_DIRS' "$FAKE/settings.json")"
-check "tools are linked" "$ROOT/tools/codex-probe" "$(readlink "$TMP/bin/codex-probe")"
+check "tools are linked" "$ROOT/tools/cl" "$(readlink "$TMP/bin/cl")"
 check "skills are symlinked" "$ROOT/skills/taskman" "$(readlink "$FAKE/skills/taskman")"
 check "other skills are untouched" yes "$([ -d "$FAKE/skills/mine" ] && echo yes)"
 check "hook scripts are symlinked" "$ROOT/hooks/harness-session-start.sh" "$(readlink "$FAKE/hooks/harness-session-start.sh")"
@@ -109,7 +109,7 @@ check "install repairs it" 0 "$(grep -c 'edited by hand' "$FAKE/CLAUDE.md")"
 
 harness uninstall >/dev/null
 check "uninstall removes the command link" no "$([ -e "$TMP/bin/codingenv" ] && echo yes || echo no)"
-check "uninstall removes tool links" no "$([ -e "$TMP/bin/codex-probe" ] && echo yes || echo no)"
+check "uninstall removes tool links" no "$([ -e "$TMP/bin/cl" ] && echo yes || echo no)"
 check "uninstall removes skill links" no "$([ -e "$FAKE/skills/taskman" ] && echo yes || echo no)"
 check "uninstall removes hook links" no "$([ -e "$FAKE/hooks/harness-session-start.sh" ] && echo yes || echo no)"
 check "uninstall removes the harness.json link" no "$([ -e "$FAKE/harness.json" ] || [ -L "$FAKE/harness.json" ] && echo yes || echo no)"
