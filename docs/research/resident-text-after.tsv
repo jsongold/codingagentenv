@@ -1,0 +1,9 @@
+target	chars	bytes	lines	note
+global_claude_md	2463	5067	60	install を一時ディレクトリ（CLAUDE_DIR 上書き）で再現した値。入力は install 直前の実物のコピー（global_claude_md_pre_install）
+global_claude_md_pre_install	4142	8410	83	install 直前の実物 ~/.claude/CLAUDE.md のコピー（2026-10-14 18:03 の更新後。CAO-143 の測定時より後に変わっている）
+harness_source	1859	3751	32	
+project_claude_md	2154	3828	38	
+memory_index	NA	NA	NA	not found: ~/.claude/projects/<cwd をエンコードしたパス>/memory/MEMORY.md（測定用の新しい worktree には memory が無い。before も同じ理由で NA）
+skill_descriptions_user	3974	NA	NA	17 skills
+session_start_hook	NA	NA	NA	command failed: ~/.claude/hooks/harness-session-start.sh: No such file or directory（symlink 先が無い）; harness-session-start only; 2 other SessionStart command(s) not run (side effects)
+session_first_call_tokens	NA	NA	NA	A（install 前）も B（install 後）も NA。CLAUDE_CONFIG_DIR を上書きした claude -p は 'Not logged in · Please run /login'（exit 1）。HOME 上書きで実物の login を使う 2 回目の試行は権限が拒否したので実行していない。before.tsv の 35170 は install 前の実物 session の値で A/B の A ではない
