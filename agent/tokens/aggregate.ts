@@ -19,11 +19,21 @@ export type UnitUsage = {
   total: number;
 };
 
-type Call = { model: string; usage: Record<string, unknown> };
+export type ToolUse = { name: string; input: Record<string, unknown> };
+export type Call = { model: string; usage: Record<string, unknown>; tools: ToolUse[] };
 
 const num = (v: unknown): number => (typeof v === "number" ? v : 0);
 
-function calls(path: string): Map<string, Call> {
+// The tool calls of one API call, in order. Rows of the same call carry different blocks,
+// so the tools are collected from every row, not only from the row whose usage is kept.
+const toolsIn = (content: unknown): ToolUse[] =>
+  Array.isArray(content)
+    ? content
+        .filter((b) => b?.type === "tool_use")
+        .map((b) => ({ name: String(b.name), input: typeof b.input === "object" && b.input !== null ? b.input : {} }))
+    : [];
+
+export function calls(path: string): Map<string, Call> {
   const found = new Map<string, Call>();
   for (const line of readFileSync(path, "utf8").split("\n")) {
     let row;
@@ -36,8 +46,12 @@ function calls(path: string): Map<string, Call> {
     if (row?.type !== "assistant" || typeof usage !== "object" || usage === null) continue;
     const key = JSON.stringify([row.message.id ?? null, row.requestId ?? null]);
     const kept = found.get(key);
-    if (kept && num(kept.usage.output_tokens) >= num(usage.output_tokens)) continue;
-    found.set(key, { model: String(row.message.model), usage });
+    const tools = [...(kept?.tools ?? []), ...toolsIn(row.message.content)];
+    if (kept && num(kept.usage.output_tokens) >= num(usage.output_tokens)) {
+      kept.tools = tools;
+      continue;
+    }
+    found.set(key, { model: String(row.message.model), usage, tools });
   }
   return found;
 }

@@ -56,4 +56,18 @@ check "unknown session id exits 1" "1" "$("$ROOT/tools/tokens" --root "$FIX" nop
 has "unknown session id: usage" "$(tokens nope)" "usage: tokens"
 check "no arguments exits 1" "1" "$("$ROOT/tools/tokens" >/dev/null 2>&1; echo $?)"
 
+# --by group: one row per group. A call is attributed by its first tool call; its blocks may
+# be split over several rows, so all rows of the call count for the tool list.
+GFIX=$ROOT/test/fixtures/tokens-groups
+gjson=$("$ROOT/tools/tokens" --root "$GFIX" --by group sess-g --json 2>&1)
+gfield() { node -p "JSON.parse(process.argv[1]).$1" "$gjson"; }
+check "group: 4 groups" "4" "$(gfield groups.length)"
+check "group: largest first" "Read:code" "$(gfield 'groups[0].group')"
+check "group: Bash row merges the call's blocks, first tool wins" "Bash:git" "$(gfield 'groups[1].group')"
+check "group: Bash:git total" "162" "$(gfield 'groups[1].total')"
+check "group: MCP atlassian is jira" "jira" "$(gfield 'groups[2].group')"
+check "group: text-only call" "text" "$(gfield 'groups[3].group')"
+check "group: calls total" "4" "$(gfield total.calls)"
+check "group: total" "438" "$(gfield total.total)"
+
 exit $FAILED
