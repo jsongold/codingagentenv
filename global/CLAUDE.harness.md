@@ -45,6 +45,15 @@ main（Claude Code のメインセッション）は、決める・渡す・完�
 - チケットを閉じる前に、main が worker や Subagent の報告を鵜呑みにせず、完了条件（done）のコマンドを自分で再実行して確認する
 - Subagent と worker の報告は 10 行以内にさせる
 
+### データの受け渡し
+
+- 10 行以上のデータ（表・一覧）は、会話にも Agent のプロンプトにも書かない。`/tmp` に TSV で保存し、パスで渡す
+- Subagent は結果を `/tmp` の TSV に書き、報告はパスと行数だけにする
+- TSV の形式：UTF-8 / LF / タブ区切り / 1 行目ヘッダ / 全行同じ列数 / セル内の `\t` `\n` `\\` はエスケープ
+- md / HTML の成果物は TSV から `datadoc` で生成する（`datadoc a.tsv b.tsv --md|--html [-o out]`、`-` で stdin）。モデルが中身を書き写さない
+- `datadoc` は `codingenv install` で `~/.local/bin` に展開される。repo を持たない環境（クラウドの worker・VM）では使えない
+- 対象は今はデータだけ。Hook / skill での強制は未決定
+
 ## コード設計（全プロジェクト共通）
 
 - 対象はコード。DB スキーマとインフラは対象外
