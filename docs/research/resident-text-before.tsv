@@ -1,0 +1,8 @@
+target	chars	bytes	lines	note
+global_claude_md	4512	9254	89	
+harness_source	3538	7094	55	
+project_claude_md	2154	3828	38	
+memory_index	NA	NA	NA	not found: /Users/yasumasa_takemura/.claude/projects/-Users-yasumasa-takemura-orca-workspaces-codingagentenv-cao-143-resident-size/memory/MEMORY.md
+skill_descriptions_user	3974	NA	NA	17 skills
+session_start_hook	NA	NA	NA	command failed: bash: /Users/yasumasa_takemura/.claude/hooks/harness-session-start.sh: No such file or directory; harness-session-start only; 2 other SessionStart command(s) not run (side effects)
+session_first_call_tokens	35170	NA	NA	input side of the first API call, session 2e554078-ca71-487f-b795-86b7029c9083
