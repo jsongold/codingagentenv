@@ -40,7 +40,7 @@ before は `resident-text-before.tsv`、after（再現）は `resident-text-afte
 | B 1 回目 − A | +698 | +2.0% |
 | B 2 回目 − A | +698 | +2.0% |
 
-- B の 2 回は合計が同じ（35,868 と 35,868）。cache_creation と cache_read の割り振りは回ごとに違う（cache の状態による）が、合計は cache の状態に左右されない。
+- B の 2 回は合計が同じ（35,868 と 35,868）。cache_creation と cache_read の割り振りは回ごとに違う（cache の状態で変わるとみられる）が、合計は同じだった。
 - 常駐テキストを bytes で -3,343 削ったのに、token の合計は 減っていない（+698）。before と after の間に skills が 17 → 33 に増えており（上の表）、その分が差に混ざっている。この測定だけでは「CLAUDE.md を削った分」と「skills が増えた分」を分けられない。
 
 ## 限界
