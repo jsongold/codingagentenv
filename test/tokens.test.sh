@@ -70,4 +70,9 @@ check "group: text-only call" "text" "$(gfield 'groups[3].group')"
 check "group: calls total" "4" "$(gfield total.calls)"
 check "group: total" "438" "$(gfield total.total)"
 
+# Bash is grouped by its first real command: cd / export before it are skipped.
+cdjson=$("$ROOT/tools/tokens" --root "$GFIX" --by group sess-cd --json 2>&1)
+check "group: cd prefix skipped, gh is the group" "Bash:gh" "$(node -p "JSON.parse(process.argv[1]).groups[0].group" "$cdjson")"
+check "group: a bare cd is other" "Bash:other" "$(node -p "JSON.parse(process.argv[1]).groups[1].group" "$cdjson")"
+
 exit $FAILED
