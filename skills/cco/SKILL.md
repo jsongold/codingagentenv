@@ -6,7 +6,7 @@ argument-hint: "[Task 一覧 | チケットの Key]"
 
 # cco — Task を振って完了まで進める（CCOinOrca）
 
-責任は、Task（仕様と done コマンド）を受け取り、merge まで進めて main に結果を返すこと。役割の線引きはハーネスのルール（CCOinOrca の節）にある。
+責任は、Task（仕様と done コマンド）を受け取り、merge まで進めて main に結果を返すこと。役割の線引きは同じディレクトリの `roles.md` にある。
 
 通常の手順に要る Orca のコマンドは、下の「Orca のコマンド」に書いてある。Orca の guide（`orca skills get orchestration`）は、失敗したときだけ読む。
 
@@ -73,7 +73,7 @@ orca orchestration check --ack <delivery_id> --json
 4. worker の質問：Task の仕様から答えられるものだけ `reply` で答える。答えられないものは、推奨を添えて main に返す。
 5. 起動に失敗したとき：ここで guide を読む（`orca skills get orchestration --reference recovery-and-cleanup`）。receipt の `recovery` に従って片付ける。確認画面（hooks・更新・trust・login）には答えない。同じ Task の再試行は 1 回まで。再試行もやめた Task のチケットは、着手待ちに戻す。
 6. verify〜PR：`worker_done` の後、「done コマンド（worker の worktree で）→ `worker-release` → `check --ack` → push → PR 作成」を、`&&` でつないだ 1 回の Bash にまとめる。done コマンドが通らなければそこで止まるので、結果を添えて worker に差し戻す。ack は Delivery の全メッセージを処理してから。PR を作ったら、レビュー中の Status がある project ではチケットをそこへ動かす。
-7. CI green を待って merge する。PR 本文の決まりと merge 条件はハーネスのルールに従う。
+7. CI green を待って merge する。PR 本文の決まりと merge 条件は同じディレクトリの `pr-rules.md` に従う。
 8. 報告：Task ごとに、PR・merge commit・done コマンドの結果・チケットの今の Status・未解決事項を、10 行以内で main に返す。
 
 ## やらないこと
