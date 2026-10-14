@@ -41,9 +41,17 @@ export function fileKind(path: string): string {
   return FILE_KIND[ext] ?? "other";
 }
 
+// `cd <dir> && <cmd>` and `export X=1; <cmd>` are setup, not the work, so the first
+// command after them decides the group.
+const SETUP_HEADS = new Set(["cd", "export", "unset", "set", "true", "echo"]);
+
 function bashHead(command: string): string {
-  const head = command.trim().split(/\s+/)[0] ?? "";
-  return BASH_HEADS.has(head) ? head : "other";
+  for (const segment of command.split(/&&|\|\||;/)) {
+    const head = segment.trim().split(/\s+/)[0] ?? "";
+    if (head === "" || SETUP_HEADS.has(head)) continue;
+    return BASH_HEADS.has(head) ? head : "other";
+  }
+  return "other";
 }
 
 // One call's group. Pure: the tool list in, the group label out.
