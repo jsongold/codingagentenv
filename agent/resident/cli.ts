@@ -11,7 +11,7 @@ import { calls } from "../tokens/aggregate.ts";
 
 type Row = { target: string; chars: string; bytes: string; lines: string; note: string };
 
-const HEADER = "target    chars    bytes    lines    note";
+const HEADER = ["target", "chars", "bytes", "lines", "note"].join("\t");
 const NA = "NA";
 const USAGE = "usage: resident-size [--tokens]";
 const home = homedir();

@@ -1,4 +1,4 @@
-target    chars    bytes    lines    note
+target	chars	bytes	lines	note
 global_claude_md	4512	9254	89	
 harness_source	3538	7094	55	
 project_claude_md	2154	3828	38	
