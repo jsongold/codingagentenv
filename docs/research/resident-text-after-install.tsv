@@ -1,0 +1,11 @@
+target	chars	bytes	lines	note
+global_claude_md	2463	5067	60	実環境（install 後）の ~/.claude/CLAUDE.md。測定 2026-10-14 18:17 JST
+harness_source	1859	3751	32	実環境（install 後）。測定 2026-10-14 18:17 JST
+project_claude_md	2154	3828	38	実環境（install 後）。測定 2026-10-14 18:17 JST
+memory_index	NA	NA	NA	not found: /Users/yasumasa_takemura/.claude/projects/-Users-yasumasa-takemura-orca-workspaces-codingagentenv-cao-145-after-install/memory/MEMORY.md実環境（install 後）。測定 2026-10-14 18:17 JST
+skill_descriptions_user	6489	NA	NA	33 skills; 実環境（install 後）。測定 2026-10-14 18:17 JST
+session_start_hook	0	0	0	harness-session-start only; 2 other SessionStart command(s) not run (side effects); 実環境（install 後）。測定 2026-10-14 18:17 JST。hook は実行できたが出力が空（この worktree に .claude/handoff が無いため。handoff があれば出力は増える）
+session_first_call_tokens	35868	NA	NA	実環境（install 後）1 回目。測定 2026-10-14 18:17 JST。input=2 cache_creation=22305 cache_read=13561。session e6f8b40c-2a72-4fd3-8898-7f41cf640e24
+session_first_call_tokens_run2	35868	NA	NA	実環境（install 後）2 回目。測定 2026-10-14 18:17 JST。input=2 cache_creation=0 cache_read=35866。session a2407c38-0fdd-454f-80e8-d963b43b1b39
+symlink_skills_cco	NA	NA	NA	~/.claude/skills/cco -> /Users/yasumasa_takemura/projects/codingagentenv-global/skills/cco (target exists: yes)
+symlink_hook_session_start	NA	NA	NA	~/.claude/hooks/harness-session-start.sh -> /Users/yasumasa_takemura/projects/codingagentenv-global/hooks/harness-session-start.sh (target exists: yes)
