@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# datadoc <files...> (--md | --html) [-o <out>] — convert TSV files (- for stdin) to Markdown or HTML.
+# Logic lives in apps/datadoc/cli.ts.
+exec node "$(dirname "$(readlink -f "$0")")/../apps/datadoc/cli.ts" "$@"
