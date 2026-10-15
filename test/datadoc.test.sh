@@ -29,7 +29,9 @@ out=$("$DD" "$TMP/a.tsv" --md)
 has "md: header" "$out" "| id | name |"
 has "md: row" "$out" "| 1 | foo |"
 out=$("$DD" "$TMP/a.tsv" --html)
-has "html: th" "$out" "<th>id</th><th>name</th>"
+has "html: th" "$out" "<summary>id</summary>"
+has "html: th name" "$out" "<summary>name</summary>"
+has "html: counter" "$out" "表示 1 / 全 1 行"
 has "html: td" "$out" "<td>1</td><td>foo</td>"
 
 out=$("$DD" "$TMP/a.tsv" "$TMP/b.tsv" --md)
