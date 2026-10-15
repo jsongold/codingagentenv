@@ -1,5 +1,5 @@
 // renderHtml turns Table[] into a self-contained HTML fragment: each table gets a
-// multi-select filter in its header, a row counter, row checkboxes with a select-all in the
+// multi-select filter in its header, a row counter with the selected count, row checkboxes with a select-all in the
 // header, click-to-sort buttons (asc / desc / original), and the styles and script that drive them.
 import type { Table } from "./table.ts";
 
@@ -103,6 +103,7 @@ const SCRIPT = `<script>
         applySort();
       });
     });
+    var shownRows = rows.length;
     function syncAll() {
       var visible = 0, checked = 0;
       rowBoxes.forEach(function (b) {
@@ -113,6 +114,9 @@ const SCRIPT = `<script>
       var state = selectState(checked, visible);
       all.checked = state === "all";
       all.indeterminate = state === "some";
+      var selectedRows = 0;
+      rowBoxes.forEach(function (b) { if (b.checked) selectedRows++; });
+      count.textContent = "表示 " + shownRows + " / 全 " + rows.length + " 行（選択 " + selectedRows + "）";
     }
     function update() {
       var selected = [];
@@ -127,7 +131,7 @@ const SCRIPT = `<script>
         tr.hidden = !ok;
         if (ok) shown++;
       });
-      count.textContent = "表示 " + shown + " / 全 " + rows.length + " 行";
+      shownRows = shown;
       syncAll();
     }
     boxes.forEach(function (b) { b.addEventListener("change", update); });
@@ -159,7 +163,7 @@ function renderTable(t: Table): string {
   const th = `<th class="dd-sel"><input type="checkbox" class="dd-all" aria-label="全選択"></th>` + t.header.map((h, c) => `<th>${renderFilter(h, c, distinctValues(t, c))}</th>`).join("");
   const trs = t.rows.map((r) => `<tr><td class="dd-sel"><input type="checkbox" class="dd-row"></td>${r.map((c) => `<td>${escape(c)}</td>`).join("")}</tr>`);
   const table = ["<table>", `<thead><tr>${th}</tr></thead>`, "<tbody>", ...trs, "</tbody>", "</table>"].join("\n");
-  return `<div class="dd">\n<p class="dd-count">表示 ${t.rows.length} / 全 ${t.rows.length} 行</p>\n${table}\n</div>`;
+  return `<div class="dd">\n<p class="dd-count">表示 ${t.rows.length} / 全 ${t.rows.length} 行（選択 0）</p>\n${table}\n</div>`;
 }
 
 export function renderHtml(tables: Table[]): string {
