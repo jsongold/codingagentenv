@@ -1,14 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderHtml, FILTER_FN } from "./html.ts";
+import { renderHtml, FILTER_FN, SELECT_FN, SORT_FN } from "./html.ts";
 
 const rowVisible = new Function(`${FILTER_FN}; return rowVisible;`)() as (row: string[], selected: string[][]) => boolean;
+
+const selectState = new Function(`${SELECT_FN}; return selectState;`)() as (checked: number, visible: number) => string;
 
 test("renders one table with a filter header and a row counter", () => {
   const html = renderHtml([{ name: "a.tsv", header: ["h1", "h2"], rows: [["a", "b"]] }]);
   assert.match(html, /<div class="dd">\n<p class="dd-count">表示 1 \/ 全 1 行<\/p>/);
   assert.match(html, /<th><details class="dd-filter"><summary>h1<\/summary>/);
   assert.match(html, /<td>a<\/td><td>b<\/td>/);
+  assert.match(html, /<th class="dd-sel"><input type="checkbox" class="dd-all"/);
+  assert.match(html, /<tr><td class="dd-sel"><input type="checkbox" class="dd-row"><\/td><td>a<\/td>/);
   assert.doesNotMatch(html, /<h2>/);
 });
 
@@ -72,4 +76,68 @@ test("rowVisible: columns are AND-ed", () => {
 test("rowVisible: an empty cell matches the empty-string selection", () => {
   assert.equal(rowVisible([""], [[""]]), true);
   assert.equal(rowVisible(["a"], [[""]]), false);
+});
+
+test("renders one row checkbox per data row, none for the filter options", () => {
+  const html = renderHtml([{ name: "a.tsv", header: ["k"], rows: [["x"], ["y"], ["z"]] }]);
+  assert.equal(html.match(/class="dd-row"/g)?.length, 3);
+  assert.equal(html.match(/class="dd-all"/g)?.length, 1);
+});
+
+test("selectState: none, some (indeterminate) and all among visible rows", () => {
+  assert.equal(selectState(0, 3), "none");
+  assert.equal(selectState(0, 0), "none");
+  assert.equal(selectState(2, 3), "some");
+  assert.equal(selectState(3, 3), "all");
+});
+
+const sortFns = new Function(`${SORT_FN}; return { nextSort, isNumeric, compareCells };`)() as {
+  nextSort: (cur: { col: number; dir: string }, col: number) => { col: number; dir: string };
+  isNumeric: (values: string[]) => boolean;
+  compareCells: (a: string, b: string, dir: number, numeric: boolean) => number;
+};
+
+test("renders one sort button per data column, none for the checkbox column", () => {
+  const html = renderHtml([{ name: "a.tsv", header: ["h1", "h2"], rows: [["a", "b"]] }]);
+  assert.equal(html.match(/<button type="button" class="dd-sort"/g)?.length, 2);
+  assert.match(html, /<button type="button" class="dd-sort" data-col="1"/);
+  assert.match(html, /<th class="dd-sel"><input type="checkbox" class="dd-all" aria-label="全選択"><\/th>/);
+});
+
+test("nextSort: asc -> desc -> none on one column, another column restarts at asc", () => {
+  const none = { col: -1, dir: "none" };
+  const a = sortFns.nextSort(none, 1);
+  assert.deepEqual(a, { col: 1, dir: "asc" });
+  const d = sortFns.nextSort(a, 1);
+  assert.deepEqual(d, { col: 1, dir: "desc" });
+  assert.deepEqual(sortFns.nextSort(d, 1), none);
+  assert.deepEqual(sortFns.nextSort(d, 0), { col: 0, dir: "asc" });
+});
+
+test("isNumeric: numbers and blanks only", () => {
+  assert.equal(sortFns.isNumeric(["1", "-2.5", "", ".5", "1e3"]), true);
+  assert.equal(sortFns.isNumeric(["1", "a"]), false);
+  assert.equal(sortFns.isNumeric(["0x10"]), false);
+});
+
+test("compareCells: numeric order, not string order", () => {
+  assert.ok(sortFns.compareCells("2", "10", 1, true) < 0);
+  assert.ok(sortFns.compareCells("2", "10", 1, false) > 0);
+  assert.ok(sortFns.compareCells("2", "10", -1, true) > 0);
+});
+
+test("compareCells: strings with localeCompare, descending flips", () => {
+  assert.ok(sortFns.compareCells("a", "b", 1, false) < 0);
+  assert.ok(sortFns.compareCells("a", "b", -1, false) > 0);
+  assert.equal(sortFns.compareCells("a", "a", 1, false), 0);
+});
+
+test("compareCells: empty cells go last in both directions", () => {
+  for (const numeric of [true, false]) {
+    for (const dir of [1, -1]) {
+      assert.ok(sortFns.compareCells("", "1", dir, numeric) > 0);
+      assert.ok(sortFns.compareCells("1", "", dir, numeric) < 0);
+      assert.equal(sortFns.compareCells("", "", dir, numeric), 0);
+    }
+  }
 });
