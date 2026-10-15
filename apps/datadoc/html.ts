@@ -73,7 +73,12 @@ const SCRIPT = `<script>
   document.querySelectorAll(".dd").forEach(function (root) {
     var table = root.querySelector("table");
     var rows = Array.prototype.slice.call(table.tBodies[0].rows);
-    var boxes = Array.prototype.slice.call(root.querySelectorAll(".dd-options input[type=checkbox]"));
+    var boxes = Array.prototype.slice.call(root.querySelectorAll(".dd-options input[type=checkbox]:not(.dd-opt-all)"));
+    var optAlls = Array.prototype.slice.call(root.querySelectorAll("input.dd-opt-all"));
+    function syncOptAll(a) {
+      var mine = boxes.filter(function (b) { return b.closest(".dd-options") === a.closest(".dd-options"); });
+      a.checked = mine.length > 0 && mine.every(function (b) { return b.checked; });
+    }
     var rowBoxes = Array.prototype.slice.call(table.tBodies[0].querySelectorAll("input.dd-row"));
     var all = table.tHead.querySelector("input.dd-all");
     var count = root.querySelector(".dd-count");
@@ -134,7 +139,20 @@ const SCRIPT = `<script>
       shownRows = shown;
       syncAll();
     }
-    boxes.forEach(function (b) { b.addEventListener("change", update); });
+    boxes.forEach(function (b) {
+      b.addEventListener("change", function () {
+        optAlls.forEach(syncOptAll);
+        update();
+      });
+    });
+    optAlls.forEach(function (a) {
+      a.addEventListener("change", function () {
+        boxes.forEach(function (b) {
+          if (b.closest(".dd-options") === a.closest(".dd-options")) b.checked = a.checked;
+        });
+        update();
+      });
+    });
     all.addEventListener("change", function () {
       rowBoxes.forEach(function (b) {
         if (!b.closest("tr").hidden) b.checked = all.checked;
@@ -151,7 +169,7 @@ function renderFilter(header: string, col: number, values: string[]): string {
   const options = values
     .map((v) => `<label><input type="checkbox" data-col="${col}" value="${escapeAttr(v)}"> ${escape(v === "" ? "（空）" : v)}</label>`)
     .join("");
-  return `<details class="dd-filter"><summary>${escape(header)}</summary><div class="dd-options">${options}</div></details><button type="button" class="dd-sort" data-col="${col}" aria-label="${escapeAttr(header)} を並べ替え">↕</button>`;
+  return `<details class="dd-filter"><summary>${escape(header)}</summary><div class="dd-options"><label><input type="checkbox" class="dd-opt-all"> all</label>${options}</div></details><button type="button" class="dd-sort" data-col="${col}" aria-label="${escapeAttr(header)} を並べ替え">↕</button>`;
 }
 
 // distinctValues lists the values of one column in order of first appearance.

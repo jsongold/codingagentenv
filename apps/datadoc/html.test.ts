@@ -141,3 +141,10 @@ test("compareCells: empty cells go last in both directions", () => {
     }
   }
 });
+
+test("each filter starts with an all checkbox that is not a value, even when a value is \"all\"", () => {
+  const html = renderHtml([{ name: "a.tsv", header: ["k", "m"], rows: [["all", "y"]] }]);
+  assert.equal((html.match(/class="dd-opt-all"/g) ?? []).length, 2);
+  assert.equal((html.match(/<details class="dd-filter"/g) ?? []).length, 2);
+  assert.match(html, /<div class="dd-options"><label><input type="checkbox" class="dd-opt-all"> all<\/label><label><input type="checkbox" data-col="0" value="all">/);
+});
