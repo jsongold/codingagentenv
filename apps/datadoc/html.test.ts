@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderHtml, FILTER_FN, SELECT_FN, SORT_FN } from "./html.ts";
+import { renderHtml, FILTER_FN, SELECT_FN, SORT_FN, ONLY_FN, COPY_FN } from "./html.ts";
 
 const rowVisible = new Function(`${FILTER_FN}; return rowVisible;`)() as (row: string[], selected: string[][]) => boolean;
 
@@ -147,4 +147,39 @@ test("each filter starts with an all checkbox that is not a value, even when a v
   assert.equal((html.match(/class="dd-opt-all"/g) ?? []).length, 2);
   assert.equal((html.match(/<details class="dd-filter"/g) ?? []).length, 2);
   assert.match(html, /<div class="dd-options"><label><input type="checkbox" class="dd-opt-all"> all<\/label><label><input type="checkbox" data-col="0" value="all">/);
+});
+
+const keepChecked = new Function(`${ONLY_FN}; return keepChecked;`)() as (only: boolean, checked: boolean) => boolean;
+
+test("keepChecked: off keeps every row, on keeps only checked rows", () => {
+  assert.equal(keepChecked(false, false), true);
+  assert.equal(keepChecked(false, true), true);
+  assert.equal(keepChecked(true, true), true);
+  assert.equal(keepChecked(true, false), false);
+});
+
+test("renders one 'only checked rows' toggle per table", () => {
+  const t = { name: "a.tsv", header: ["k"], rows: [["x"]] };
+  const html = renderHtml([t, { ...t, name: "b.tsv" }]);
+  assert.equal(html.match(/class="dd-only-box"/g)?.length, 2);
+  assert.match(html, /チェックした行のみ表示/);
+});
+
+const toTsv = new Function(`${COPY_FN}; return toTsv;`)() as (header: string[], rows: string[][]) => string;
+
+test("toTsv: header plus rows, tab separated, LF, trailing newline", () => {
+  assert.equal(toTsv(["a", "b"], [["1", "2"], ["3", "4"]]), "a\tb\n1\t2\n3\t4\n");
+});
+
+test("toTsv: escapes tab, newline and backslash in cells", () => {
+  assert.equal(toTsv(["k"], [["x\ty"], ["x\ny"], ["x\\y"]]), "k\nx\\ty\nx\\ny\nx\\\\y\n");
+});
+
+test("toTsv: no rows gives the header only", () => {
+  assert.equal(toTsv(["a"], []), "a\n");
+});
+
+test("renders one copy button per table", () => {
+  const html = renderHtml([{ name: "a.tsv", header: ["k"], rows: [["x"]] }]);
+  assert.equal(html.match(/class="dd-copy"/g)?.length, 1);
 });

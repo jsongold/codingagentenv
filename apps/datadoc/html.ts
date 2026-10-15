@@ -1,6 +1,6 @@
 // renderHtml turns Table[] into a self-contained HTML fragment: each table gets a
 // multi-select filter in its header, a row counter with the selected count, row checkboxes with a select-all in the
-// header, click-to-sort buttons (asc / desc / original), and the styles and script that drive them.
+// header, a toggle that shows only the checked rows, a button that copies them as TSV, click-to-sort buttons (asc / desc / original), and the styles and script that drive them.
 import type { Table } from "./table.ts";
 
 function escape(s: string): string {
@@ -27,6 +27,21 @@ export const FILTER_FN = `function rowVisible(row, selected) {
 export const SELECT_FN = `function selectState(checked, visible) {
   if (checked === 0) return "none";
   return checked === visible ? "all" : "some";
+}`;
+
+// keepChecked implements the "only checked rows" toggle: off keeps every row, on keeps only
+// the rows whose checkbox is checked. Embedded in the page like FILTER_FN.
+export const ONLY_FN = `function keepChecked(only, checked) {
+  return !only || checked;
+}`;
+
+// toTsv serialises header + rows in the datadoc TSV form (tab separated, LF, tab / newline /
+// backslash in cells escaped as \\t \\n \\\\). Used by the copy button. Embedded like FILTER_FN.
+export const COPY_FN = `function toTsv(header, rows) {
+  var esc = function (c) {
+    return c.replace(/\\\\/g, "\\\\\\\\").replace(/\\t/g, "\\\\t").replace(/\\r?\\n/g, "\\\\n");
+  };
+  return [header].concat(rows).map(function (r) { return r.map(esc).join("\\t"); }).join("\\n") + "\\n";
 }`;
 
 // Sort helpers, embedded in the page like FILTER_FN. nextSort cycles asc -> desc -> none on one
@@ -62,6 +77,8 @@ const STYLE = `<style>
 .dd-options label { display: block; }
 .dd th.dd-sel, .dd td.dd-sel { width: 1%; text-align: center; }
 .dd-count { color: #475569; margin: 0 0 4px; }
+.dd-only { display: inline-block; margin: 0 0 4px; }
+.dd-copy { margin: 0 0 4px 8px; cursor: pointer; }
 [hidden] { display: none !important; }
 </style>`;
 
@@ -69,6 +86,8 @@ const SCRIPT = `<script>
 (function () {
   ${FILTER_FN}
   ${SELECT_FN}
+  ${ONLY_FN}
+  ${COPY_FN}
   ${SORT_FN}
   document.querySelectorAll(".dd").forEach(function (root) {
     var table = root.querySelector("table");
@@ -82,6 +101,26 @@ const SCRIPT = `<script>
     var rowBoxes = Array.prototype.slice.call(table.tBodies[0].querySelectorAll("input.dd-row"));
     var all = table.tHead.querySelector("input.dd-all");
     var count = root.querySelector(".dd-count");
+    var only = root.querySelector("input.dd-only-box");
+    var copyBtn = root.querySelector("button.dd-copy");
+    var headers = Array.prototype.slice.call(table.tHead.rows[0].cells, 1).map(function (th) {
+      return th.querySelector("summary").textContent;
+    });
+    copyBtn.addEventListener("click", function () {
+      var picked = rows.filter(function (tr) { return tr.querySelector("input.dd-row").checked; }).map(function (tr) {
+        return Array.prototype.slice.call(tr.cells, 1).map(function (td) { return td.textContent; });
+      });
+      var text = toTsv(headers, picked);
+      var done = function () { copyBtn.textContent = "コピーしました（" + picked.length + " 行）"; };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () { legacyCopy(text); done(); });
+      } else { legacyCopy(text); done(); }
+    });
+    function legacyCopy(text) {
+      var ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      document.execCommand("copy"); document.body.removeChild(ta);
+    }
     var width = table.tHead.rows[0].cells.length - 1;
     var sortBtns = Array.prototype.slice.call(table.tHead.querySelectorAll("button.dd-sort"));
     var sortState = { col: -1, dir: "none" };
@@ -132,7 +171,7 @@ const SCRIPT = `<script>
       var shown = 0;
       rows.forEach(function (tr) {
         var values = Array.prototype.slice.call(tr.cells, 1).map(function (td) { return td.textContent; });
-        var ok = rowVisible(values, selected);
+        var ok = rowVisible(values, selected) && keepChecked(only.checked, tr.querySelector("input.dd-row").checked);
         tr.hidden = !ok;
         if (ok) shown++;
       });
@@ -157,9 +196,10 @@ const SCRIPT = `<script>
       rowBoxes.forEach(function (b) {
         if (!b.closest("tr").hidden) b.checked = all.checked;
       });
-      syncAll();
+      only.checked ? update() : syncAll();
     });
-    rowBoxes.forEach(function (b) { b.addEventListener("change", syncAll); });
+    rowBoxes.forEach(function (b) { b.addEventListener("change", function () { only.checked ? update() : syncAll(); }); });
+    only.addEventListener("change", update);
     update();
   });
 })();
@@ -181,7 +221,8 @@ function renderTable(t: Table): string {
   const th = `<th class="dd-sel"><input type="checkbox" class="dd-all" aria-label="全選択"></th>` + t.header.map((h, c) => `<th>${renderFilter(h, c, distinctValues(t, c))}</th>`).join("");
   const trs = t.rows.map((r) => `<tr><td class="dd-sel"><input type="checkbox" class="dd-row"></td>${r.map((c) => `<td>${escape(c)}</td>`).join("")}</tr>`);
   const table = ["<table>", `<thead><tr>${th}</tr></thead>`, "<tbody>", ...trs, "</tbody>", "</table>"].join("\n");
-  return `<div class="dd">\n<p class="dd-count">表示 ${t.rows.length} / 全 ${t.rows.length} 行（選択 0）</p>\n${table}\n</div>`;
+  const only = `<label class="dd-only"><input type="checkbox" class="dd-only-box"> チェックした行のみ表示</label><button type="button" class="dd-copy">選択行をコピー（TSV）</button>`;
+  return `<div class="dd">\n<p class="dd-count">表示 ${t.rows.length} / 全 ${t.rows.length} 行（選択 0）</p>\n${only}\n${table}\n</div>`;
 }
 
 export function renderHtml(tables: Table[]): string {
