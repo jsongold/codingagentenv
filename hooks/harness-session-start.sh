@@ -18,22 +18,41 @@ esac
 
 DIR=${CLAUDE_PROJECT_DIR:-$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)}
 
+# A handoff whose 最終更新 is older than STALE_DAYS describes work that has moved
+# on: it is named in one line instead of injected. HARNESS_NOW pins "now" for tests.
+STALE_DAYS=7
+day_epoch() { date -j -f %Y-%m-%d "$1" +%s 2>/dev/null || date -d "$1" +%s 2>/dev/null; }
+is_stale() { # handoff file; an unreadable date is not stale
+  d=$(grep -m1 '^- 最終更新' "$1" | grep -o '[0-9]\{4\}-[0-9][0-9]-[0-9][0-9]' | head -n 1)
+  [ -n "$d" ] || return 1
+  ts=$(day_epoch "$d") && [ -n "$ts" ] || return 1
+  [ $(( (${HARNESS_NOW:-$(date +%s)} - ts) / 86400 )) -gt "$STALE_DAYS" ]
+}
+
 # Valid handoffs: .claude/handoff/*.md that are not an unfilled template
 # (an unfilled template still contains the YYYY-MM-DD placeholder), newest first.
 HDIR="$DIR/.claude/handoff"
 VALID=''
 COUNT=0
+STALE=''
 if [ -d "$HDIR" ]; then
   while IFS= read -r n; do
     case "$n" in *.md) ;; *) continue ;; esac
     [ -f "$HDIR/$n" ] || continue
     grep -q 'YYYY-MM-DD' "$HDIR/$n" && continue
+    if is_stale "$HDIR/$n"; then
+      STALE="$STALE ${n%.md}"
+      continue
+    fi
     VALID="$VALID$n
 "
     COUNT=$((COUNT + 1))
   done <<EOF_LS
 $(ls -t "$HDIR" 2>/dev/null)
 EOF_LS
+fi
+if [ -n "$STALE" ]; then
+  echo "[harness] 古い handoff は注入しない（最終更新から ${STALE_DAYS} 日超）：${STALE}。必要なら /pickup <name> で確認する"
 fi
 
 PICKUP='/pickup'

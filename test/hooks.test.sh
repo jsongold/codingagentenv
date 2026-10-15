@@ -23,6 +23,8 @@ printf '# PROGRESS\n- 最終更新：2026-09-20 11:00\n## 次の一手\n1. do th
 # A gh on PATH that only records being called: the hook must never call it.
 printf '#!/bin/sh\ntouch "%s/gh-called"\n' "$TMP" >"$TMP/bin/gh" && chmod +x "$TMP/bin/gh"
 export PATH="$TMP/bin:$PATH"
+# fixtures below are dated 2026-09-20/21; pin "now" so the 7-day staleness rule is stable
+export HARNESS_NOW=$(date -j -f %Y-%m-%d 2026-09-22 +%s 2>/dev/null || date -d 2026-09-22 +%s)
 gh_repo() { git init -q "$1" && git -C "$1" remote add origin "${2:-https://github.com/example/repo.git}"; }
 gh_repo "$TMP/filled"
 printf '# PROGRESS\n- 最終更新：YYYY-MM-DD HH:MM\n' >"$TMP/template/PROGRESS.md"
@@ -102,5 +104,12 @@ rm "$TMP/hp/.claude/handoff/solo.md"
 printf '# handoff\n- 最終更新：YYYY-MM-DD HH:MM\n' >"$TMP/hp/.claude/handoff/tpl.md"
 OUT=$(ss startup "$TMP/hp")
 check "template-only handoff + PROGRESS.md: falls back to PROGRESS.md" 1 "$(printf '%s' "$OUT" | grep -c 'progress only line')"
+
+# a handoff last updated more than 7 days ago is named in one line, never injected
+mkdir -p "$TMP/stale/.claude/handoff"
+mk_handoff "$TMP/stale" old "old purpose" "2026-09-01 10:00" "old secret body"
+OUT=$(ss startup "$TMP/stale")
+check "stale handoff: body not injected" 0 "$(printf '%s' "$OUT" | grep -c 'old secret body')"
+check "stale handoff: named in the note" 1 "$(printf '%s' "$OUT" | grep -c '^\[harness\] 古い handoff は注入しない.*： old。')"
 
 exit $FAILED

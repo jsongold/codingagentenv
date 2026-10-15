@@ -6,7 +6,7 @@ argument-hint: "[Task 一覧 | チケットの Key]"
 
 # cco — Task を振って完了まで進める（CCOinOrca）
 
-責任は、Task（仕様と done コマンド）を受け取り、merge まで進めて main に結果を返すこと。役割の線引きは同じディレクトリの `roles.md` にある。
+責任は、Task（仕様と done コマンド）を受け取り、merge まで進めて main に結果を返すこと。役割の線引きは同じディレクトリの `roles.md` にある。main の規則（計画・done の再実行・データの受け渡し）は `orchestrator-rules.md` にある。
 
 通常の手順に要る Orca のコマンドは、下の「Orca のコマンド」に書いてある。Orca の guide（`orca skills get orchestration`）は、失敗したときだけ読む。
 
