@@ -12,10 +12,11 @@
 - チケット・PR 本文・ドキュメントは冒頭に `目的：<1〜2行>` の行を置く。短いものでも省かない
 - PR を作る前、並列開発の分割（1 PR = 1 変更・差分 400 行以内・ChangeGraph）を決める前に `~/.claude/skills/cco/pr-rules.md` を読む。PR 本文の決まり・main の取り込み方（merge。force push はしない）・gate の考え方がある
 - merge には CI green が必須（CI がある repo のみ）。実装者自身のレビューは merge 条件にならない
+- 作業は基本 main が自分で処理する。Subagent や Orca の worker に渡すかどうか、いつ渡すかは main がその場で決める
 - Subagent にタスクを渡すときは、使うモデル（例: sonnet / opus / haiku / fable）をユーザーに伝える
 - Subagent は 1 回のツール呼び出しを約 4 分以内に収める（600 秒進捗なしで watchdog に殺される）。長い pytest・CI 待ち・レビューは `run_in_background` で走らせてポーリングする
 
-- orchestrator の規則（CCOinOrca：main の役割・計画・done の再実行）と、10 行以上のデータの受け渡しは `~/.claude/skills/cco/orchestrator-rules.md` にある（`/cco` で読む）
+- main の規則（委譲の扱い・done の再実行）と、10 行以上のデータの受け渡しは `~/.claude/skills/cco/orchestrator-rules.md` にある（`/cco` で読む）
 
 ## コード設計（全プロジェクト共通）
 
