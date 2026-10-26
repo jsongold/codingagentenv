@@ -3,7 +3,7 @@
 目的：main が worker に Task を渡すときの仕様の形と、一緒に渡す context・渡さない context の線引きを、この 1 枚で読めるようにする。
 
 ## 誰がいつ書くか
-main が、配送役を呼ぶ前に、Task ごとに 1 ファイル書く。置き場所は repo にコミットしない場所（session の scratchpad など）。配送役にはパスだけを渡す。worker には `worker-start --spec "$(cat <パス>)"` で本文が渡る。
+main が、Task を worker に振ると決めたときに、Task ごとに 1 ファイル書く。置き場所は repo にコミットしない場所（session の scratchpad など）。配送役に任せるときはパスだけを渡す。worker には `worker-start --spec "$(cat <パス>)"` で本文が渡る。
 
 ## ひな形
 コピーして埋める。見出しはこの綴りのまま使い、節は 5 つから増やさない。
