@@ -1,13 +1,14 @@
-# Orchestrator の規則（CCOinOrca・データの受け渡し）
+# Orchestrator の規則（main の役割・データの受け渡し）
 
-global の harness 規則から移した、orchestrator と Subagent の運用ルール。`/cco` を回すときに読む。
+global の harness 規則から移した、main と Subagent の運用ルール。`/cco` を回すときに読む。
 
-## CCOinOrca（Orca の中の Claude Code Orchestrator）
+## main の役割
 
-main は決める・渡す・完了を判定するだけ。実装・テスト・PR・CI・merge・調査・チケットの登録と一括修正は worker か Subagent に出す。「数回のツール呼び出しで済む」は main がやる理由にならない
-- 複数ステップの依頼では、最初のツール呼び出しの前に、ステップごとの担当を書いた計画を出す
-- チケットを閉じる前に、main が worker や Subagent の報告を鵜呑みにせず、done のコマンドを自分で再実行する。Subagent と worker の報告は 10 行以内にさせる
-- 担当の表と流れは `roles.md`（手順は `/cco`）
+main（Claude Code のメインセッション）が、依頼の分類・設計・実装・テスト・PR・CI 待ち・merge・調査・チケットの登録と修正まで、基本は自分で処理する。
+- Subagent や Orca の worker に渡すかどうか、いつ渡すかは、main がその場で決める。渡すかどうかの基準は決めていない
+- 渡したときは、報告を鵜呑みにせず、チケットを閉じる前に done のコマンドを自分で再実行する。Subagent と worker の報告は 10 行以内にさせる
+- 流れ：main が Task をチケットに登録する → 実装 → PR・CI・merge → done コマンドを実行して判定し、チケットを閉じる。手順は `/cco`
+- Task はチケットで管理する。置き場所は harness.json の `tickets` に従う（github なら Issue、jira なら Jira）
 
 ## データの受け渡し
 

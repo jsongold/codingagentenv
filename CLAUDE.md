@@ -3,9 +3,9 @@
 <!-- 目安：全体で150行以内。コードから推測できないことだけ書く。 -->
 
 ## 業務コンテキスト（毎回必要な要点だけ）
-- 目的：/clear 後も文脈を失わず、複数ステップの作業をチケット経由で Orca の worker に実行させるハーネスの正本を管理し、全 project に効かせる（#92, #103）
+- 目的：/clear 後も文脈を失わず、複数ステップの作業をチケット経由で進めるハーネスの正本を管理し、全 project に効かせる（#92, #103）。作業は基本 main が処理し、worker や Subagent に渡すかは main が決める（CAO-146）
 - 利用者：repo の持ち主本人。自分の全 project で Claude Code を使う場面（#92。他人との共有は再検討条件）
-- 成功の定義：どの project でも global skill の `/pickup` → `/cco`（配送役の Subagent が Orca の orchestration で worker に振る）での配送が完遂し、/clear 後も handoff とチケットで文脈が残る（handoff の完了条件）
+- 成功の定義：どの project でも global skill の `/pickup` → `/cco` で Task が merge まで完遂し、/clear 後も handoff とチケットで文脈が残る（handoff の完了条件）
 - 絶対に守る業務ルール：
   - `~/.claude/` 配下を直接編集しない。repo の正本を直し、展開はユーザーが `bin/codingenv install` で行う（#93）
   - キューや代替のタスク管理を自作しない。Task はチケット（この repo では Jira の project CAO）、完了の判断は Orchestrator（main）がする（#103）
@@ -22,7 +22,7 @@
 - テスト：`bash test/hooks.test.sh`、`bash test/harness.test.sh`、`bash test/cl.test.sh`。lint / 起動：なし
 - global への展開：`bin/codingenv install`（ユーザーが実行する）。drift の確認：`bin/codingenv status`（読み取りのみ。Claude が実行してよい）
 - `/taskman <やりたいこと>`：依頼を分類し、必要なら `/design` → `/changegraph` で Task を作る
-- Task の配送：`/cco`（配送役の Subagent が Orca の orchestration で worker に振る）
+- Task の実行：`/cco`（基本は main が進める。worker や Subagent に渡すかは main が決める）
 - `/handoff [name]`：/clear 前に .claude/handoff/<name>.md を書き出して（自分のファイルだけ）コミット
 - `/pickup [name]`：/clear 後に文脈を復元して復唱、handoff が複数あれば選ぶ（built-in の `/resume` とは別物）
 - タスク一覧：https://cafkah.atlassian.net/jira/software/projects/CAO/boards/1/backlog

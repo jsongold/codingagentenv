@@ -30,7 +30,7 @@ argument-hint: "[名前] [#issue | 設計のパス]"
    - ルール1：files が 1 つでも重なるノードは同じ wave に入らない（`serial` 行に理由が出る）。
    - ルール2：depends_on が全部 done か前の wave のノードだけが入る。
    - wave が 1 ノードずつしか並ばない、または serial が多いときは、手順 2 に戻って分割し直す。
-5. ノードを Task に割る。1 Task = Subagent 1 回で終わり、1 コミットで完結する大きさ。既定は 1 境界 = 1 Task（基準は下の「Task に分ける基準」）。Task は design と同じ書式で書き、ノードと wave を添える。
+5. ノードを Task に割る。1 Task = 1 コミットで完結する大きさ。既定は 1 境界 = 1 Task（基準は下の「Task に分ける基準」）。Task は design と同じ書式で書き、ノードと wave を添える。
 
    ```
    ### <Task 名>（c1 / wave 1）
